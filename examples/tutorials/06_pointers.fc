@@ -1,0 +1,72 @@
+// Tutorial 06: Pointers and References
+//
+// FastC provides several pointer types with different safety guarantees.
+// Safe pointers are checked, while raw pointers require unsafe blocks.
+//
+// Key concepts:
+// - ref(T): immutable reference (non-null, safe)
+// - mref(T): mutable reference (non-null, safe)
+// - raw(T): raw immutable pointer (nullable, unsafe to dereference)
+// - rawm(T): raw mutable pointer (nullable, unsafe to dereference)
+// - addr(x): get reference to variable
+// - deref(p): dereference a pointer/reference
+// - unsafe { }: block required for unsafe operations
+
+// Read through an immutable reference (safe)
+fn read_value(p: ref(i32)) -> i32 {
+    return deref(p);
+}
+
+// Write through a mutable reference (safe)
+fn set_value(p: mref(i32), value: i32) -> void {
+    deref(p) = value;
+}
+
+// Increment through mutable reference
+fn increment(p: mref(i32)) -> void {
+    deref(p) = (deref(p) + 1);
+}
+
+// Swap two values using mutable references
+fn swap(a: mref(i32), b: mref(i32)) -> void {
+    let temp: i32 = deref(a);
+    deref(a) = deref(b);
+    deref(b) = temp;
+}
+
+// Raw pointers require unsafe blocks
+fn read_raw(p: raw(i32)) -> i32 {
+    unsafe {
+        return deref(p);
+    }
+}
+
+fn write_raw(p: rawm(i32), value: i32) -> void {
+    unsafe {
+        deref(p) = value;
+    }
+}
+
+// Pass-by-reference pattern: modify caller's variable
+fn double_in_place(x: mref(i32)) -> void {
+    deref(x) = (deref(x) * 2);
+}
+
+// Multiple out parameters via mutable references
+fn divide_with_remainder(a: i32, b: i32, quotient: mref(i32), remainder: mref(i32)) -> void {
+    deref(quotient) = (a / b);
+    deref(remainder) = (a % b);
+}
+
+fn main() -> i32 {
+    // Get an immutable reference
+    let x: i32 = 42;
+    let p: ref(i32) = addr(x);
+    let val: i32 = read_value(p);
+
+    // Note: mref is typically received as a function parameter
+    // rather than created from a local variable.
+    // The pattern is: caller passes mref, callee modifies through it.
+
+    return val;
+}

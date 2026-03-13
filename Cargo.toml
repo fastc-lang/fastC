@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/fastc", "crates/fastc-lsp"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+authors = ["Dipankar Sarkar <me@dipankar.name>"]
+repository = "https://github.com/Skelf-Research/fastc"
+homepage = "https://github.com/Skelf-Research/fastc"
+documentation = "https://docs.skelfresearch.com/fastc"
+keywords = ["compiler", "transpiler", "c", "systems-programming", "safe"]
+categories = ["compilers", "development-tools"]

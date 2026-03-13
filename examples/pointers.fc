@@ -1,0 +1,32 @@
+// Test file for pointer and reference types
+
+fn read_ref(p: ref(i32)) -> i32 {
+    return deref(p);
+}
+
+fn mutate_ref(p: mref(i32)) -> void {
+    deref(p) = 42;
+}
+
+fn use_raw(p: raw(i32)) -> i32 {
+    unsafe {
+        return deref(p);
+    }
+}
+
+fn use_rawm(p: rawm(i32)) -> void {
+    unsafe {
+        deref(p) = 100;
+    }
+}
+
+fn use_array(a: arr(i32, 10), i: usize) -> i32 {
+    return at(a, i);
+}
+
+fn main() -> i32 {
+    let x: i32 = 42;
+    let p: ref(i32) = addr(x);
+    let val: i32 = read_ref(p);
+    return val;
+}

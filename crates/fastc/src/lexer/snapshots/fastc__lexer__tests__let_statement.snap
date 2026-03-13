@@ -1,0 +1,18 @@
+---
+source: crates/fastc/src/lexer/mod.rs
+expression: tokens
+---
+[
+    Let,
+    Ident(
+        "x",
+    ),
+    Colon,
+    I32,
+    Eq,
+    IntLit(
+        42,
+    ),
+    Semi,
+    Eof,
+]

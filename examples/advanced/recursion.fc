@@ -1,0 +1,111 @@
+// Advanced Example: Recursive Algorithms
+//
+// Demonstrates recursive function patterns in FastC.
+
+// Classic factorial
+fn factorial(n: i32) -> i32 {
+    if (n <= 1) {
+        return 1;
+    }
+    return (n * factorial(n - 1));
+}
+
+// Fibonacci sequence
+fn fibonacci(n: i32) -> i32 {
+    if (n <= 0) {
+        return 0;
+    }
+    if (n == 1) {
+        return 1;
+    }
+    return (fibonacci(n - 1) + fibonacci(n - 2));
+}
+
+// Sum of digits
+fn sum_digits(n: i32) -> i32 {
+    if (n < 0) {
+        return sum_digits(0 - n);  // Handle negative
+    }
+    if (n < 10) {
+        return n;
+    }
+    return ((n % 10) + sum_digits(n / 10));
+}
+
+// Count digits in a number
+fn count_digits(n: i32) -> i32 {
+    if (n < 0) {
+        return count_digits(0 - n);
+    }
+    if (n < 10) {
+        return 1;
+    }
+    return (1 + count_digits(n / 10));
+}
+
+// Reverse a number
+fn reverse_number_helper(n: i32, acc: i32) -> i32 {
+    if (n == 0) {
+        return acc;
+    }
+    let digit: i32 = (n % 10);
+    let new_acc: i32 = ((acc * 10) + digit);
+    return reverse_number_helper((n / 10), new_acc);
+}
+
+fn reverse_number(n: i32) -> i32 {
+    if (n < 0) {
+        return (0 - reverse_number_helper((0 - n), 0));
+    }
+    return reverse_number_helper(n, 0);
+}
+
+// Check if number is palindrome
+fn is_palindrome(n: i32) -> bool {
+    if (n < 0) {
+        return false;
+    }
+    return (n == reverse_number(n));
+}
+
+// Ackermann function (classic recursion example - careful with large inputs!)
+fn ackermann(m: i32, n: i32) -> i32 {
+    if (m == 0) {
+        return (n + 1);
+    }
+    if (n == 0) {
+        return ackermann((m - 1), 1);
+    }
+    return ackermann((m - 1), ackermann(m, (n - 1)));
+}
+
+// Tower of Hanoi - count moves needed
+fn hanoi_moves(n: i32) -> i32 {
+    if (n <= 0) {
+        return 0;
+    }
+    if (n == 1) {
+        return 1;
+    }
+    // Move n-1 disks to aux, move largest to dest, move n-1 from aux to dest
+    return ((2 * hanoi_moves(n - 1)) + 1);
+}
+
+fn main() -> i32 {
+    let fact_5: i32 = factorial(5);          // 120
+    let fib_10: i32 = fibonacci(10);         // 55
+    let digits: i32 = sum_digits(12345);     // 15
+    let count: i32 = count_digits(12345);    // 5
+    let rev: i32 = reverse_number(12345);    // 54321
+    let is_pal: bool = is_palindrome(12321); // true
+    let hanoi: i32 = hanoi_moves(4);         // 15
+
+    discard(fact_5);
+    discard(fib_10);
+    discard(digits);
+    discard(count);
+    discard(rev);
+    discard(is_pal);
+
+    return hanoi;
+}

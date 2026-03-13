@@ -1,0 +1,29 @@
+---
+source: crates/fastc/src/lexer/mod.rs
+expression: tokens
+---
+[
+    LParen,
+    Ident(
+        "a",
+    ),
+    AndAnd,
+    Ident(
+        "b",
+    ),
+    RParen,
+    LParen,
+    Ident(
+        "c",
+    ),
+    OrOr,
+    Ident(
+        "d",
+    ),
+    RParen,
+    Not,
+    Ident(
+        "e",
+    ),
+    Eof,
+]

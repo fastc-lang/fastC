@@ -1,0 +1,8 @@
+// Unsafe required test case
+unsafe fn dangerous() -> i32 {
+    return 42;
+}
+
+fn main() -> i32 {
+    return dangerous();
+}

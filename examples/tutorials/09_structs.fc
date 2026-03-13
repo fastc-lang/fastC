@@ -1,0 +1,86 @@
+// Tutorial 09: Structs
+//
+// Structs group related data together. FastC structs can be marked
+// with @repr(C) for C ABI compatibility (required for FFI).
+//
+// Key concepts:
+// - struct Name { fields }
+// - @repr(C): C-compatible memory layout (required for FFI)
+// - Struct literals: StructName { field: value, ... }
+// - Passing structs by value
+//
+// Note: Field access (e.g., point.x) is still being developed.
+// This tutorial shows struct creation and passing.
+
+// A simple 2D point
+@repr(C)
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+// A rectangle defined by position and size
+@repr(C)
+struct Rect {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+// RGB color
+@repr(C)
+struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+// Create a point at the origin
+fn origin() -> Point {
+    return Point { x: 0, y: 0 };
+}
+
+// Create a point at given coordinates
+fn make_point(x: i32, y: i32) -> Point {
+    return Point { x: x, y: y };
+}
+
+// Create a rectangle
+fn make_rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
+    return Rect { x: x, y: y, width: w, height: h };
+}
+
+// Create a color
+fn make_color(r: u8, g: u8, b: u8) -> Color {
+    return Color { r: r, g: g, b: b };
+}
+
+// Create a red color
+fn red() -> Color {
+    return Color { r: cast(u8, 255), g: cast(u8, 0), b: cast(u8, 0) };
+}
+
+// Structs can be passed as function parameters
+fn take_point(p: Point) -> i32 {
+    // Structs are passed by value (copied)
+    discard(p);
+    return 0;
+}
+
+fn main() -> i32 {
+    // Create struct instances using literals
+    let p1: Point = origin();
+    let p2: Point = make_point(10, 20);
+    let rect: Rect = make_rect(0, 0, 100, 50);
+    let color: Color = red();
+
+    // Pass structs to functions
+    let result: i32 = take_point(p1);
+
+    discard(p2);
+    discard(rect);
+    discard(color);
+
+    return result;
+}

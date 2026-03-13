@@ -1,0 +1,11 @@
+---
+source: crates/fastc/src/lexer/mod.rs
+expression: tokens
+---
+[
+    Unsafe,
+    Fn,
+    Extern,
+    Opaque,
+    Eof,
+]

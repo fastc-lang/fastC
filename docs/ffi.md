@@ -13,7 +13,8 @@ FastC is designed to interoperate with C without an ABI barrier.
 
 - Types passed by value across FFI must use `@repr(C)`.
 - Opaque types are declared as `opaque Name;` and used behind pointers.
-- References (`ref`, `mref`) lower to C pointers.
+- References (`ref`, `mref`) lower to C pointers (`const T*` and `T*` respectively).
+- Raw pointers (`raw`, `rawm`) lower to C pointers (`const T*` and `T*` respectively).
 - `slice(T)` lowers to a struct containing `T* data` and `size_t len`.
 - `opt(T)` and `res(T, E)` are not permitted in extern signatures.
 

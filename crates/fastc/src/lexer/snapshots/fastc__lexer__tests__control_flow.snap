@@ -1,0 +1,17 @@
+---
+source: crates/fastc/src/lexer/mod.rs
+expression: tokens
+---
+[
+    If,
+    While,
+    For,
+    Switch,
+    Case,
+    Default,
+    Break,
+    Continue,
+    Return,
+    Defer,
+    Eof,
+]

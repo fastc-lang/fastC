@@ -1,0 +1,25 @@
+[package]
+name = "fastc-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Language Server Protocol implementation for FastC"
+readme = "README.md"
+
+[[bin]]
+name = "fastc-lsp"
+path = "src/main.rs"
+
+[dependencies]
+fastc = { path = "../fastc" }
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["full"] }
+dashmap = "6"
+walkdir = "2"

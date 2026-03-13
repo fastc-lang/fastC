@@ -1,0 +1,6 @@
+---
+source: crates/fastc/tests/error_golden.rs
+assertion_line: 16
+expression: error_str
+---
+Multiple { errors: [Type { message: "type mismatch: expected Primitive(Bool), got Primitive(I32)", span: 50..67, src: "// Type mismatch test case\nfn main() -> i32 {\n    let x: bool = 42;\n    return x;\n}\n", hint: None }, Type { message: "type mismatch: expected Primitive(I32), got Primitive(Bool)", span: 72..81, src: "// Type mismatch test case\nfn main() -> i32 {\n    let x: bool = 42;\n    return x;\n}\n", hint: None }] }

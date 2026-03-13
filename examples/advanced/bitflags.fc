@@ -1,0 +1,92 @@
+// Advanced Example: Bitwise Operations Pattern
+//
+// Demonstrates using integers for bitflags - a common systems programming pattern.
+// Useful for permissions, feature flags, and hardware registers.
+
+// Permission flags (using powers of 2)
+const READ: i32 = 1;       // 0001
+const WRITE: i32 = 2;      // 0010
+const EXECUTE: i32 = 4;    // 0100
+const DELETE: i32 = 8;     // 1000
+
+// Combine flags using OR
+fn make_permissions(read: bool, write: bool, execute: bool, delete: bool) -> i32 {
+    let flags: i32 = 0;
+    if (read) {
+        flags = (flags | READ);
+    }
+    if (write) {
+        flags = (flags | WRITE);
+    }
+    if (execute) {
+        flags = (flags | EXECUTE);
+    }
+    if (delete) {
+        flags = (flags | DELETE);
+    }
+    return flags;
+}
+
+// Check if a specific flag is set using AND
+fn has_permission(flags: i32, perm: i32) -> bool {
+    return ((flags & perm) != 0);
+}
+
+// Add a permission flag
+fn add_permission(flags: i32, perm: i32) -> i32 {
+    return (flags | perm);
+}
+
+// Remove a permission flag using AND with complement
+fn remove_permission(flags: i32, perm: i32) -> i32 {
+    // Note: ^ is XOR, we use it to toggle and then mask
+    // This assumes the permission is currently set
+    if (has_permission(flags, perm)) {
+        return (flags ^ perm);
+    }
+    return flags;
+}
+
+// Toggle a permission flag using XOR
+fn toggle_permission(flags: i32, perm: i32) -> i32 {
+    return (flags ^ perm);
+}
+
+// Count how many permissions are set
+fn count_permissions(flags: i32) -> i32 {
+    let count: i32 = 0;
+    if (has_permission(flags, READ)) {
+        count = (count + 1);
+    }
+    if (has_permission(flags, WRITE)) {
+        count = (count + 1);
+    }
+    if (has_permission(flags, EXECUTE)) {
+        count = (count + 1);
+    }
+    if (has_permission(flags, DELETE)) {
+        count = (count + 1);
+    }
+    return count;
+}
+
+fn main() -> i32 {
+    // Create permissions: read + write
+    let perms: i32 = make_permissions(true, true, false, false);
+
+    // Check permissions
+    let can_read: bool = has_permission(perms, READ);    // true
+    let can_exec: bool = has_permission(perms, EXECUTE); // false
+
+    // Modify permissions
+    perms = add_permission(perms, EXECUTE);
+    perms = remove_permission(perms, WRITE);
+
+    // Count active permissions
+    let num_perms: i32 = count_permissions(perms);  // Should be 2 (READ, EXECUTE)
+
+    discard(can_read);
+    discard(can_exec);
+
+    return num_perms;
+}

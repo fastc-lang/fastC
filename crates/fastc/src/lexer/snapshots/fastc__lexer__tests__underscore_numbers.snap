@@ -1,0 +1,16 @@
+---
+source: crates/fastc/src/lexer/mod.rs
+expression: tokens
+---
+[
+    IntLit(
+        1000000,
+    ),
+    HexLit(
+        65535,
+    ),
+    BinLit(
+        170,
+    ),
+    Eof,
+]

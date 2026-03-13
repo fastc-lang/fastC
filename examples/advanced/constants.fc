@@ -1,0 +1,88 @@
+// Advanced Example: Compile-time Constants
+//
+// Demonstrates the use of const declarations for compile-time values.
+// Constants are evaluated at compile time and inlined.
+
+// Mathematical constants
+const PI_APPROX: i32 = 3;       // Integer approximation
+const E_APPROX: i32 = 2;        // Integer approximation
+const GOLDEN_RATIO: i32 = 1;    // Integer approximation (1.618...)
+
+// Bit manipulation constants
+const BYTE_BITS: i32 = 8;
+const WORD_BITS: i32 = 32;
+const BYTE_MASK: i32 = 255;     // 0xFF
+const HIGH_BIT: i32 = 128;      // 0x80
+
+// Size constants
+const KB: i32 = 1024;
+const MB: i32 = 1048576;        // 1024 * 1024
+const GB: i32 = 1073741824;     // 1024 * 1024 * 1024
+
+// Buffer sizes
+const SMALL_BUFFER: i32 = 64;
+const MEDIUM_BUFFER: i32 = 256;
+const LARGE_BUFFER: i32 = 4096;
+
+// Error codes
+const SUCCESS: i32 = 0;
+const ERR_INVALID: i32 = -1;
+const ERR_OVERFLOW: i32 = -2;
+const ERR_NOMEM: i32 = -3;
+const ERR_IO: i32 = -4;
+
+// Limits
+const MAX_RETRIES: i32 = 3;
+const MAX_CONNECTIONS: i32 = 100;
+const TIMEOUT_MS: i32 = 5000;
+
+// Helper functions using constants
+fn to_bytes(kilobytes: i32) -> i32 {
+    return (kilobytes * KB);
+}
+
+fn to_kilobytes(byte_count: i32) -> i32 {
+    return (byte_count / KB);
+}
+
+fn is_power_of_two(n: i32) -> bool {
+    return ((n > 0) && (((n & (n - 1))) == 0));
+}
+
+fn clamp(value: i32, min: i32, max: i32) -> i32 {
+    if (value < min) {
+        return min;
+    }
+    if (value > max) {
+        return max;
+    }
+    return value;
+}
+
+fn within_limit(value: i32, limit: i32) -> bool {
+    return ((value >= 0) && (value < limit));
+}
+
+// Get byte from word at position (0 = least significant)
+fn get_byte(word: i32, position: i32) -> i32 {
+    let shift: i32 = (position * BYTE_BITS);
+    return ((word >> shift) & BYTE_MASK);
+}
+
+fn main() -> i32 {
+    // Use constants in calculations
+    let buffer_size: i32 = MEDIUM_BUFFER;
+    let total_bytes: i32 = to_bytes(64);  // 64 KB in bytes
+
+    // Check limits
+    let retries: i32 = clamp(5, 0, MAX_RETRIES);
+
+    // Bit operations
+    let high_byte: i32 = get_byte(0x12345678, 3);  // Should be 0x12
+
+    discard(buffer_size);
+    discard(total_bytes);
+    discard(retries);
+
+    return high_byte;
+}

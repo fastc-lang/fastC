@@ -1,0 +1,63 @@
+// Advanced Example: FFI with libc
+//
+// Demonstrates how to declare and use C library functions from FastC.
+// Shows the extern block pattern for FFI declarations.
+
+// Declare libc functions we want to use
+extern "C" {
+    // Memory allocation
+    unsafe fn malloc(size: usize) -> rawm(u8);
+    unsafe fn free(ptr: rawm(u8)) -> void;
+    unsafe fn realloc(ptr: rawm(u8), size: usize) -> rawm(u8);
+
+    // Memory operations
+    unsafe fn memset(ptr: rawm(u8), value: i32, size: usize) -> rawm(u8);
+    unsafe fn memcpy(dest: rawm(u8), src: raw(u8), size: usize) -> rawm(u8);
+
+    // String operations
+    unsafe fn strlen(s: raw(u8)) -> usize;
+
+    // I/O operations
+    unsafe fn puts(s: raw(u8)) -> i32;
+}
+
+// Wrapper for safe malloc (returns null on failure)
+unsafe fn alloc_bytes(size: usize) -> rawm(u8) {
+    return malloc(size);
+}
+
+// Wrapper that zeros memory after allocation
+unsafe fn alloc_zeroed(size: usize) -> rawm(u8) {
+    let ptr: rawm(u8) = malloc(size);
+    // Note: In real code, check for null first
+    let result: rawm(u8) = memset(ptr, 0, size);
+    discard(result);
+    return ptr;
+}
+
+// Free memory safely
+unsafe fn dealloc(ptr: rawm(u8)) -> void {
+    free(ptr);
+}
+
+// Example using C strings
+unsafe fn print_message(msg: raw(u8)) -> i32 {
+    return puts(msg);
+}
+
+fn main() -> i32 {
+    // All FFI calls must be in unsafe blocks
+    unsafe {
+        // Allocate 100 bytes
+        let buffer: rawm(u8) = alloc_bytes(cast(usize, 100));
+
+        // Zero the buffer
+        let zeroed: rawm(u8) = memset(buffer, 0, cast(usize, 100));
+        discard(zeroed);
+
+        // Free the buffer
+        dealloc(buffer);
+    }
+
+    return 0;
+}

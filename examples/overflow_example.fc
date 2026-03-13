@@ -1,0 +1,20 @@
+// Test signed overflow checking
+
+fn add_checked(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+fn sub_checked(a: i32, b: i32) -> i32 {
+    return a - b;
+}
+
+fn mul_checked(a: i32, b: i32) -> i32 {
+    return a * b;
+}
+
+fn main() -> i32 {
+    let x: i32 = add_checked(10, 20);
+    let y: i32 = sub_checked(30, 10);
+    let z: i32 = mul_checked(5, 6);
+    return (x + y) + z;
+}

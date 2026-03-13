@@ -1,0 +1,6 @@
+---
+source: crates/fastc/tests/error_golden.rs
+assertion_line: 16
+expression: error_str
+---
+Resolve { message: "undefined name 'undefined_variable'", span: 58..76, src: "// Undefined name test case\nfn main() -> i32 {\n    return undefined_variable;\n}\n", hint: None }

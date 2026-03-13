@@ -1,0 +1,96 @@
+// Tutorial 07: Optional Types
+//
+// FastC uses opt(T) for values that may or may not be present.
+// This replaces null pointers with a safe, explicit optional type.
+//
+// Key concepts:
+// - opt(T): optional value of type T
+// - some(value): create an optional with a value
+// - none(T): create an empty optional of type T
+// - if let: safely unwrap and use an optional
+// - unwrap_checked(opt): unwrap in if-let context
+
+// Function that may or may not find a value
+fn find_positive(value: i32) -> opt(i32) {
+    if (value > 0) {
+        return some(value);
+    } else {
+        return none(i32);
+    }
+}
+
+// Find first even number in a range
+fn find_first_even(start: i32, end: i32) -> opt(i32) {
+    let i: i32 = start;
+    while (i <= end) {
+        if ((i % 2) == 0) {
+            return some(i);
+        }
+        i = (i + 1);
+    }
+    return none(i32);
+}
+
+// Safe division - returns none if divisor is zero
+fn safe_divide(a: i32, b: i32) -> opt(i32) {
+    if (b == 0) {
+        return none(i32);
+    }
+    return some(a / b);
+}
+
+// Use if-let to safely handle optionals
+fn process_optional(maybe_value: opt(i32)) -> i32 {
+    if let value = unwrap_checked(maybe_value) {
+        // value is available here, guaranteed non-null
+        return (value * 2);
+    } else {
+        // Handle the none case
+        return -1;
+    }
+}
+
+// Chain optional operations
+fn double_if_positive(x: i32) -> opt(i32) {
+    let maybe: opt(i32) = find_positive(x);
+    if let value = unwrap_checked(maybe) {
+        return some(value * 2);
+    } else {
+        return none(i32);
+    }
+}
+
+fn main() -> i32 {
+    // Create optionals
+    let present: opt(i32) = some(42);
+    let absent: opt(i32) = none(i32);
+
+    // Use if-let to safely unwrap
+    let result1: i32 = 0;
+    if let val = unwrap_checked(present) {
+        result1 = val;  // 42
+    }
+
+    let result2: i32 = -1;
+    if let val = unwrap_checked(absent) {
+        result2 = val;  // Won't execute
+    }
+
+    // Functions returning optionals
+    let found: opt(i32) = find_positive(10);
+    let not_found: opt(i32) = find_positive(-5);
+
+    let processed1: i32 = process_optional(found);     // 20
+    let processed2: i32 = process_optional(not_found); // -1
+
+    // Safe division
+    let div_result: opt(i32) = safe_divide(10, 3);
+    let div_by_zero: opt(i32) = safe_divide(10, 0);
+
+    discard(result2);
+    discard(processed2);
+    discard(div_result);
+    discard(div_by_zero);
+
+    return (result1 + processed1);
+}

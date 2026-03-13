@@ -1,0 +1,31 @@
+---
+source: crates/fastc/src/lexer/mod.rs
+expression: tokens
+---
+[
+    AtRepr,
+    LParen,
+    Ident(
+        "C",
+    ),
+    RParen,
+    Struct,
+    Ident(
+        "Point",
+    ),
+    LBrace,
+    Ident(
+        "x",
+    ),
+    Colon,
+    I32,
+    Comma,
+    Ident(
+        "y",
+    ),
+    Colon,
+    I32,
+    Comma,
+    RBrace,
+    Eof,
+]

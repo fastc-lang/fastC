@@ -1,0 +1,30 @@
+---
+source: crates/fastc/src/lexer/mod.rs
+expression: tokens
+---
+[
+    IntLit(
+        42,
+    ),
+    HexLit(
+        255,
+    ),
+    BinLit(
+        10,
+    ),
+    OctLit(
+        63,
+    ),
+    FloatLit(
+        3.14,
+    ),
+    FloatLit(
+        25000000000.0,
+    ),
+    True,
+    False,
+    StringLit(
+        "hello\nworld",
+    ),
+    Eof,
+]

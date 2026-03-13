@@ -1,0 +1,96 @@
+// Tutorial 04: Control Flow
+//
+// FastC provides standard control flow constructs for branching and looping.
+//
+// Key concepts:
+// - if/else: conditional branching
+// - while: loop while condition is true
+// - for: C-style for loop
+// - switch/case: multi-way branching
+// - &&, ||: short-circuit logical operators
+
+// Demonstrates if/else
+fn classify_number(n: i32) -> i32 {
+    if (n < 0) {
+        return -1;  // negative
+    } else if (n == 0) {
+        return 0;   // zero
+    } else {
+        return 1;   // positive
+    }
+}
+
+// Demonstrates while loop
+fn sum_to_n(n: i32) -> i32 {
+    let sum: i32 = 0;
+    let i: i32 = 1;
+    while (i <= n) {
+        sum = (sum + i);
+        i = (i + 1);
+    }
+    return sum;
+}
+
+// Demonstrates for loop
+fn sum_with_for(n: i32) -> i32 {
+    let sum: i32 = 0;
+    for (let i: i32 = 1; (i <= n); i = (i + 1)) {
+        sum = (sum + i);
+    }
+    return sum;
+}
+
+// Demonstrates switch statement
+fn day_type(day: i32) -> i32 {
+    switch (day) {
+        case 0: { return 0; }  // Sunday - weekend
+        case 6: { return 0; }  // Saturday - weekend
+        case 1: { return 1; }  // Monday - weekday
+        case 2: { return 1; }  // Tuesday - weekday
+        case 3: { return 1; }  // Wednesday - weekday
+        case 4: { return 1; }  // Thursday - weekday
+        case 5: { return 1; }  // Friday - weekday
+        default: { return -1; } // Invalid
+    }
+}
+
+// Demonstrates short-circuit evaluation
+// && only evaluates second operand if first is true
+// || only evaluates second operand if first is false
+fn check_bounds(index: i32, length: i32) -> bool {
+    return ((index >= 0) && (index < length));
+}
+
+fn is_valid_or_default(value: i32, min: i32, max: i32) -> bool {
+    return ((value == 0) || ((value >= min) && (value <= max)));
+}
+
+fn main() -> i32 {
+    // Test if/else
+    let negative: i32 = classify_number(-5);
+    let zero: i32 = classify_number(0);
+    let positive: i32 = classify_number(5);
+
+    // Test loops
+    let sum1: i32 = sum_to_n(10);      // 55
+    let sum2: i32 = sum_with_for(10);  // 55
+
+    // Test switch
+    let weekend: i32 = day_type(0);    // 0
+    let weekday: i32 = day_type(3);    // 1
+
+    // Test short-circuit
+    let valid: bool = check_bounds(5, 10);
+    let also_valid: bool = is_valid_or_default(0, 1, 100);
+
+    discard(negative);
+    discard(zero);
+    discard(positive);
+    discard(sum2);
+    discard(weekend);
+    discard(weekday);
+    discard(valid);
+    discard(also_valid);
+
+    return sum1;
+}

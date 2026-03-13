@@ -91,6 +91,7 @@ UnsafeOpt   = "unsafe"? ;
 Stmt        = LetStmt
             | AssignStmt
             | IfStmt
+            | IfLetStmt
             | WhileStmt
             | ForStmt
             | SwitchStmt
@@ -108,6 +109,7 @@ Block       = "{" Stmt* "}" ;
 
 LetStmt     = "let" Ident ":" Type "=" Expr ";" ;
 IfStmt      = "if" "(" Expr ")" Block ("else" (IfStmt | Block))? ;
+IfLetStmt   = "if" "let" Ident "=" "unwrap_checked" "(" Expr ")" Block ("else" Block)? ;
 WhileStmt   = "while" "(" Expr ")" Block ;
 ForStmt     = "for" "(" ForInit? ";" ForCond? ";" ForStep? ")" Block ;
 ForInit     = LetInit | AssignStep | CallExpr ;
@@ -191,7 +193,16 @@ Primary     = IntLit
             | CastExpr
             | CStrLit
             | BytesLit
+            | AddrExpr
+            | DerefExpr
+            | AtExpr
+            | NoneExpr
             ;
+
+AddrExpr    = "addr" "(" Expr ")" ;
+DerefExpr   = "deref" "(" Expr ")" ;
+AtExpr      = "at" "(" Expr "," Expr ")" ;
+NoneExpr    = "none" "(" Type ")" ;
 
 StructLiteral = Ident "{" FieldInitList? "}" ;
 FieldInitList = FieldInit ("," FieldInit)* ","? ;
@@ -244,7 +255,8 @@ CastConstExpr = "cast" "(" Type "," ConstExpr ")" ;
 
 ## Notes
 
-- `addr(x)` and `deref(p)` are treated as normal function calls for parsing.
+- `addr(x)`, `deref(p)`, and `at(x, i)` are **builtin expressions** with dedicated grammar rules. They use function‑call syntax but are not user‑defined functions.
+- These builtins also appear in `LValue` to support assignment targets like `deref(p) = v` and `at(arr, i) = v`.
 - The grammar intentionally avoids `[]` indexing; indexing is `at(x, i)`.
 - Operator sets may be narrowed further to avoid confusion in agent‑generated code.
 - String literals as expressions appear only inside `cstr("...")` and `bytes("...")`. `extern "C"` still uses a string literal token in declarations.

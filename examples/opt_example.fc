@@ -1,0 +1,17 @@
+// Test opt(T) and res(T,E) types
+
+fn get_none() -> opt(i32) {
+    return none(i32);
+}
+
+fn get_some() -> opt(i32) {
+    return some(42);
+}
+
+fn main() -> i32 {
+    let x: opt(i32) = get_some();
+    let y: opt(i32) = get_none();
+    discard(x);
+    discard(y);
+    return 0;
+}

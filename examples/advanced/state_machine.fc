@@ -1,0 +1,87 @@
+// Advanced Example: Enum-based State Machine
+//
+// Demonstrates using enums and switch for implementing state machines.
+// A simple traffic light controller as an example.
+
+// Traffic light states
+enum LightState {
+    Red,
+    Yellow,
+    Green,
+}
+
+// Events that can trigger state transitions
+enum LightEvent {
+    Timer,
+    Emergency,
+    Reset,
+}
+
+// Get the next state based on current state and event
+fn transition(current: LightState, event: LightEvent) -> LightState {
+    switch (event) {
+        case LightEvent_Emergency: {
+            // Emergency always goes to red
+            return LightState_Red;
+        }
+        case LightEvent_Reset: {
+            // Reset always goes to red
+            return LightState_Red;
+        }
+        case LightEvent_Timer: {
+            // Normal timer-based transition
+            switch (current) {
+                case LightState_Red: {
+                    return LightState_Green;
+                }
+                case LightState_Green: {
+                    return LightState_Yellow;
+                }
+                case LightState_Yellow: {
+                    return LightState_Red;
+                }
+            }
+        }
+    }
+}
+
+// Get duration in seconds for each state
+fn get_duration(state: LightState) -> i32 {
+    switch (state) {
+        case LightState_Red: { return 30; }
+        case LightState_Yellow: { return 5; }
+        case LightState_Green: { return 25; }
+    }
+}
+
+// Check if pedestrians can cross
+fn can_cross(state: LightState) -> bool {
+    switch (state) {
+        case LightState_Red: { return true; }
+        case LightState_Yellow: { return false; }
+        case LightState_Green: { return false; }
+    }
+}
+
+// Run a sequence of state transitions
+fn run_cycle() -> i32 {
+    let state: LightState = LightState_Red;
+
+    // Simulate timer events
+    state = transition(state, LightEvent_Timer);  // Red -> Green
+    state = transition(state, LightEvent_Timer);  // Green -> Yellow
+    state = transition(state, LightEvent_Timer);  // Yellow -> Red
+
+    // Test emergency override
+    state = transition(state, LightEvent_Timer);  // Red -> Green
+    state = transition(state, LightEvent_Emergency);  // Green -> Red (emergency)
+
+    // Final state should be red
+    let duration: i32 = get_duration(state);
+
+    return duration;
+}
+
+fn main() -> i32 {
+    return run_cycle();
+}

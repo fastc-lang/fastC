@@ -23,7 +23,7 @@ The transpiler enforces this order by introducing temporaries in the emitted C.
 ## Lowering Rules
 
 - All control flow is explicit. No implicit short‑circuiting beyond defined operators.
-- `defer` lowers to a cleanup path that runs in LIFO order for a scope.
+- `defer` lowers to a cleanup path that runs in LIFO order when the scope exits via normal completion, `return`, `break`, or `continue`. Defers do not run on panic/trap.
 - Ownership moves lower to assignments that clear the source.
 - Bounds and null checks lower to explicit `if` checks that trap on failure.
 - Signed overflow, division by zero, and invalid shift counts lower to explicit checks in safe code.

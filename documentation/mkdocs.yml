@@ -1,0 +1,99 @@
+site_name: FastC Documentation
+site_url: https://docs.skelfresearch.com/fastc
+site_author: Dipankar Sarkar
+site_description: Documentation for FastC - a safe C-like language that compiles to C11
+
+repo_name: Skelf-Research/fastc
+repo_url: https://github.com/Skelf-Research/fastc
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.suggest
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - getting-started/index.md
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+    - Editor Setup: getting-started/editor-setup.md
+  - Language Guide:
+    - language/index.md
+    - Types: language/types.md
+    - Functions: language/functions.md
+    - Control Flow: language/control-flow.md
+    - Structs & Enums: language/structs-enums.md
+    - Optionals: language/optionals.md
+    - Results: language/results.md
+    - Pointers: language/pointers.md
+    - Arrays & Slices: language/arrays-slices.md
+    - Unsafe Code: language/unsafe.md
+  - CLI Reference:
+    - cli/index.md
+    - Compile: cli/compile.md
+    - Build & Run: cli/build-run.md
+    - Project Management: cli/project.md
+  - C Interoperability:
+    - c-interop/index.md
+    - Calling C: c-interop/calling-c.md
+    - Exposing APIs: c-interop/exposing-api.md
+    - Build Systems: c-interop/build-systems.md
+  - Examples:
+    - examples/index.md
+    - Tutorials: examples/tutorials.md
+    - Advanced: examples/advanced.md
+  - Reference:
+    - reference/grammar.md
+    - reference/runtime.md
+    - reference/safety.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Skelf-Research/fastc
+    - icon: fontawesome/solid/envelope
+      link: mailto:support@skelfresearch.com
+  generator: false
+
+copyright: Copyright &copy; 2024-2026 Skelf Research

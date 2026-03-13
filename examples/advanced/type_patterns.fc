@@ -1,0 +1,143 @@
+// Advanced Example: Type Patterns
+//
+// Demonstrates various type patterns and idioms in FastC.
+
+// Pattern 1: Newtype wrapper for type safety
+// Different integer IDs shouldn't be mixed
+@repr(C)
+struct UserId {
+    value: i32,
+}
+
+@repr(C)
+struct ProductId {
+    value: i32,
+}
+
+@repr(C)
+struct OrderId {
+    value: i32,
+}
+
+// Factory functions for newtypes
+fn make_user_id(id: i32) -> UserId {
+    return UserId { value: id };
+}
+
+fn make_product_id(id: i32) -> ProductId {
+    return ProductId { value: id };
+}
+
+fn make_order_id(id: i32) -> OrderId {
+    return OrderId { value: id };
+}
+
+// Pattern 2: Tagged unions via enum + data
+enum RequestType {
+    Get,
+    Post,
+    Put,
+    Delete,
+}
+
+// Pattern 3: Boolean wrappers for clarity
+@repr(C)
+struct IsActive {
+    value: bool,
+}
+
+@repr(C)
+struct IsVerified {
+    value: bool,
+}
+
+fn make_active(active: bool) -> IsActive {
+    return IsActive { value: active };
+}
+
+fn make_verified(verified: bool) -> IsVerified {
+    return IsVerified { value: verified };
+}
+
+// Pattern 4: Coordinate types
+@repr(C)
+struct Point2D {
+    x: i32,
+    y: i32,
+}
+
+@repr(C)
+struct Point3D {
+    x: i32,
+    y: i32,
+    z: i32,
+}
+
+fn origin_2d() -> Point2D {
+    return Point2D { x: 0, y: 0 };
+}
+
+fn origin_3d() -> Point3D {
+    return Point3D { x: 0, y: 0, z: 0 };
+}
+
+// Pattern 5: Range type
+@repr(C)
+struct Range {
+    start: i32,
+    end: i32,
+}
+
+fn make_range(start: i32, end: i32) -> Range {
+    return Range { start: start, end: end };
+}
+
+// Pattern 6: Pair/tuple types
+@repr(C)
+struct Pair_i32 {
+    first: i32,
+    second: i32,
+}
+
+fn make_pair(a: i32, b: i32) -> Pair_i32 {
+    return Pair_i32 { first: a, second: b };
+}
+
+// Pattern 7: Functions taking wrapped types are type-safe
+fn process_user(user_id: UserId) -> i32 {
+    discard(user_id);
+    return 0;
+}
+
+fn process_product(product_id: ProductId) -> i32 {
+    discard(product_id);
+    return 0;
+}
+
+// This won't compile if you try to pass wrong ID type:
+// process_user(make_product_id(1));  // Type error!
+
+fn main() -> i32 {
+    // Create typed IDs
+    let user: UserId = make_user_id(100);
+    let product: ProductId = make_product_id(200);
+    let order: OrderId = make_order_id(300);
+
+    // Type-safe function calls
+    let r1: i32 = process_user(user);
+    let r2: i32 = process_product(product);
+
+    // Other patterns
+    let point: Point2D = origin_2d();
+    let range: Range = make_range(0, 100);
+    let pair: Pair_i32 = make_pair(1, 2);
+
+    discard(order);
+    discard(r1);
+    discard(r2);
+    discard(point);
+    discard(range);
+    discard(pair);
+
+    return 0;
+}

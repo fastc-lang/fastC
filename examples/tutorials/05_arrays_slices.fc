@@ -1,0 +1,45 @@
+// Tutorial 05: Arrays and Slices
+//
+// FastC provides fixed-size arrays and dynamically-sized slices with
+// automatic bounds checking in safe code.
+//
+// Key concepts:
+// - arr(T, N): fixed-size array of N elements of type T
+// - slice(T): view into an array (pointer + length)
+// - at(container, index): access element with bounds check
+//
+// Note: Array literals and usize literals are not yet directly supported.
+// Arrays and indices are typically received from FFI or as parameters.
+
+// Access array element (bounds-checked)
+fn get_element(data: arr(i32, 5), index: usize) -> i32 {
+    return at(data, index);
+}
+
+// Access slice element (bounds-checked)
+fn get_from_slice(s: slice(i32), index: usize) -> i32 {
+    return at(s, index);
+}
+
+// Add two slice elements at given indices
+fn add_elements(s: slice(i32), i: usize, j: usize) -> i32 {
+    return (at(s, i) + at(s, j));
+}
+
+// Check if index is within a bound (using i32 for demonstration)
+fn is_valid_index(index: i32, max: i32) -> bool {
+    return ((index >= 0) && (index < max));
+}
+
+fn main() -> i32 {
+    // Note: Array initialization and usize literals are done via FFI
+    // or parameter passing.
+    //
+    // This tutorial demonstrates the API patterns:
+    // - arr(T, N): fixed-size array type
+    // - slice(T): dynamically-sized view type
+    // - at(container, index): bounds-checked element access
+    // - Bounds checks generate runtime traps in safe code
+
+    return 0;
+}

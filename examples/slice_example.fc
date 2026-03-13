@@ -1,0 +1,9 @@
+// Test slice bounds checking
+
+fn get_element(s: slice(i32), i: usize) -> i32 {
+    return at(s, i);
+}
+
+fn main() -> i32 {
+    return 0;
+}

@@ -1,0 +1,16 @@
+// Tutorial 01: Hello World
+//
+// This is the simplest FastC program. Every FastC program needs a main()
+// function that returns an i32 (32-bit signed integer) as an exit code.
+//
+// Key concepts:
+// - fn: declares a function
+// - main: the entry point of the program
+// - -> i32: the return type
+// - return: exits the function with a value
+//
+// Exit code 0 conventionally means success.
+
+fn main() -> i32 {
+    return 0;
+}

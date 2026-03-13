@@ -1,0 +1,19 @@
+// Test if-let for safe opt unwrapping
+
+fn get_some() -> opt(i32) {
+    return some(42);
+}
+
+fn get_none() -> opt(i32) {
+    return none(i32);
+}
+
+fn main() -> i32 {
+    let maybe: opt(i32) = get_some();
+
+    if let value = unwrap_checked(maybe) {
+        return value;
+    } else {
+        return -1;
+    }
+}

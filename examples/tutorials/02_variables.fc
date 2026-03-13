@@ -1,0 +1,50 @@
+// Tutorial 02: Variables and Types
+//
+// FastC is a statically typed language. Variables are declared with 'let'
+// and must have explicit types.
+//
+// Key concepts:
+// - let: declares a variable
+// - Type annotations: variable_name: type
+// - Primitive types: i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool
+// - usize: architecture-dependent unsigned integer (for sizes and indices)
+//
+// All arithmetic is checked for overflow in safe code.
+
+fn main() -> i32 {
+    // Integer types (all integer literals are i32 by default)
+    let integer: i32 = 42;
+    let negative: i32 = -100;
+
+    // Floating point (all float literals are f64 by default)
+    let precise: f64 = 2.718281828459045;
+
+    // Boolean
+    let flag: bool = true;
+    let other: bool = false;
+
+    // Arithmetic operations
+    let sum: i32 = (integer + 10);
+    let diff: i32 = (integer - 10);
+    let product: i32 = (integer * 2);
+    let quotient: i32 = (integer / 2);
+    let remainder: i32 = (integer % 5);
+
+    // Comparison operations return bool
+    let is_equal: bool = (sum == 52);
+    let is_greater: bool = (integer > 10);
+
+    // Discard unused values to avoid warnings
+    discard(negative);
+    discard(precise);
+    discard(flag);
+    discard(other);
+    discard(diff);
+    discard(product);
+    discard(quotient);
+    discard(remainder);
+    discard(is_equal);
+    discard(is_greater);
+
+    return sum;
+}

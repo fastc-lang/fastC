@@ -1,0 +1,85 @@
+// Advanced Example: Unsafe Patterns
+//
+// Demonstrates when and how to use unsafe blocks in FastC.
+// Unsafe is required for operations that can't be statically verified.
+
+// Declare external C functions (always unsafe to call)
+extern "C" {
+    unsafe fn malloc(size: usize) -> rawm(u8);
+    unsafe fn free(ptr: rawm(u8)) -> void;
+    unsafe fn memcpy(dest: rawm(u8), src: raw(u8), size: usize) -> rawm(u8);
+}
+
+// Pattern 1: Wrapper functions that encapsulate unsafety
+// The unsafe block is internal, caller doesn't need unsafe
+fn allocate(size: i32) -> rawm(u8) {
+    unsafe {
+        return malloc(cast(usize, size));
+    }
+}
+
+fn deallocate(ptr: rawm(u8)) -> void {
+    unsafe {
+        free(ptr);
+    }
+}
+
+// Pattern 2: Unsafe fn - caller must be in unsafe context
+unsafe fn copy_memory(dest: rawm(u8), src: raw(u8), count: i32) -> void {
+    let result: rawm(u8) = memcpy(dest, src, cast(usize, count));
+    discard(result);
+}
+
+// Pattern 3: Raw pointer dereference requires unsafe
+fn read_raw_pointer(ptr: raw(i32)) -> i32 {
+    unsafe {
+        return deref(ptr);
+    }
+}
+
+fn write_raw_pointer(ptr: rawm(i32), value: i32) -> void {
+    unsafe {
+        deref(ptr) = value;
+    }
+}
+
+// Pattern 4: Safe wrapper around unsafe operations
+// Checks preconditions before calling unsafe code
+fn safe_read(ptr: raw(i32), is_valid: bool) -> opt(i32) {
+    if (!is_valid) {
+        return none(i32);
+    }
+    unsafe {
+        return some(deref(ptr));
+    }
+}
+
+// Pattern 5: Multiple unsafe operations in one block
+fn buffer_operation(src: raw(u8), size: i32) -> rawm(u8) {
+    unsafe {
+        // Allocate destination
+        let dest: rawm(u8) = malloc(cast(usize, size));
+
+        // Copy data
+        let result: rawm(u8) = memcpy(dest, src, cast(usize, size));
+        discard(result);
+
+        return dest;
+    }
+}
+
+fn main() -> i32 {
+    // Safe code can call wrapper functions
+    let ptr: rawm(u8) = allocate(100);
+
+    // Eventually free the memory
+    deallocate(ptr);
+
+    // Direct unsafe operations need unsafe blocks
+    unsafe {
+        let ptr2: rawm(u8) = malloc(cast(usize, 50));
+        free(ptr2);
+    }
+
+    return 0;
+}

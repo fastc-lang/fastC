@@ -1,0 +1,29 @@
+// Test short-circuit operators
+
+fn always_true() -> bool {
+    return true;
+}
+
+fn always_false() -> bool {
+    return false;
+}
+
+fn test_and() -> bool {
+    return (always_true() && always_false());
+}
+
+fn test_or() -> bool {
+    return (always_false() || always_true());
+}
+
+fn main() -> i32 {
+    let a: bool = test_and();
+    let b: bool = test_or();
+    if (a) {
+        return 1;
+    }
+    if (b) {
+        return 2;
+    }
+    return 0;
+}

@@ -1,0 +1,25 @@
+// Types for interop testing
+
+@repr(C)
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn get_point() -> Point {
+    return Point { x: 10, y: 20 };
+}
+
+fn get_color() -> Color {
+    return Color_Red;
+}
+
+fn main() -> i32 {
+    return 0;
+}

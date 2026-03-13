@@ -1,0 +1,5 @@
+// Type mismatch test case
+fn main() -> i32 {
+    let x: bool = 42;
+    return x;
+}

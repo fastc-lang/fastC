@@ -1,0 +1,110 @@
+// Tutorial 10: Enums
+//
+// Enums define a type with a fixed set of variants.
+// FastC enums are simple C-style enums (integer constants).
+//
+// Key concepts:
+// - enum Name { Variant1, Variant2, ... }
+// - Variants are accessed as EnumName_VariantName
+// - switch for exhaustive pattern matching
+// - Enums compile to C int constants
+
+// Days of the week
+enum Day {
+    Sunday,
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday,
+}
+
+// Traffic light states
+enum TrafficLight {
+    Red,
+    Yellow,
+    Green,
+}
+
+// HTTP status categories
+enum HttpStatus {
+    Ok,
+    Redirect,
+    ClientError,
+    ServerError,
+}
+
+// Check if it's a weekend
+fn is_weekend(day: Day) -> bool {
+    switch (day) {
+        case Day_Sunday: { return true; }
+        case Day_Saturday: { return true; }
+        case Day_Monday: { return false; }
+        case Day_Tuesday: { return false; }
+        case Day_Wednesday: { return false; }
+        case Day_Thursday: { return false; }
+        case Day_Friday: { return false; }
+    }
+}
+
+// Get next traffic light state
+fn next_light(current: TrafficLight) -> TrafficLight {
+    switch (current) {
+        case TrafficLight_Red: { return TrafficLight_Green; }
+        case TrafficLight_Green: { return TrafficLight_Yellow; }
+        case TrafficLight_Yellow: { return TrafficLight_Red; }
+    }
+}
+
+// Get wait time for traffic light (in seconds)
+fn wait_time(light: TrafficLight) -> i32 {
+    switch (light) {
+        case TrafficLight_Red: { return 60; }
+        case TrafficLight_Yellow: { return 5; }
+        case TrafficLight_Green: { return 45; }
+    }
+}
+
+// Check if HTTP status indicates success
+fn is_success(status: HttpStatus) -> bool {
+    switch (status) {
+        case HttpStatus_Ok: { return true; }
+        case HttpStatus_Redirect: { return false; }
+        case HttpStatus_ClientError: { return false; }
+        case HttpStatus_ServerError: { return false; }
+    }
+}
+
+// Get day number (0 = Sunday)
+fn day_number(day: Day) -> i32 {
+    switch (day) {
+        case Day_Sunday: { return 0; }
+        case Day_Monday: { return 1; }
+        case Day_Tuesday: { return 2; }
+        case Day_Wednesday: { return 3; }
+        case Day_Thursday: { return 4; }
+        case Day_Friday: { return 5; }
+        case Day_Saturday: { return 6; }
+    }
+}
+
+fn main() -> i32 {
+    // Create enum values
+    let today: Day = Day_Wednesday;
+    let light: TrafficLight = TrafficLight_Red;
+    let status: HttpStatus = HttpStatus_Ok;
+
+    // Use enum values
+    let weekend: bool = is_weekend(today);
+    let next: TrafficLight = next_light(light);
+    let wait: i32 = wait_time(light);
+    let success: bool = is_success(status);
+    let day_num: i32 = day_number(today);
+
+    discard(weekend);
+    discard(next);
+    discard(success);
+
+    return (wait + day_num);
+}

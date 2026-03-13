@@ -1,0 +1,46 @@
+// Tutorial 08: Result Types
+//
+// FastC uses res(T, E) for operations that can fail with an error value.
+// This provides explicit error handling without exceptions.
+//
+// Key concepts:
+// - res(T, E): result type with success value T or error value E
+// - Results wrap either success or failure explicitly
+// - Better than null/error codes for API clarity
+//
+// Note: ok() and err() constructors require matching the declared
+// return type exactly for type inference.
+
+// Define error type for clarity
+enum MathError {
+    DivByZero,
+    Negative,
+    Overflow,
+}
+
+// Result types are declared explicitly
+// They can be passed as function parameters
+fn take_result(r: res(i32, MathError)) -> i32 {
+    discard(r);
+    return 0;
+}
+
+// Results compose with other types
+fn take_optional_result(r: opt(res(i32, MathError))) -> i32 {
+    discard(r);
+    return 0;
+}
+
+fn main() -> i32 {
+    // Result types in FastC:
+    // - res(T, E) represents either success (T) or error (E)
+    // - Explicit types prevent null confusion
+    // - Pattern matching extracts values (future feature)
+    //
+    // Common patterns:
+    // - Use enums for error types (like MathError above)
+    // - Chain operations that may fail
+    // - Propagate errors up the call stack
+
+    return 0;
+}

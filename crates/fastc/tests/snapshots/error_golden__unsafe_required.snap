@@ -1,0 +1,6 @@
+---
+source: crates/fastc/tests/error_golden.rs
+assertion_line: 16
+expression: error_str
+---
+Type { message: "call to unsafe function requires unsafe block", span: 108..119, src: "// Unsafe required test case\nunsafe fn dangerous() -> i32 {\n    return 42;\n}\n\nfn main() -> i32 {\n    return dangerous();\n}\n", hint: Some("wrap the call in an unsafe block: unsafe { ... }") }

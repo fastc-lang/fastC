@@ -1,0 +1,11 @@
+// Test simple enum lowering
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn main() -> i32 {
+    return 0;
+}

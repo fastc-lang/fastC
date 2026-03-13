@@ -1,0 +1,27 @@
+// Test file for Phase 9-10 features: evaluation order, short-circuit, runtime checks
+
+fn bar() -> i32 {
+    return 1;
+}
+
+fn baz() -> i32 {
+    return 2;
+}
+
+fn foo(a: i32, b: i32) -> i32 {
+    return (a + b);
+}
+
+fn test_order() -> i32 {
+    return foo(bar(), baz());
+}
+
+fn safe_div(a: i32, b: i32) -> i32 {
+    return (a / b);
+}
+
+fn main() -> i32 {
+    let x: i32 = test_order();
+    let y: i32 = safe_div(10, 2);
+    return (x + y);
+}

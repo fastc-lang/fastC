@@ -1,0 +1,25 @@
+---
+source: crates/fastc/src/lexer/mod.rs
+expression: tokens
+---
+[
+    LineComment(
+        "// single line comment",
+    ),
+    Fn,
+    Ident(
+        "foo",
+    ),
+    LParen,
+    RParen,
+    Arrow,
+    Void,
+    LBrace,
+    BlockComment(
+        "/* multi\n       line\n       comment */",
+    ),
+    Return,
+    Semi,
+    RBrace,
+    Eof,
+]

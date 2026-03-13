@@ -1,0 +1,110 @@
+// Advanced Example: Error Handling Patterns
+//
+// Demonstrates error handling patterns using opt(T) and enums.
+// Shows the recommended approach before full result type support.
+
+// Error types as enums
+enum ParseError {
+    EmptyInput,
+    InvalidChar,
+    Overflow,
+}
+
+enum IOError {
+    NotFound,
+    PermissionDenied,
+    ConnectionFailed,
+    Timeout,
+}
+
+// Pattern 1: Optional return for "not found" cases
+fn find_char(s: slice(u8), target: u8, length: i32) -> opt(i32) {
+    let i: i32 = 0;
+    while (i < length) {
+        if (at(s, cast(usize, i)) == target) {
+            return some(i);
+        }
+        i = (i + 1);
+    }
+    return none(i32);
+}
+
+// Pattern 2: Pair of return value + error code
+// Error code 0 = success, negative = error
+fn divide_safe(a: i32, b: i32, result: mref(i32)) -> i32 {
+    if (b == 0) {
+        return -1;  // Error: division by zero
+    }
+    deref(result) = (a / b);
+    return 0;  // Success
+}
+
+// Pattern 3: Optional with sentinel value
+// Returns -1 for error (when -1 is not a valid result)
+fn parse_positive_int(c: i32) -> i32 {
+    // ASCII '0' = 48, '9' = 57
+    if ((c < 48) || (c > 57)) {
+        return -1;  // Invalid character
+    }
+    return (c - 48);
+}
+
+// Pattern 4: Early return on error
+fn process_input(value: i32) -> i32 {
+    // Validate input
+    if (value < 0) {
+        return -1;  // Error: negative input
+    }
+    if (value > 1000) {
+        return -2;  // Error: overflow
+    }
+
+    // Process valid input
+    return (value * 2);
+}
+
+// Pattern 5: Chain operations with optional
+fn chain_operations(input: i32) -> opt(i32) {
+    // First operation
+    let step1: i32 = process_input(input);
+    if (step1 < 0) {
+        return none(i32);
+    }
+
+    // Second operation
+    let step2: i32 = process_input(step1);
+    if (step2 < 0) {
+        return none(i32);
+    }
+
+    return some(step2);
+}
+
+// Pattern 6: Using if-let for optional handling
+fn use_optional(maybe: opt(i32)) -> i32 {
+    if let value = unwrap_checked(maybe) {
+        return (value * 2);
+    } else {
+        return 0;  // Default value
+    }
+}
+
+fn main() -> i32 {
+    // Test divide - note: creating mref from local requires unsafe in general
+    // For demonstration, we skip the divide_safe test here
+    let result: i32 = 5;
+
+    // Test parse
+    let digit: i32 = parse_positive_int(53);  // '5'
+    if (digit < 0) {
+        return -2;
+    }
+
+    // Test chain
+    let chained: opt(i32) = chain_operations(100);
+    let final_result: i32 = use_optional(chained);
+
+    discard(result);
+
+    return (digit + final_result);
+}

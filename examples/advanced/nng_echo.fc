@@ -1,0 +1,80 @@
+// Advanced Example: NNG Networking Library
+//
+// Demonstrates FFI bindings for the nng (nanomsg-next-gen) networking library.
+// nng is a lightweight messaging library for building distributed systems.
+//
+// This example shows how to declare opaque types and external functions.
+// Actual execution requires the nng library installed on the system.
+
+// Opaque type for nng socket handle
+extern "C" {
+    opaque nng_socket;
+    opaque nng_listener;
+    opaque nng_dialer;
+}
+
+// NNG function declarations
+extern "C" {
+    // Socket creation for different patterns
+    unsafe fn nng_rep0_open(socket: rawm(nng_socket)) -> i32;
+    unsafe fn nng_req0_open(socket: rawm(nng_socket)) -> i32;
+    unsafe fn nng_pub0_open(socket: rawm(nng_socket)) -> i32;
+    unsafe fn nng_sub0_open(socket: rawm(nng_socket)) -> i32;
+    unsafe fn nng_pair0_open(socket: rawm(nng_socket)) -> i32;
+
+    // Socket close
+    unsafe fn nng_close(socket: nng_socket) -> i32;
+
+    // Listening and dialing
+    unsafe fn nng_listen(socket: nng_socket, url: raw(u8), listener: rawm(nng_listener), flags: i32) -> i32;
+    unsafe fn nng_dial(socket: nng_socket, url: raw(u8), dialer: rawm(nng_dialer), flags: i32) -> i32;
+
+    // Sending and receiving (blocking)
+    unsafe fn nng_send(socket: nng_socket, data: raw(u8), size: usize, flags: i32) -> i32;
+    unsafe fn nng_recv(socket: nng_socket, data: rawm(u8), size: rawm(usize), flags: i32) -> i32;
+
+    // Memory management
+    unsafe fn nng_free(ptr: rawm(u8), size: usize) -> void;
+
+    // Error string
+    unsafe fn nng_strerror(error_code: i32) -> raw(u8);
+}
+
+// Error codes (partial list)
+const NNG_OK: i32 = 0;
+const NNG_EINTR: i32 = 1;
+const NNG_ENOMEM: i32 = 2;
+const NNG_EINVAL: i32 = 3;
+const NNG_EBUSY: i32 = 4;
+const NNG_ETIMEDOUT: i32 = 5;
+const NNG_ECONNREFUSED: i32 = 6;
+const NNG_ECLOSED: i32 = 7;
+
+// Check if an nng operation succeeded
+fn nng_succeeded(result: i32) -> bool {
+    return (result == NNG_OK);
+}
+
+// Flags for nng_dial and nng_listen
+const NNG_FLAG_ALLOC: i32 = 1;  // Allocate memory for receive
+const NNG_FLAG_NONBLOCK: i32 = 2;  // Non-blocking operation
+
+fn main() -> i32 {
+    // This example demonstrates the FFI pattern for nng.
+    // Actual socket operations would look like:
+    //
+    // unsafe {
+    //     let socket: nng_socket = ...;
+    //     let rv: i32 = nng_rep0_open(addr(socket));
+    //     if (nng_succeeded(rv)) {
+    //         // Use the socket
+    //         nng_close(socket);
+    //     }
+    // }
+    //
+    // Running this requires:
+    // 1. nng library installed (apt install libnng-dev)
+    // 2. Linking with -lnng when compiling the C output
+
+    return 0;
+}

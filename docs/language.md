@@ -42,8 +42,8 @@ This document defines the intended surface language. It is not a formal grammar,
 - `for (init; cond; step) { ... }`
 - `switch (expr) { case ... }`
 - `break;`, `continue;`, `return expr;`
-- `defer { ... }`
-- Expression statements are limited to function calls.
+- `defer { ... }` (see Defer Semantics below)
+- Expression statements are limited to function calls or `discard(expr)`.
 - `discard(expr);` evaluates an expression and discards the value explicitly.
 - `unsafe { ... }` introduces an unsafe block.
 
@@ -63,8 +63,8 @@ This document defines the intended surface language. It is not a formal grammar,
 ## String Literals
 
 - String literals are only allowed inside `cstr("...")` and `bytes("...")` expressions, and in `extern "C"` declarations.
-- `cstr("...")` yields a NUL‑terminated static string (`ref(u8)`).
-- `bytes("...")` yields a static byte slice (`slice(u8)`).
+- `cstr("...")` yields a NUL‑terminated static C string (`raw(u8)`). The pointer is non‑null but typed as `raw` for C compatibility.
+- `bytes("...")` yields a static byte slice (`slice(u8)`) without NUL terminator.
 - Both forms are compile‑time constants with static storage.
 
 ## Operator Type Rules
@@ -83,6 +83,15 @@ This document defines the intended surface language. It is not a formal grammar,
 ## For Loops
 
 - `init` and `step` are limited to `let`, assignment, or function call forms.
+
+## Defer Semantics
+
+- `defer { ... }` schedules a block to execute when the enclosing scope exits.
+- Deferred blocks run in LIFO (last‑in, first‑out) order.
+- Defers execute on all scope exits: normal completion, `return`, `break`, and `continue`.
+- Defers execute before `return` values are returned to the caller.
+- On `panic` (trap), defers in the current function do NOT run. Cleanup is not guaranteed on abort.
+- Defers cannot contain `return`, `break`, or `continue` that would exit the defer block's enclosing scope.
 
 ## Initialization
 
@@ -140,11 +149,50 @@ This document defines the intended surface language. It is not a formal grammar,
 - `res(T, E)`: result type for error handling
 - `opt` and `res` are not permitted in `extern` function signatures.
 
+#### Option Builtins
+
+- `some(v)`: wraps a value `v` into `opt(T)`
+- `none(T)`: creates an empty `opt(T)` (type must be specified)
+- `is_some(o)`: returns `bool` indicating if `opt` contains a value
+- `is_none(o)`: returns `bool` indicating if `opt` is empty
+- `unwrap(o)`: extracts the value from `opt(T)`, traps if empty
+- `unwrap_or(o, default)`: extracts the value or returns `default` if empty
+
+#### Result Builtins
+
+- `ok(v)`: wraps a success value into `res(T, E)`
+- `err(e)`: wraps an error value into `res(T, E)`
+- `is_ok(r)`: returns `bool` indicating success
+- `is_err(r)`: returns `bool` indicating error
+- `unwrap(r)`: extracts the success value, traps if error
+- `unwrap_err(r)`: extracts the error value, traps if success
+- `unwrap_or(r, default)`: extracts the success value or returns `default` if error
+
+#### If‑Let Pattern
+
+To safely extract values, use the `if let` pattern:
+
+```
+if let x = unwrap_checked(maybe_val) {
+    // x is available here as T
+} else {
+    // maybe_val was none
+}
+```
+
+The `unwrap_checked(o)` builtin is used only in `if let` conditions and performs a checked extraction.
+
 ## Conversions
 
 - Explicit casts use `cast(T, expr)`.
 - There are no implicit numeric widenings or narrowings.
-- Conversions between `ref/mref` and `raw/rawm` are explicit via helper functions (for example, `to_raw`).
+- Conversions between `ref/mref` and `raw/rawm` are explicit via builtin helper functions:
+  - `to_raw(r)`: converts `ref(T)` to `raw(T)`
+  - `to_rawm(r)`: converts `mref(T)` to `rawm(T)`
+  - `from_raw(p)`: converts `raw(T)` to `opt(ref(T))` (returns `none` if null)
+  - `from_rawm(p)`: converts `rawm(T)` to `opt(mref(T))` (returns `none` if null)
+  - `from_raw_unchecked(p)`: converts `raw(T)` to `ref(T)` in `unsafe` blocks (UB if null)
+  - `from_rawm_unchecked(p)`: converts `rawm(T)` to `mref(T)` in `unsafe` blocks (UB if null)
 
 ## Attributes
 

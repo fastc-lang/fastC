@@ -1,0 +1,6 @@
+---
+source: crates/fastc/tests/error_golden.rs
+assertion_line: 16
+expression: error_str
+---
+Parse { message: "expected identifier", span: 60..60, src: "// Parse error test case - missing function body\nfn broken(\n", hint: None }
