@@ -12,6 +12,7 @@ keywords.workspace = true
 categories.workspace = true
 description = "Language Server Protocol implementation for FastC"
 readme = "README.md"
+include = ["src/**/*", "Cargo.toml", "README.md"]
 
 [[bin]]
 name = "fastc-lsp"
