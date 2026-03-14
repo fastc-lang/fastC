@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+/* Monaco Editor overrides */
+.monaco-editor {
+  font-family: 'Fira Code', Consolas, Monaco, monospace !important;
+}
+
+/* xterm.js overrides */
+.xterm {
+  padding: 8px;
+}
+
+.xterm-viewport {
+  overflow-y: auto !important;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #424242;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
