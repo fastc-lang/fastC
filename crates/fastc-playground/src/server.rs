@@ -1,56 +1,108 @@
 use crate::assets::Assets;
+use crate::config::{PlaygroundConfig, RunRateLimiter};
+use crate::executor::ExecutorLimits;
 use crate::routes::{api, ws};
 use crate::session::SessionStore;
 use axum::{
-    http::{header, StatusCode, Uri},
+    Router,
+    http::Method,
+    http::{StatusCode, Uri, header},
     response::{Html, IntoResponse},
     routing::{get, post},
-    Router,
 };
 use rust_embed::Embed;
+use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::limit::RequestBodyLimitLayer;
 
 /// Shared application state
 #[derive(Clone)]
 pub struct AppState {
     pub sessions: Arc<SessionStore>,
+    pub config: Arc<PlaygroundConfig>,
+    pub run_limiter: Arc<RunRateLimiter>,
+    pub run_slots: Arc<Semaphore>,
+    pub executor_limits: ExecutorLimits,
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(config: PlaygroundConfig) -> Self {
+        let run_limiter = RunRateLimiter::new(
+            config.max_runs_per_minute,
+            std::time::Duration::from_secs(60),
+        );
+        let run_slots = Arc::new(Semaphore::new(config.max_concurrent_runs));
+        let executor_limits = config.executor_limits.clone();
+
         Self {
             sessions: Arc::new(SessionStore::new()),
+            config: Arc::new(config),
+            run_limiter: Arc::new(run_limiter),
+            run_slots,
+            executor_limits,
         }
+    }
+
+    pub fn authorize(&self, headers: &axum::http::HeaderMap) -> Result<(), String> {
+        self.config.authorize(headers)
+    }
+
+    pub fn authorize_ws(
+        &self,
+        headers: &axum::http::HeaderMap,
+        query_token: Option<&str>,
+    ) -> Result<(), String> {
+        self.config.authorize_with(headers, query_token)
+    }
+
+    pub fn validate_run_request(&self, ip: IpAddr, code_len: usize) -> Result<(), String> {
+        if code_len > self.config.max_code_bytes {
+            return Err(format!(
+                "Code exceeds maximum size of {} bytes",
+                self.config.max_code_bytes
+            ));
+        }
+
+        if !self.run_limiter.allow(ip) {
+            return Err("Rate limit exceeded for run requests".to_string());
+        }
+
+        Ok(())
+    }
+
+    pub fn try_acquire_run_slot(&self) -> Result<OwnedSemaphorePermit, String> {
+        self.run_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "Server is busy. Try again shortly.".to_string())
     }
 }
 
 impl Default for AppState {
     fn default() -> Self {
-        Self::new()
+        Self::new(PlaygroundConfig::default())
     }
 }
 
 /// Run the playground server
-pub async fn run_server(addr: SocketAddr) -> anyhow::Result<()> {
-    let state = AppState::new();
+pub async fn run_server(addr: SocketAddr, config: PlaygroundConfig) -> anyhow::Result<()> {
+    let state = AppState::new(config);
 
     // Start session cleanup task
     let sessions = state.sessions.clone();
+    let run_limiter = state.run_limiter.clone();
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
             sessions.cleanup_expired(std::time::Duration::from_secs(3600));
+            run_limiter.cleanup();
         }
     });
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
-    let app = Router::new()
+    let mut app = Router::new()
         // API routes
         .route("/api/compile", post(api::compile))
         .route("/api/check", post(api::check))
@@ -62,13 +114,40 @@ pub async fn run_server(addr: SocketAddr) -> anyhow::Result<()> {
         .route("/", get(index_handler))
         .route("/assets/*path", get(static_handler))
         .fallback(get(index_handler))
-        .layer(cors)
-        .with_state(state);
+        .layer(RequestBodyLimitLayer::new(
+            state.config.max_request_body_bytes,
+        ))
+        .with_state(state.clone());
+
+    if !state.config.allowed_origins.is_empty() {
+        let origins = state
+            .config
+            .allowed_origins
+            .iter()
+            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+            .collect::<Vec<_>>();
+
+        if !origins.is_empty() {
+            let cors = CorsLayer::new()
+                .allow_origin(AllowOrigin::list(origins))
+                .allow_methods([Method::GET, Method::POST])
+                .allow_headers([
+                    header::CONTENT_TYPE,
+                    header::AUTHORIZATION,
+                    header::HeaderName::from_static("x-fastc-token"),
+                ]);
+            app = app.layer(cors);
+        }
+    }
 
     tracing::info!("FastC Playground listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }
@@ -89,7 +168,11 @@ async fn static_handler(uri: Uri) -> impl IntoResponse {
     match <Assets as Embed>::get(path) {
         Some(content) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
-            ([(header::CONTENT_TYPE, mime.as_ref())], content.data.to_vec()).into_response()
+            (
+                [(header::CONTENT_TYPE, mime.as_ref())],
+                content.data.to_vec(),
+            )
+                .into_response()
         }
         None => StatusCode::NOT_FOUND.into_response(),
     }
@@ -231,18 +314,49 @@ fn main() -> i32 {
         const output = document.getElementById('output');
         const terminal = document.getElementById('terminal');
         let ws = null;
+        const tokenStorageKey = 'fastc-playground-token';
+
+        function getToken() {
+            const url = new URL(window.location.href);
+            const tokenFromQuery = url.searchParams.get('token');
+            if (tokenFromQuery) {
+                localStorage.setItem(tokenStorageKey, tokenFromQuery);
+                return tokenFromQuery;
+            }
+            return localStorage.getItem(tokenStorageKey);
+        }
+
+        function authHeaders() {
+            const token = getToken();
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+                headers['x-fastc-token'] = token;
+            }
+            return headers;
+        }
 
         function connectWs() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${location.host}/ws`);
+            const token = getToken();
+            const query = token ? `?token=${encodeURIComponent(token)}` : '';
+            ws = new WebSocket(`${protocol}//${location.host}/ws${query}`);
             ws.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
                 if (msg.type === 'stdout' || msg.type === 'stderr') {
                     terminal.textContent += msg.data;
                 } else if (msg.type === 'exit') {
-                    terminal.innerHTML += `<span class="${msg.code === 0 ? 'success' : 'error'}">Process exited with code ${msg.code}</span>\n`;
+                    const line = document.createElement('span');
+                    line.className = msg.code === 0 ? 'success' : 'error';
+                    line.textContent = `Process exited with code ${msg.code}`;
+                    terminal.appendChild(line);
+                    terminal.appendChild(document.createTextNode('\n'));
                 } else if (msg.type === 'error') {
-                    terminal.innerHTML += `<span class="error">${msg.message}</span>\n`;
+                    const line = document.createElement('span');
+                    line.className = 'error';
+                    line.textContent = msg.message;
+                    terminal.appendChild(line);
+                    terminal.appendChild(document.createTextNode('\n'));
                 } else if (msg.type === 'compile') {
                     terminal.textContent += msg.output + '\n';
                 }
@@ -257,7 +371,7 @@ fn main() -> i32 {
             try {
                 const res = await fetch('/api/compile', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: authHeaders(),
                     body: JSON.stringify({ code: editor.value, emit_header: false })
                 });
                 const data = await res.json();
@@ -280,7 +394,7 @@ fn main() -> i32 {
             try {
                 const res = await fetch('/api/run', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: authHeaders(),
                     body: JSON.stringify({ code: editor.value })
                 });
                 const data = await res.json();
@@ -311,5 +425,6 @@ fn main() -> i32 {
         });
     </script>
 </body>
-</html>"#.to_string()
+</html>"#
+        .to_string()
 }

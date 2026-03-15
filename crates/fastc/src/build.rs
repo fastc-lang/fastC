@@ -119,36 +119,37 @@ impl BuildContext {
         for (name, dep) in &self.manifest.dependencies {
             eprintln!("Fetching dependency: {}", name);
 
+            let dep_for_fetch = self.dependency_for_fetch(name, dep);
+
             // Fetch the dependency
             let path = self
                 .fetcher
-                .fetch(name, dep)
+                .fetch(name, &dep_for_fetch)
                 .map_err(|e| BuildError::FetchError(e.to_string()))?;
 
             eprintln!("  Fetched to: {}", path.display());
 
-            // Get source string for lockfile
-            let source = match dep {
+            // Get source + resolved commit for lockfile
+            let (source, resolved) = match dep {
                 crate::deps::Dependency::Git { git, version } => {
-                    let mut source = format!("git+{}", git);
-                    if let Some(tag) = &version.tag {
-                        source.push_str(&format!("?tag={}", tag));
-                    } else if let Some(branch) = &version.branch {
-                        source.push_str(&format!("?branch={}", branch));
-                    } else if let Some(rev) = &version.rev {
-                        source.push_str(&format!("?rev={}", rev));
-                    }
-                    source
+                    let resolved = crate::deps::Fetcher::head_commit(&path).ok();
+                    let source = resolved
+                        .as_ref()
+                        .map(|commit| format!("git+{}?rev={}", git, commit))
+                        .unwrap_or_else(|| Self::source_from_git_spec(git, version));
+                    (source, resolved)
                 }
-                crate::deps::Dependency::Path { path } => format!("path+{}", path),
+                crate::deps::Dependency::Path { path } => (format!("path+{}", path), None),
             };
+
+            let version = read_dependency_version(&path).unwrap_or_else(|| "0.0.0".to_string());
 
             // Update lockfile
             self.lockfile.add_package(LockedPackage {
                 name: name.clone(),
-                version: "0.0.0".to_string(), // Version from dependency manifest would be better
+                version,
                 source,
-                resolved: None, // Could extract commit hash from git repo
+                resolved,
                 dependencies: vec![],
             });
         }
@@ -161,6 +162,52 @@ impl BuildContext {
 
         eprintln!("Updated fastc.lock");
         Ok(())
+    }
+
+    fn dependency_for_fetch(
+        &self,
+        name: &str,
+        dep: &crate::deps::Dependency,
+    ) -> crate::deps::Dependency {
+        let crate::deps::Dependency::Git { git, .. } = dep else {
+            return dep.clone();
+        };
+
+        let Some(locked) = self.lockfile.get_package(name) else {
+            return dep.clone();
+        };
+        if !locked.source.starts_with(&format!("git+{}", git)) {
+            return dep.clone();
+        }
+
+        let locked_rev = locked
+            .resolved
+            .clone()
+            .or_else(|| parse_rev_from_source(&locked.source));
+
+        if let Some(rev) = locked_rev {
+            crate::deps::Dependency::Git {
+                git: git.clone(),
+                version: crate::deps::GitVersion {
+                    rev: Some(rev),
+                    ..Default::default()
+                },
+            }
+        } else {
+            dep.clone()
+        }
+    }
+
+    fn source_from_git_spec(git: &str, version: &crate::deps::GitVersion) -> String {
+        let mut source = format!("git+{}", git);
+        if let Some(tag) = &version.tag {
+            source.push_str(&format!("?tag={}", tag));
+        } else if let Some(branch) = &version.branch {
+            source.push_str(&format!("?branch={}", branch));
+        } else if let Some(rev) = &version.rev {
+            source.push_str(&format!("?rev={}", rev));
+        }
+        source
     }
 
     /// Compile the project to C code
@@ -236,7 +283,8 @@ impl BuildContext {
         eprintln!("Compiling C code with {}...", compiler);
 
         // Build compiler arguments
-        let mut args: Vec<&str> = vec![c_file.to_str().unwrap(), "-o", executable.to_str().unwrap()];
+        let mut args: Vec<&str> =
+            vec![c_file.to_str().unwrap(), "-o", executable.to_str().unwrap()];
 
         // Add runtime include path
         // Try to find the runtime directory relative to the executable or use env var
@@ -289,10 +337,9 @@ impl BuildContext {
         eprintln!("Running: {} {}", executable.display(), args.join(" "));
         eprintln!("---");
 
-        let status = Command::new(executable)
-            .args(args)
-            .status()
-            .map_err(|e| BuildError::Io(format!("failed to run {}: {}", executable.display(), e)))?;
+        let status = Command::new(executable).args(args).status().map_err(|e| {
+            BuildError::Io(format!("failed to run {}: {}", executable.display(), e))
+        })?;
 
         eprintln!("---");
 
@@ -322,10 +369,10 @@ impl BuildContext {
             if let Some(parent) = exe_path.parent() {
                 // Check various relative paths
                 let candidates = [
-                    parent.join("../../../runtime"),      // From target/debug/
-                    parent.join("../../runtime"),         // From target/
-                    parent.join("../runtime"),            // Adjacent
-                    parent.join("runtime"),               // Same dir
+                    parent.join("../../../runtime"),       // From target/debug/
+                    parent.join("../../runtime"),          // From target/
+                    parent.join("../runtime"),             // Adjacent
+                    parent.join("runtime"),                // Same dir
                     parent.join("../share/fastc/runtime"), // Installed location
                 ];
 
@@ -338,10 +385,7 @@ impl BuildContext {
         }
 
         // Check common installation paths
-        let common_paths = [
-            "/usr/local/share/fastc/runtime",
-            "/usr/share/fastc/runtime",
-        ];
+        let common_paths = ["/usr/local/share/fastc/runtime", "/usr/share/fastc/runtime"];
 
         for path in &common_paths {
             let p = Path::new(path);
@@ -385,4 +429,28 @@ impl BuildContext {
 
         paths
     }
+}
+
+fn parse_rev_from_source(source: &str) -> Option<String> {
+    source
+        .split_once('?')
+        .map(|(_, query)| query)
+        .and_then(|query| {
+            query
+                .split('&')
+                .find(|kv| kv.starts_with("rev="))
+                .and_then(|kv| kv.strip_prefix("rev="))
+        })
+        .map(|s| s.to_string())
+}
+
+fn read_dependency_version(dep_path: &Path) -> Option<String> {
+    let manifest_path = dep_path.join("fastc.toml");
+    if !manifest_path.exists() {
+        return None;
+    }
+
+    crate::deps::Manifest::load(&manifest_path)
+        .ok()
+        .map(|manifest| manifest.package.version)
 }

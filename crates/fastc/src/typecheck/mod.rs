@@ -333,7 +333,10 @@ impl<'a> TypeChecker<'a> {
                 // Switch must be on integer or enum type
                 if !self.is_integer(&expr_ty) && !matches!(expr_ty, TypeExpr::Named(_)) {
                     self.error(
-                        format!("switch expression must be integer or enum, got {:?}", expr_ty),
+                        format!(
+                            "switch expression must be integer or enum, got {:?}",
+                            expr_ty
+                        ),
                         expr.span(),
                     );
                 }
@@ -534,11 +537,7 @@ impl<'a> TypeChecker<'a> {
                         // Check argument count
                         if args.len() != params.len() {
                             self.error(
-                                format!(
-                                    "expected {} arguments, got {}",
-                                    params.len(),
-                                    args.len()
-                                ),
+                                format!("expected {} arguments, got {}", params.len(), args.len()),
                                 span.clone(),
                             );
                         }
@@ -709,7 +708,10 @@ impl<'a> TypeChecker<'a> {
             ) => {
                 u1 == u2
                     && p1.len() == p2.len()
-                    && p1.iter().zip(p2.iter()).all(|(a, b)| self.types_compatible(a, b))
+                    && p1
+                        .iter()
+                        .zip(p2.iter())
+                        .all(|(a, b)| self.types_compatible(a, b))
                     && self.types_compatible(r1, r2)
             }
             _ => false,
@@ -753,13 +755,13 @@ impl<'a> TypeChecker<'a> {
         }
 
         // Allow casts between pointer types
-        match (from, to) {
+        matches!(
+            (from, to),
             (TypeExpr::Ref(_), TypeExpr::Raw(_))
-            | (TypeExpr::Mref(_), TypeExpr::Rawm(_))
-            | (TypeExpr::Raw(_), TypeExpr::Raw(_))
-            | (TypeExpr::Rawm(_), TypeExpr::Rawm(_)) => true,
-            _ => false,
-        }
+                | (TypeExpr::Mref(_), TypeExpr::Rawm(_))
+                | (TypeExpr::Raw(_), TypeExpr::Raw(_))
+                | (TypeExpr::Rawm(_), TypeExpr::Rawm(_))
+        )
     }
 
     fn check_assignable(&mut self, expr: &Expr, span: &Span) {
@@ -781,7 +783,10 @@ impl<'a> TypeChecker<'a> {
             Expr::At { .. } => {}
             Expr::Field { .. } => {}
             _ => {
-                self.error("cannot take address of expression".to_string(), span.clone());
+                self.error(
+                    "cannot take address of expression".to_string(),
+                    span.clone(),
+                );
             }
         }
     }
@@ -883,26 +888,17 @@ mod tests {
 
     #[test]
     fn test_type_mismatch_let() {
-        check_error(
-            "fn foo() -> void { let x: i32 = true; }",
-            "type mismatch",
-        );
+        check_error("fn foo() -> void { let x: i32 = true; }", "type mismatch");
     }
 
     #[test]
     fn test_type_mismatch_return() {
-        check_error(
-            "fn foo() -> i32 { return true; }",
-            "type mismatch",
-        );
+        check_error("fn foo() -> i32 { return true; }", "type mismatch");
     }
 
     #[test]
     fn test_type_mismatch_binary() {
-        check_error(
-            "fn foo() -> i32 { return (1 + true); }",
-            "type mismatch",
-        );
+        check_error("fn foo() -> i32 { return (1 + true); }", "type mismatch");
     }
 
     #[test]
@@ -933,10 +929,7 @@ mod tests {
 
     #[test]
     fn test_condition_requires_bool() {
-        check_error(
-            "fn foo() -> void { if (1) { } }",
-            "condition must be bool",
-        );
+        check_error("fn foo() -> void { if (1) { } }", "condition must be bool");
     }
 
     #[test]
@@ -1003,10 +996,7 @@ mod tests {
 
     #[test]
     fn test_missing_return_value() {
-        check_error(
-            "fn foo() -> i32 { return; }",
-            "expected return value",
-        );
+        check_error("fn foo() -> i32 { return; }", "expected return value");
     }
 
     #[test]

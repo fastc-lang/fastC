@@ -2,15 +2,17 @@ use crate::executor::{ExecutionMessage, Executor};
 use crate::server::AppState;
 use axum::{
     extract::{
+        ConnectInfo, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
     },
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde::Deserialize;
+use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{Mutex, broadcast, mpsc};
 use uuid::Uuid;
 
 /// WebSocket message from client
@@ -23,15 +25,28 @@ pub enum ClientMessage {
     Run { code: String },
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct WsAuthQuery {
+    pub token: Option<String>,
+}
+
 /// WebSocket handler
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
+    Query(query): Query<WsAuthQuery>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+    if let Err(message) = state.authorize_ws(&headers, query.token.as_deref()) {
+        return (StatusCode::UNAUTHORIZED, message).into_response();
+    }
+
+    ws.on_upgrade(move |socket| handle_socket(socket, state, remote.ip()))
+        .into_response()
 }
 
-async fn handle_socket(socket: WebSocket, state: AppState) {
+async fn handle_socket(socket: WebSocket, state: AppState, remote_ip: std::net::IpAddr) {
     let (sender, mut receiver) = socket.split();
     let sender = Arc::new(Mutex::new(sender));
 
@@ -82,6 +97,20 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         }
                     }
                     ClientMessage::Run { code } => {
+                        if let Err(message) = state.validate_run_request(remote_ip, code.len()) {
+                            let _ = internal_tx.send(ExecutionMessage::Error { message }).await;
+                            continue;
+                        }
+
+                        let Ok(run_slot) = state.try_acquire_run_slot() else {
+                            let _ = internal_tx
+                                .send(ExecutionMessage::Error {
+                                    message: "Server is busy. Try again shortly.".to_string(),
+                                })
+                                .await;
+                            continue;
+                        };
+
                         // Create a new session and run directly via WebSocket
                         let session_id = state.sessions.create();
                         state.sessions.update_code(session_id, code.clone());
@@ -110,8 +139,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
                         // Run the executor
                         let sessions = state.sessions.clone();
+                        let executor_limits = state.executor_limits.clone();
                         tokio::spawn(async move {
-                            let executor = Executor::new();
+                            let _run_slot = run_slot;
+                            let executor = Executor::new(executor_limits);
                             if let Err(e) = executor.run(session_id, &code, tx).await {
                                 tracing::error!("Execution failed: {}", e);
                             }

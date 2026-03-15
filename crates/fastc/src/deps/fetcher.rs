@@ -2,7 +2,8 @@
 //!
 //! Fetches dependencies from Git repositories
 
-use git2::{FetchOptions, RemoteCallbacks, Repository};
+use git2::build::RepoBuilder;
+use git2::{FetchOptions, Oid, RemoteCallbacks, Repository};
 use std::path::Path;
 
 use super::cache::Cache;
@@ -29,11 +30,7 @@ impl Fetcher {
     /// Fetch a dependency if not already cached
     ///
     /// Returns the path to the fetched dependency
-    pub fn fetch(
-        &self,
-        name: &str,
-        dep: &Dependency,
-    ) -> Result<std::path::PathBuf, FetchError> {
+    pub fn fetch(&self, name: &str, dep: &Dependency) -> Result<std::path::PathBuf, FetchError> {
         match dep {
             Dependency::Git { git, version } => self.fetch_git(name, git, version),
             Dependency::Path { path } => {
@@ -74,12 +71,7 @@ impl Fetcher {
     }
 
     /// Clone a Git repository
-    fn clone_repo(
-        &self,
-        url: &str,
-        dest: &Path,
-        version: &GitVersion,
-    ) -> Result<(), FetchError> {
+    fn clone_repo(&self, url: &str, dest: &Path, version: &GitVersion) -> Result<(), FetchError> {
         // Set up callbacks for progress (could be extended for authentication)
         let mut callbacks = RemoteCallbacks::new();
         callbacks.transfer_progress(|_stats| {
@@ -90,8 +82,13 @@ impl Fetcher {
         let mut fetch_options = FetchOptions::new();
         fetch_options.remote_callbacks(callbacks);
 
+        let mut builder = RepoBuilder::new();
+        builder.fetch_options(fetch_options);
+
         // Clone the repository
-        let repo = Repository::clone(url, dest).map_err(|e| FetchError::Git(e.to_string()))?;
+        let repo = builder
+            .clone(url, dest)
+            .map_err(|e| FetchError::Git(e.to_string()))?;
 
         // Checkout the specific version
         self.checkout_version(&repo, version)?;
@@ -116,10 +113,13 @@ impl Fetcher {
         // Find the reference
         let reference = if version.rev.is_some() {
             // For revisions, look up the commit directly
-            let oid = git2::Oid::from_str(&refspec)
+            let oid = Oid::from_str(&refspec)
                 .map_err(|e| FetchError::Git(format!("invalid revision: {}", e)))?;
-            repo.find_commit(oid)
+            let commit = repo
+                .find_commit(oid)
                 .map_err(|e| FetchError::Git(format!("commit not found: {}", e)))?;
+            repo.checkout_tree(commit.as_object(), None)
+                .map_err(|e| FetchError::Git(format!("failed to checkout: {}", e)))?;
             repo.set_head_detached(oid)
                 .map_err(|e| FetchError::Git(format!("failed to checkout: {}", e)))?;
             return Ok(());
@@ -158,6 +158,16 @@ impl Fetcher {
     /// Get the cache being used
     pub fn cache(&self) -> &Cache {
         &self.cache
+    }
+
+    /// Read the current HEAD commit hash for a fetched dependency.
+    pub fn head_commit(path: &Path) -> Result<String, FetchError> {
+        let repo = Repository::open(path).map_err(|e| FetchError::Git(e.to_string()))?;
+        let head = repo.head().map_err(|e| FetchError::Git(e.to_string()))?;
+        let commit = head
+            .peel_to_commit()
+            .map_err(|e| FetchError::Git(e.to_string()))?;
+        Ok(commit.id().to_string())
     }
 }
 
@@ -210,9 +220,6 @@ mod tests {
             "branch-main"
         );
 
-        assert_eq!(
-            fetcher.version_string(&GitVersion::default()),
-            "default"
-        );
+        assert_eq!(fetcher.version_string(&GitVersion::default()), "default");
     }
 }

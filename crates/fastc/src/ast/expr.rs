@@ -41,26 +41,13 @@ pub enum UnaryOp {
 #[derive(Debug, Clone)]
 pub enum Expr {
     /// Integer literal
-    IntLit {
-        value: i128,
-        span: Span,
-    },
+    IntLit { value: i128, span: Span },
     /// Float literal
-    FloatLit {
-        value: f64,
-        raw: String,
-        span: Span,
-    },
+    FloatLit { value: f64, raw: String, span: Span },
     /// Boolean literal
-    BoolLit {
-        value: bool,
-        span: Span,
-    },
+    BoolLit { value: bool, span: Span },
     /// Identifier
-    Ident {
-        name: String,
-        span: Span,
-    },
+    Ident { name: String, span: Span },
     /// Binary operation (exactly one operator per level)
     Binary {
         op: BinOp,
@@ -75,10 +62,7 @@ pub enum Expr {
         span: Span,
     },
     /// Parenthesized expression
-    Paren {
-        inner: Box<Expr>,
-        span: Span,
-    },
+    Paren { inner: Box<Expr>, span: Span },
     /// Function call
     Call {
         callee: Box<Expr>,
@@ -92,15 +76,9 @@ pub enum Expr {
         span: Span,
     },
     /// addr(x) - take address
-    Addr {
-        operand: Box<Expr>,
-        span: Span,
-    },
+    Addr { operand: Box<Expr>, span: Span },
     /// deref(p) - dereference pointer
-    Deref {
-        operand: Box<Expr>,
-        span: Span,
-    },
+    Deref { operand: Box<Expr>, span: Span },
     /// at(arr, i) - array/slice indexing
     At {
         base: Box<Expr>,
@@ -114,35 +92,17 @@ pub enum Expr {
         span: Span,
     },
     /// cstr("...") - C string literal
-    CStr {
-        value: String,
-        span: Span,
-    },
+    CStr { value: String, span: Span },
     /// bytes("...") - byte slice literal
-    Bytes {
-        value: String,
-        span: Span,
-    },
+    Bytes { value: String, span: Span },
     /// none(T) - empty optional
-    None {
-        ty: TypeExpr,
-        span: Span,
-    },
+    None { ty: TypeExpr, span: Span },
     /// some(v) - wrap value in optional
-    Some {
-        value: Box<Expr>,
-        span: Span,
-    },
+    Some { value: Box<Expr>, span: Span },
     /// ok(v) - success result
-    Ok {
-        value: Box<Expr>,
-        span: Span,
-    },
+    Ok { value: Box<Expr>, span: Span },
     /// err(e) - error result
-    Err {
-        value: Box<Expr>,
-        span: Span,
-    },
+    Err { value: Box<Expr>, span: Span },
     /// Struct literal: Name { field: value, ... }
     StructLit {
         name: String,

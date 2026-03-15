@@ -8,7 +8,7 @@ mod printer;
 pub use printer::Formatter;
 
 use crate::diag::CompileError;
-use crate::lexer::{strip_comments, Lexer, TriviaLexer};
+use crate::lexer::{Lexer, TriviaLexer, strip_comments};
 use crate::parser::Parser;
 
 /// Format FastC source code to canonical format

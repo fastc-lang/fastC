@@ -18,6 +18,6 @@ mod resolver;
 pub use cache::Cache;
 pub use fetcher::{FetchError, Fetcher};
 pub use loader::{LoaderError, ModuleLoader};
-pub use lockfile::{Lockfile, LockedPackage, LockfileError};
+pub use lockfile::{LockedPackage, Lockfile, LockfileError};
 pub use manifest::{Dependency, GitVersion, Manifest, ManifestError, Package};
 pub use resolver::{ModuleError, ModuleResolver, ResolvedModule};

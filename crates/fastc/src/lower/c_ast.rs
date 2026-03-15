@@ -84,11 +84,11 @@ pub enum CType {
     Double,
     SizeT,
     PtrDiffT,
-    Ptr(Box<CType>),       // T* (mutable pointer)
-    ConstPtr(Box<CType>),  // const T* (immutable pointer)
+    Ptr(Box<CType>),      // T* (mutable pointer)
+    ConstPtr(Box<CType>), // const T* (immutable pointer)
     Array(Box<CType>, usize),
     Slice(Box<CType>),
-    Opt(Box<CType>),       // fc_opt_T struct { bool has_value; T value; }
+    Opt(Box<CType>),             // fc_opt_T struct { bool has_value; T value; }
     Res(Box<CType>, Box<CType>), // fc_res_T_E struct { bool is_ok; union { T ok; E err; } data; }
     Named(String),
 }

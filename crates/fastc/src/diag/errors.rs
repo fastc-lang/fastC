@@ -1,4 +1,5 @@
 //! Error types for FastC compilation
+#![allow(unused_assignments)]
 
 use miette::Diagnostic;
 use thiserror::Error;

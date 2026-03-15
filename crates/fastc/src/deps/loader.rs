@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::ast::{File, Item, ModDecl};
 use crate::diag::CompileError;
-use crate::lexer::{strip_comments, Lexer};
+use crate::lexer::{Lexer, strip_comments};
 use crate::parser::Parser;
 
 use super::resolver::{ModuleError, ModuleResolver};
@@ -43,11 +43,7 @@ impl ModuleLoader {
     ///
     /// This modifies the AST in place, replacing external module declarations
     /// with inline modules containing the loaded content.
-    pub fn expand_modules(
-        &mut self,
-        ast: &mut File,
-        source_dir: &Path,
-    ) -> Result<(), LoaderError> {
+    pub fn expand_modules(&mut self, ast: &mut File, source_dir: &Path) -> Result<(), LoaderError> {
         let mut new_items = Vec::new();
 
         for item in std::mem::take(&mut ast.items) {
@@ -60,7 +56,9 @@ impl ModuleLoader {
                 Item::Mod(mut mod_decl) if mod_decl.body.is_some() => {
                     // Inline module - recursively expand nested modules
                     if let Some(ref mut body) = mod_decl.body {
-                        let mut inner_ast = File { items: std::mem::take(body) };
+                        let mut inner_ast = File {
+                            items: std::mem::take(body),
+                        };
                         self.expand_modules(&mut inner_ast, source_dir)?;
                         *body = inner_ast.items;
                     }
@@ -170,20 +168,11 @@ pub enum LoaderError {
         searched: Vec<PathBuf>,
     },
     /// Circular import detected
-    CircularImport {
-        module: String,
-        path: PathBuf,
-    },
+    CircularImport { module: String, path: PathBuf },
     /// IO error reading module file
-    Io {
-        path: PathBuf,
-        error: String,
-    },
+    Io { path: PathBuf, error: String },
     /// Parse error in module file
-    Parse {
-        path: PathBuf,
-        error: String,
-    },
+    Parse { path: PathBuf, error: String },
     /// Module resolution error
     Resolution(ModuleError),
 }

@@ -213,7 +213,10 @@ fn main() -> Result<()> {
                 if fastc::check_formatted(&source, &filename)? {
                     eprintln!("File is already formatted.");
                 } else {
-                    eprintln!("File is not formatted. Run `fastc fmt {}` to format.", input.display());
+                    eprintln!(
+                        "File is not formatted. Run `fastc fmt {}` to format.",
+                        input.display()
+                    );
                     std::process::exit(1);
                 }
             } else {
@@ -266,8 +269,8 @@ fn main() -> Result<()> {
             cflags,
         } => {
             let current_dir = std::env::current_dir().into_diagnostic()?;
-            let mut ctx = fastc::BuildContext::new(&current_dir)
-                .map_err(|e| miette::miette!("{}", e))?;
+            let mut ctx =
+                fastc::BuildContext::new(&current_dir).map_err(|e| miette::miette!("{}", e))?;
 
             // Fetch dependencies first
             ctx.fetch_dependencies()
@@ -296,8 +299,8 @@ fn main() -> Result<()> {
             args,
         } => {
             let current_dir = std::env::current_dir().into_diagnostic()?;
-            let mut ctx = fastc::BuildContext::new(&current_dir)
-                .map_err(|e| miette::miette!("{}", e))?;
+            let mut ctx =
+                fastc::BuildContext::new(&current_dir).map_err(|e| miette::miette!("{}", e))?;
 
             // Fetch dependencies first
             ctx.fetch_dependencies()
@@ -325,8 +328,8 @@ fn main() -> Result<()> {
 
         Commands::Fetch => {
             let current_dir = std::env::current_dir().into_diagnostic()?;
-            let mut ctx = fastc::BuildContext::new(&current_dir)
-                .map_err(|e| miette::miette!("{}", e))?;
+            let mut ctx =
+                fastc::BuildContext::new(&current_dir).map_err(|e| miette::miette!("{}", e))?;
 
             ctx.fetch_dependencies()
                 .map_err(|e| miette::miette!("{}", e))?;

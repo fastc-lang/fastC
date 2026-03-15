@@ -2,7 +2,6 @@
 //!
 //! These tests verify that the generated C code compiles with a C11 compiler.
 
-use assert_cmd::Command;
 use std::path::PathBuf;
 use std::process;
 use tempfile::tempdir;
@@ -11,7 +10,12 @@ use tempfile::tempdir;
 fn workspace_root() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     // Go up two levels from crates/fastc to workspace root
-    manifest_dir.parent().unwrap().parent().unwrap().to_path_buf()
+    manifest_dir
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 /// Check if clang is available
@@ -38,14 +42,19 @@ fn compile_and_verify(fc_file: &str) {
     let c_file = dir.path().join("output.c");
 
     // Run fastc to compile the .fc file
-    Command::cargo_bin("fastc")
-        .unwrap()
-        .args(["compile"])
+    let fastc_bin = env!("CARGO_BIN_EXE_fastc");
+    let output = process::Command::new(fastc_bin)
+        .arg("compile")
         .arg(&fc_path)
         .arg("-o")
         .arg(&c_file)
-        .assert()
-        .success();
+        .output()
+        .expect("Failed to run fastc");
+    assert!(
+        output.status.success(),
+        "fastc failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     // Compile with clang
     let output = process::Command::new("clang")

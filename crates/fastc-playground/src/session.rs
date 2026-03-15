@@ -82,9 +82,8 @@ impl SessionStore {
     /// Remove expired sessions
     pub fn cleanup_expired(&self, max_age: Duration) {
         let now = Instant::now();
-        self.sessions.retain(|_, session| {
-            now.duration_since(session.last_active) < max_age
-        });
+        self.sessions
+            .retain(|_, session| now.duration_since(session.last_active) < max_age);
         // Also clean up old channels
         self.channels.retain(|id, _| self.sessions.contains_key(id));
     }
@@ -123,5 +122,46 @@ impl SessionStore {
 impl Default for SessionStore {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_channel_lifecycle() {
+        let store = SessionStore::new();
+        let id = store.create();
+        let tx = store.create_channel(id);
+        let mut rx = store.subscribe(id).expect("channel should exist");
+
+        tx.send(ExecutionMessage::Compile {
+            stage: "test".to_string(),
+            output: "ok".to_string(),
+        })
+        .unwrap();
+        let msg = rx.try_recv().expect("receiver should get a message");
+        assert!(matches!(msg, ExecutionMessage::Compile { .. }));
+
+        store.remove_channel(id);
+        assert!(store.subscribe(id).is_none());
+    }
+
+    #[test]
+    fn test_cleanup_expired_removes_stale_sessions_and_channels() {
+        let store = SessionStore::new();
+        let id = store.create();
+        store.create_channel(id);
+
+        {
+            let mut session = store.sessions.get_mut(&id).unwrap();
+            session.last_active = Instant::now() - Duration::from_secs(3600);
+        }
+
+        store.cleanup_expired(Duration::from_secs(5));
+
+        assert!(store.get(id).is_none());
+        assert!(store.subscribe(id).is_none());
     }
 }

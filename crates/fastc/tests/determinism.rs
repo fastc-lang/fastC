@@ -9,10 +9,7 @@ use fastc::compile;
 fn verify_determinism(source: &str) {
     let output1 = compile(source, "test.fc").expect("First compilation failed");
     let output2 = compile(source, "test.fc").expect("Second compilation failed");
-    assert_eq!(
-        output1, output2,
-        "Output must be deterministic across runs"
-    );
+    assert_eq!(output1, output2, "Output must be deterministic across runs");
 }
 
 #[test]

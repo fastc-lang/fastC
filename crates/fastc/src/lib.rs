@@ -19,4 +19,4 @@ pub use build::{BuildContext, BuildError};
 pub use deps::{Cache, Fetcher, Lockfile, Manifest, ModuleLoader, ModuleResolver};
 pub use driver::{check, compile, compile_with_options};
 pub use fmt::{check_formatted, format};
-pub use scaffold::{create_project, init_project, BuildTemplate, ProjectType};
+pub use scaffold::{BuildTemplate, ProjectType, create_project, init_project};

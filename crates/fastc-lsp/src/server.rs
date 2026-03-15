@@ -12,6 +12,7 @@ use tower_lsp::{Client, LanguageServer};
 /// Document state stored by the server
 pub struct DocumentState {
     pub content: String,
+    #[allow(dead_code)]
     pub version: i32,
 }
 
@@ -56,19 +57,43 @@ impl FastcLanguageServer {
     /// Get completions for keywords and builtins
     fn get_keyword_completions(&self) -> Vec<CompletionItem> {
         let keywords = [
-            ("fn", "Function declaration", "fn ${1:name}(${2:params}) -> ${3:ReturnType} {\n    $0\n}"),
-            ("let", "Variable declaration", "let ${1:name}: ${2:Type} = ${3:value};"),
+            (
+                "fn",
+                "Function declaration",
+                "fn ${1:name}(${2:params}) -> ${3:ReturnType} {\n    $0\n}",
+            ),
+            (
+                "let",
+                "Variable declaration",
+                "let ${1:name}: ${2:Type} = ${3:value};",
+            ),
             ("if", "If statement", "if (${1:condition}) {\n    $0\n}"),
             ("else", "Else branch", "else {\n    $0\n}"),
             ("while", "While loop", "while (${1:condition}) {\n    $0\n}"),
-            ("for", "For loop", "for (${1:init}; ${2:cond}; ${3:step}) {\n    $0\n}"),
+            (
+                "for",
+                "For loop",
+                "for (${1:init}; ${2:cond}; ${3:step}) {\n    $0\n}",
+            ),
             ("return", "Return statement", "return ${1:value};"),
-            ("struct", "Struct declaration", "struct ${1:Name} {\n    $0\n}"),
+            (
+                "struct",
+                "Struct declaration",
+                "struct ${1:Name} {\n    $0\n}",
+            ),
             ("enum", "Enum declaration", "enum ${1:Name} {\n    $0\n}"),
-            ("const", "Constant declaration", "const ${1:NAME}: ${2:Type} = ${3:value};"),
+            (
+                "const",
+                "Constant declaration",
+                "const ${1:NAME}: ${2:Type} = ${3:value};",
+            ),
             ("unsafe", "Unsafe block", "unsafe {\n    $0\n}"),
             ("extern", "Extern block", "extern \"C\" {\n    $0\n}"),
-            ("switch", "Switch statement", "switch (${1:expr}) {\n    case ${2:value}:\n        $0\n        break;\n}"),
+            (
+                "switch",
+                "Switch statement",
+                "switch (${1:expr}) {\n    case ${2:value}:\n        $0\n        break;\n}",
+            ),
             ("break", "Break statement", "break;"),
             ("continue", "Continue statement", "continue;"),
             ("defer", "Defer statement", "defer {\n    $0\n}"),
@@ -129,16 +154,18 @@ impl FastcLanguageServer {
             })
             .collect();
 
-        items.extend(type_constructors.iter().map(|(label, detail, snippet)| {
-            CompletionItem {
-                label: label.to_string(),
-                kind: Some(CompletionItemKind::TYPE_PARAMETER),
-                detail: Some(detail.to_string()),
-                insert_text: Some(snippet.to_string()),
-                insert_text_format: Some(InsertTextFormat::SNIPPET),
-                ..Default::default()
-            }
-        }));
+        items.extend(
+            type_constructors
+                .iter()
+                .map(|(label, detail, snippet)| CompletionItem {
+                    label: label.to_string(),
+                    kind: Some(CompletionItemKind::TYPE_PARAMETER),
+                    detail: Some(detail.to_string()),
+                    insert_text: Some(snippet.to_string()),
+                    insert_text_format: Some(InsertTextFormat::SNIPPET),
+                    ..Default::default()
+                }),
+        );
 
         items
     }
@@ -237,13 +264,8 @@ impl LanguageServer for FastcLanguageServer {
         // Index file in workspace for cross-file features
         self.workspace.index_file(&uri, &content);
 
-        self.documents.insert(
-            uri.clone(),
-            DocumentState {
-                content,
-                version,
-            },
-        );
+        self.documents
+            .insert(uri.clone(), DocumentState { content, version });
 
         self.validate_document(&uri).await;
     }
@@ -615,7 +637,10 @@ impl LanguageServer for FastcLanguageServer {
                         match extern_item {
                             fastc::ast::ExternItem::Fn(proto) => {
                                 let range = Range::new(
-                                    crate::diagnostics::byte_to_position(&content, proto.span.start),
+                                    crate::diagnostics::byte_to_position(
+                                        &content,
+                                        proto.span.start,
+                                    ),
                                     crate::diagnostics::byte_to_position(&content, proto.span.end),
                                 );
                                 #[allow(deprecated)]
@@ -693,15 +718,13 @@ impl LanguageServer for FastcLanguageServer {
                         fastc::ast::UseItems::Single(item) => {
                             format!("{}::{}", decl.path.join("::"), item)
                         }
-                        fastc::ast::UseItems::Multiple(items) => {
+                        fastc::ast::UseItems::Multiple(_items) => {
                             format!("{}::{{...}}", decl.path.join("::"))
                         }
                         fastc::ast::UseItems::Glob => {
                             format!("{}::*", decl.path.join("::"))
                         }
-                        fastc::ast::UseItems::Module => {
-                            decl.path.join("::")
-                        }
+                        fastc::ast::UseItems::Module => decl.path.join("::"),
                     };
                     #[allow(deprecated)]
                     symbols.push(DocumentSymbol {

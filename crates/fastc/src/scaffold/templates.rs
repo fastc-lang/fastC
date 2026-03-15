@@ -113,14 +113,12 @@ pub fn makefile(name: &str, project_type: ProjectType) -> String {
     };
 
     let build_rule = match project_type {
-        ProjectType::Binary => format!(
-            r#"$(TARGET): build/$(SRC_NAME).o
+        ProjectType::Binary => r#"$(TARGET): build/$(SRC_NAME).o
 	$(CC) $(CFLAGS) -o $@ $<"#
-        ),
-        ProjectType::Library | ProjectType::FfiWrapper => format!(
-            r#"$(TARGET): build/$(SRC_NAME).o
+            .to_string(),
+        ProjectType::Library | ProjectType::FfiWrapper => r#"$(TARGET): build/$(SRC_NAME).o
 	$(AR) rcs $@ $<"#
-        ),
+            .to_string(),
     };
 
     format!(

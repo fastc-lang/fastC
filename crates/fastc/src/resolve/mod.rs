@@ -10,8 +10,7 @@ mod scope;
 pub use scope::*;
 
 use crate::ast::{
-    Block, ConstExpr, Expr, ExternBlock, ExternItem, File, FnDecl, Item, Stmt, StructDecl,
-    TypeExpr,
+    Block, ConstExpr, Expr, ExternBlock, ExternItem, File, FnDecl, Item, Stmt, StructDecl, TypeExpr,
 };
 use crate::diag::CompileError;
 use crate::lexer::Span;
@@ -174,8 +173,11 @@ impl<'a> Resolver<'a> {
                 ExternItem::Fn(fn_proto) => {
                     let param_types: Vec<TypeExpr> =
                         fn_proto.params.iter().map(|p| p.ty.clone()).collect();
-                    let fn_ty =
-                        fn_type(param_types, fn_proto.return_type.clone(), fn_proto.is_unsafe);
+                    let fn_ty = fn_type(
+                        param_types,
+                        fn_proto.return_type.clone(),
+                        fn_proto.is_unsafe,
+                    );
 
                     let symbol = Symbol {
                         name: fn_proto.name.clone(),
@@ -638,9 +640,9 @@ impl<'a> Resolver<'a> {
 
     fn error_undefined(&mut self, name: &str, span: &Span) {
         // Try to find a similar name to suggest
-        let hint = self.find_similar_name(name).map(|similar| {
-            format!("did you mean '{}'?", similar)
-        });
+        let hint = self
+            .find_similar_name(name)
+            .map(|similar| format!("did you mean '{}'?", similar));
 
         if let Some(hint) = hint {
             self.errors.push(CompileError::resolve_with_hint(
@@ -678,9 +680,7 @@ impl<'a> Resolver<'a> {
             if dist <= 3 && dist < target.len() {
                 match &best_match {
                     None => best_match = Some((name, dist)),
-                    Some((_, best_dist)) if dist < *best_dist => {
-                        best_match = Some((name, dist))
-                    }
+                    Some((_, best_dist)) if dist < *best_dist => best_match = Some((name, dist)),
                     _ => {}
                 }
             }
@@ -707,11 +707,11 @@ impl<'a> Resolver<'a> {
         let mut prev_row: Vec<usize> = (0..=b_len).collect();
         let mut curr_row: Vec<usize> = vec![0; b_len + 1];
 
-        for i in 0..a_len {
+        for (i, a_char) in a_chars.iter().enumerate().take(a_len) {
             curr_row[0] = i + 1;
 
             for j in 0..b_len {
-                let cost = if a_chars[i] == b_chars[j] { 0 } else { 1 };
+                let cost = if *a_char == b_chars[j] { 0 } else { 1 };
                 curr_row[j + 1] = (prev_row[j + 1] + 1)
                     .min(curr_row[j] + 1)
                     .min(prev_row[j] + cost);
@@ -732,7 +732,6 @@ impl Default for Resolver<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::driver::compile;
 
     fn check_error(source: &str, expected_substr: &str) {
@@ -759,18 +758,12 @@ mod tests {
 
     #[test]
     fn test_undefined_variable() {
-        check_error(
-            "fn foo() -> i32 { return x; }",
-            "undefined name 'x'",
-        );
+        check_error("fn foo() -> i32 { return x; }", "undefined name 'x'");
     }
 
     #[test]
     fn test_undefined_function() {
-        check_error(
-            "fn foo() -> i32 { return bar(); }",
-            "undefined name 'bar'",
-        );
+        check_error("fn foo() -> i32 { return bar(); }", "undefined name 'bar'");
     }
 
     #[test]
@@ -791,10 +784,7 @@ mod tests {
 
     #[test]
     fn test_undefined_type() {
-        check_error(
-            "fn foo(x: Foo) -> void {}",
-            "undefined type 'Foo'",
-        );
+        check_error("fn foo(x: Foo) -> void {}", "undefined type 'Foo'");
     }
 
     #[test]
@@ -812,9 +802,7 @@ mod tests {
 
     #[test]
     fn test_nested_scope() {
-        check_ok(
-            "fn foo() -> i32 { let x: i32 = 1; { let y: i32 = x; return y; } }",
-        );
+        check_ok("fn foo() -> i32 { let x: i32 = 1; { let y: i32 = x; return y; } }");
     }
 
     #[test]

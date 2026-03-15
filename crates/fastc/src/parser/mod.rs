@@ -14,7 +14,7 @@ pub struct Parser<'a> {
     tokens: &'a [Spanned<Token>],
     pos: usize,
     source: &'a str,
-    filename: &'a str,
+    _filename: &'a str,
 }
 
 impl<'a> Parser<'a> {
@@ -24,7 +24,7 @@ impl<'a> Parser<'a> {
             tokens,
             pos: 0,
             source,
-            filename,
+            _filename: filename,
         }
     }
 
@@ -42,7 +42,10 @@ impl<'a> Parser<'a> {
     // Token access helpers
 
     fn current(&self) -> &Token {
-        &self.tokens.get(self.pos).map(|t| &t.node).unwrap_or(&Token::Eof)
+        self.tokens
+            .get(self.pos)
+            .map(|t| &t.node)
+            .unwrap_or(&Token::Eof)
     }
 
     fn current_span(&self) -> Span {
@@ -50,13 +53,6 @@ impl<'a> Parser<'a> {
             .get(self.pos)
             .map(|t| t.span.clone())
             .unwrap_or(self.source.len()..self.source.len())
-    }
-
-    fn peek(&self) -> &Token {
-        self.tokens
-            .get(self.pos + 1)
-            .map(|t| &t.node)
-            .unwrap_or(&Token::Eof)
     }
 
     fn advance(&mut self) -> &Token {

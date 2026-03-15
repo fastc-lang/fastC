@@ -4,7 +4,7 @@ pub mod token;
 pub mod trivia;
 
 pub use token::{Span, Spanned, Token};
-pub use trivia::{strip_comments, Comment, TriviaLexer, TriviaToken};
+pub use trivia::{Comment, TriviaLexer, TriviaToken, strip_comments};
 
 use logos::Logos;
 

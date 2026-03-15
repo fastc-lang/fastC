@@ -58,7 +58,7 @@ FastC generates C11 code. While FastC provides safety guarantees in safe code:
 
 The FastC compiler:
 - Does not execute user code during compilation
-- Does not make network requests
+- May make network requests when resolving Git dependencies declared in `fastc.toml`
 - Processes only local files specified by the user
 
 ## Best Practices

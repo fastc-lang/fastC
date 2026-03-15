@@ -19,6 +19,37 @@ fn main() -> i32 {
 `
 
 export const usePlaygroundStore = defineStore('playground', () => {
+  const tokenStorageKey = 'fastc-playground-token'
+
+  function getAuthToken(): string | null {
+    const url = new URL(window.location.href)
+    const tokenFromQuery = url.searchParams.get('token')
+    if (tokenFromQuery) {
+      localStorage.setItem(tokenStorageKey, tokenFromQuery)
+      return tokenFromQuery
+    }
+    return localStorage.getItem(tokenStorageKey)
+  }
+
+  function authHeaders(): Record<string, string> {
+    const token = getAuthToken()
+    if (!token) {
+      return { 'Content-Type': 'application/json' }
+    }
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      'x-fastc-token': token,
+    }
+  }
+
+  function wsUrl(): string {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const token = getAuthToken()
+    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : ''
+    return `${protocol}//${window.location.host}/ws${tokenQuery}`
+  }
+
   // State
   const code = ref(DEFAULT_CODE)
   const cCode = ref('')
@@ -67,7 +98,7 @@ export const usePlaygroundStore = defineStore('playground', () => {
     try {
       const response = await fetch('/api/compile', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({ code: code.value, emit_header: false }),
       })
 
@@ -98,7 +129,7 @@ export const usePlaygroundStore = defineStore('playground', () => {
     try {
       const response = await fetch('/api/run', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({ code: code.value }),
       })
 
@@ -131,7 +162,7 @@ export const usePlaygroundStore = defineStore('playground', () => {
     try {
       const response = await fetch('/api/format', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({ code: code.value }),
       })
 
@@ -146,8 +177,7 @@ export const usePlaygroundStore = defineStore('playground', () => {
   }
 
   function connectWebSocket() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const socket = new WebSocket(`${protocol}//${window.location.host}/ws`)
+    const socket = new WebSocket(wsUrl())
 
     socket.onopen = () => {
       console.log('WebSocket connected')

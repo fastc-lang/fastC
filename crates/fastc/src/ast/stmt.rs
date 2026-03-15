@@ -4,6 +4,7 @@ use super::{Expr, Span, TypeExpr};
 
 /// A statement
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Stmt {
     /// let name: Type = expr;
     Let {
@@ -13,11 +14,7 @@ pub enum Stmt {
         span: Span,
     },
     /// lhs = expr;
-    Assign {
-        lhs: Expr,
-        rhs: Expr,
-        span: Span,
-    },
+    Assign { lhs: Expr, rhs: Expr, span: Span },
     /// if (cond) { ... } else { ... }
     If {
         cond: Expr,
@@ -34,11 +31,7 @@ pub enum Stmt {
         span: Span,
     },
     /// while (cond) { ... }
-    While {
-        cond: Expr,
-        body: Block,
-        span: Span,
-    },
+    While { cond: Expr, body: Block, span: Span },
     /// for (init; cond; step) { ... }
     For {
         init: Option<ForInit>,
@@ -55,34 +48,19 @@ pub enum Stmt {
         span: Span,
     },
     /// return expr;
-    Return {
-        value: Option<Expr>,
-        span: Span,
-    },
+    Return { value: Option<Expr>, span: Span },
     /// break;
     Break { span: Span },
     /// continue;
     Continue { span: Span },
     /// defer { ... }
-    Defer {
-        body: Block,
-        span: Span,
-    },
+    Defer { body: Block, span: Span },
     /// Expression statement (call only, or discard)
-    Expr {
-        expr: Expr,
-        span: Span,
-    },
+    Expr { expr: Expr, span: Span },
     /// discard(expr);
-    Discard {
-        expr: Expr,
-        span: Span,
-    },
+    Discard { expr: Expr, span: Span },
     /// unsafe { ... }
-    Unsafe {
-        body: Block,
-        span: Span,
-    },
+    Unsafe { body: Block, span: Span },
     /// A block as a statement
     Block(Block),
 }

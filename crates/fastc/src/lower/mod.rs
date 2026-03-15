@@ -13,8 +13,8 @@ use std::collections::{HashMap, HashSet};
 pub struct Lower {
     temp_counter: usize,
     in_unsafe: bool, // Track if currently in unsafe block (for runtime checks)
-    opt_types: HashSet<String>,  // Track used opt types for typedef generation
-    res_types: HashSet<String>,  // Track used res types for typedef generation
+    opt_types: HashSet<String>, // Track used opt types for typedef generation
+    res_types: HashSet<String>, // Track used res types for typedef generation
     slice_types: HashSet<String>, // Track used slice types for typedef generation
     var_types: HashMap<String, CType>, // Track variable types for type inference
 }
@@ -66,9 +66,14 @@ impl Lower {
             ast::Expr::Binary { op, lhs, .. } => {
                 // Comparison and logical operators return bool
                 match op {
-                    ast::BinOp::Eq | ast::BinOp::Ne | ast::BinOp::Lt
-                    | ast::BinOp::Le | ast::BinOp::Gt | ast::BinOp::Ge
-                    | ast::BinOp::And | ast::BinOp::Or => CType::Bool,
+                    ast::BinOp::Eq
+                    | ast::BinOp::Ne
+                    | ast::BinOp::Lt
+                    | ast::BinOp::Le
+                    | ast::BinOp::Gt
+                    | ast::BinOp::Ge
+                    | ast::BinOp::And
+                    | ast::BinOp::Or => CType::Bool,
                     // Arithmetic operators return the same type as the operands
                     _ => self.infer_expr_type(lhs),
                 }
@@ -160,12 +165,16 @@ impl Lower {
         // Generate slice typedefs first (sorted for determinism)
         // Skip types already defined in fastc_runtime.h
         let builtin_slice_types: HashSet<&str> = [
-            "uint8_t", "int8_t", "uint16_t", "int16_t",
-            "uint32_t", "int32_t", "uint64_t", "int64_t",
-            "float", "double",
-        ].iter().cloned().collect();
+            "uint8_t", "int8_t", "uint16_t", "int16_t", "uint32_t", "int32_t", "uint64_t",
+            "int64_t", "float", "double",
+        ]
+        .iter()
+        .cloned()
+        .collect();
 
-        let mut slice_types: Vec<_> = self.slice_types.iter()
+        let mut slice_types: Vec<_> = self
+            .slice_types
+            .iter()
             .filter(|t| !builtin_slice_types.contains(t.as_str()))
             .cloned()
             .collect();
@@ -220,7 +229,9 @@ impl Lower {
                 self.collect_types_from_expr(lhs);
                 self.collect_types_from_expr(rhs);
             }
-            CStmt::If { cond, then, else_, .. } => {
+            CStmt::If {
+                cond, then, else_, ..
+            } => {
                 self.collect_types_from_expr(cond);
                 for s in then {
                     self.collect_types_from_stmt(s);
@@ -237,7 +248,13 @@ impl Lower {
                     self.collect_types_from_stmt(s);
                 }
             }
-            CStmt::For { init, cond, step, body, .. } => {
+            CStmt::For {
+                init,
+                cond,
+                step,
+                body,
+                ..
+            } => {
                 if let Some(init_stmt) = init {
                     self.collect_types_from_stmt(init_stmt);
                 }
@@ -313,7 +330,11 @@ impl Lower {
                 self.collect_types_from_type(inner);
             }
             CType::Res(ok_ty, err_ty) => {
-                let name = format!("{}_{}", Self::c_type_to_name(ok_ty), Self::c_type_to_name(err_ty));
+                let name = format!(
+                    "{}_{}",
+                    Self::c_type_to_name(ok_ty),
+                    Self::c_type_to_name(err_ty)
+                );
                 self.res_types.insert(name);
                 self.collect_types_from_type(ok_ty);
                 self.collect_types_from_type(err_ty);
@@ -355,7 +376,11 @@ impl Lower {
             CType::Named(n) => n.clone(),
             CType::Slice(inner) => format!("slice_{}", Self::c_type_to_name(inner)),
             CType::Opt(inner) => format!("opt_{}", Self::c_type_to_name(inner)),
-            CType::Res(ok, err) => format!("res_{}_{}", Self::c_type_to_name(ok), Self::c_type_to_name(err)),
+            CType::Res(ok, err) => format!(
+                "res_{}_{}",
+                Self::c_type_to_name(ok),
+                Self::c_type_to_name(err)
+            ),
             CType::Array(inner, size) => format!("arr{}_{}", size, Self::c_type_to_name(inner)),
         }
     }
@@ -711,19 +736,15 @@ impl Lower {
                     .iter()
                     .map(|case| {
                         let value = self.lower_const_expr(&case.value);
-                        let mut case_stmts: Vec<CStmt> = case
-                            .stmts
-                            .iter()
-                            .flat_map(|s| self.lower_stmt(s))
-                            .collect();
+                        let mut case_stmts: Vec<CStmt> =
+                            case.stmts.iter().flat_map(|s| self.lower_stmt(s)).collect();
                         case_stmts.push(CStmt::Break);
                         (value, case_stmts)
                     })
                     .collect();
 
                 let c_default = default.as_ref().map(|stmts| {
-                    let mut d: Vec<CStmt> =
-                        stmts.iter().flat_map(|s| self.lower_stmt(s)).collect();
+                    let mut d: Vec<CStmt> = stmts.iter().flat_map(|s| self.lower_stmt(s)).collect();
                     d.push(CStmt::Break);
                     d
                 });
@@ -1062,9 +1083,7 @@ impl Lower {
             }
 
             // Owning pointer -> T* (lifetime management is future work)
-            ast::TypeExpr::Own(inner) => {
-                CType::Ptr(Box::new(self.lower_type(inner)))
-            }
+            ast::TypeExpr::Own(inner) => CType::Ptr(Box::new(self.lower_type(inner))),
 
             // Slice -> fc_slice_T struct
             ast::TypeExpr::Slice(inner) => CType::Slice(Box::new(self.lower_type(inner))),

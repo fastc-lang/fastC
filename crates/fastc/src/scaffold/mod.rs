@@ -5,7 +5,7 @@
 
 mod templates;
 
-use miette::{bail, IntoDiagnostic, Result};
+use miette::{IntoDiagnostic, Result, bail};
 use std::fs;
 use std::path::Path;
 
@@ -123,7 +123,12 @@ pub fn create_project(
     write_gitignore(&project_dir)?;
     write_readme(&project_dir, name, project_type, build_template)?;
 
-    eprintln!("Created {} project '{}' at {}", project_type, name, project_dir.display());
+    eprintln!(
+        "Created {} project '{}' at {}",
+        project_type,
+        name,
+        project_dir.display()
+    );
     eprintln!();
     eprintln!("To get started:");
     eprintln!("  cd {}", name);

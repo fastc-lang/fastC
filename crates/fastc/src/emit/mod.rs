@@ -294,7 +294,10 @@ impl Emitter {
                     .map(|e| self.expr_to_string(e))
                     .unwrap_or_default();
 
-                self.line(&format!("for ({}; {}; {}) {{", init_str, cond_str, step_str));
+                self.line(&format!(
+                    "for ({}; {}; {}) {{",
+                    init_str, cond_str, step_str
+                ));
                 self.indent += 1;
                 for s in body {
                     self.emit_stmt(s);
@@ -381,7 +384,11 @@ impl Emitter {
                 }
             }
             CStmt::Assign { lhs, rhs } => {
-                format!("{} = {}", self.expr_to_string(lhs), self.expr_to_string(rhs))
+                format!(
+                    "{} = {}",
+                    self.expr_to_string(lhs),
+                    self.expr_to_string(rhs)
+                )
             }
             CStmt::Expr(expr) => self.expr_to_string(expr),
             _ => String::new(),
@@ -404,7 +411,11 @@ impl Emitter {
                 )
             }
             CExpr::Unary { op, operand } => {
-                format!("({}{})", self.unaryop_to_string(*op), self.expr_to_string(operand))
+                format!(
+                    "({}{})",
+                    self.unaryop_to_string(*op),
+                    self.expr_to_string(operand)
+                )
             }
             CExpr::Call { func, args } => {
                 let args_str = args
@@ -424,10 +435,18 @@ impl Emitter {
                 format!("(&{})", self.expr_to_string(val))
             }
             CExpr::Index { base, index } => {
-                format!("{}[{}]", self.expr_to_string(base), self.expr_to_string(index))
+                format!(
+                    "{}[{}]",
+                    self.expr_to_string(base),
+                    self.expr_to_string(index)
+                )
             }
             CExpr::Cast { ty, expr } => {
-                format!("(({}){})", self.type_to_string(ty), self.expr_to_string(expr))
+                format!(
+                    "(({}){})",
+                    self.type_to_string(ty),
+                    self.expr_to_string(expr)
+                )
             }
             CExpr::Paren(inner) => {
                 format!("({})", self.expr_to_string(inner))
@@ -503,7 +522,11 @@ impl Emitter {
             CType::ConstPtr(inner) => format!("cptr_{}", self.type_to_c_name(inner)),
             CType::Slice(inner) => format!("slice_{}", self.type_to_c_name(inner)),
             CType::Opt(inner) => format!("opt_{}", self.type_to_c_name(inner)),
-            CType::Res(ok, err) => format!("res_{}_{}", self.type_to_c_name(ok), self.type_to_c_name(err)),
+            CType::Res(ok, err) => format!(
+                "res_{}_{}",
+                self.type_to_c_name(ok),
+                self.type_to_c_name(err)
+            ),
             _ => "void".to_string(),
         }
     }

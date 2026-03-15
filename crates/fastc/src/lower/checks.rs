@@ -19,6 +19,7 @@ pub fn bounds_check(index: CExpr, len: CExpr) -> CStmt {
 }
 
 /// Insert a null check
+#[allow(dead_code)]
 pub fn null_check(ptr: CExpr) -> CStmt {
     CStmt::If {
         cond: CExpr::Binary {
@@ -35,32 +36,17 @@ pub fn null_check(ptr: CExpr) -> CStmt {
 }
 
 /// Insert a signed overflow check using __builtin_add_overflow
-pub fn overflow_check_add(
-    lhs: CExpr,
-    rhs: CExpr,
-    result_var: &str,
-    ty: CType,
-) -> (CStmt, CStmt) {
+pub fn overflow_check_add(lhs: CExpr, rhs: CExpr, result_var: &str, ty: CType) -> (CStmt, CStmt) {
     overflow_check_with_builtin("__builtin_add_overflow", lhs, rhs, result_var, ty)
 }
 
 /// Insert a signed overflow check using __builtin_sub_overflow
-pub fn overflow_check_sub(
-    lhs: CExpr,
-    rhs: CExpr,
-    result_var: &str,
-    ty: CType,
-) -> (CStmt, CStmt) {
+pub fn overflow_check_sub(lhs: CExpr, rhs: CExpr, result_var: &str, ty: CType) -> (CStmt, CStmt) {
     overflow_check_with_builtin("__builtin_sub_overflow", lhs, rhs, result_var, ty)
 }
 
 /// Insert a signed overflow check using __builtin_mul_overflow
-pub fn overflow_check_mul(
-    lhs: CExpr,
-    rhs: CExpr,
-    result_var: &str,
-    ty: CType,
-) -> (CStmt, CStmt) {
+pub fn overflow_check_mul(lhs: CExpr, rhs: CExpr, result_var: &str, ty: CType) -> (CStmt, CStmt) {
     overflow_check_with_builtin("__builtin_mul_overflow", lhs, rhs, result_var, ty)
 }
 

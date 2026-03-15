@@ -7,7 +7,7 @@
 
 use dashmap::DashMap;
 use std::path::Path;
-use tower_lsp::lsp_types::{Location, Position, Range, Url};
+use tower_lsp::lsp_types::{Location, Range, Url};
 
 use crate::diagnostics::byte_to_position;
 
@@ -17,6 +17,7 @@ pub struct SymbolInfo {
     /// Name of the symbol
     pub name: String,
     /// Kind of symbol
+    #[allow(dead_code)]
     pub kind: SymbolKind,
     /// File containing the symbol
     pub uri: Url,
@@ -57,8 +58,7 @@ impl Workspace {
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| {
-                e.path().extension().is_some_and(|ext| ext == "fc")
-                    && e.file_type().is_file()
+                e.path().extension().is_some_and(|ext| ext == "fc") && e.file_type().is_file()
             })
         {
             if let Ok(content) = std::fs::read_to_string(entry.path()) {
@@ -248,6 +248,7 @@ impl Workspace {
     }
 
     /// Find all definitions for a symbol name (for peek definition)
+    #[allow(dead_code)]
     pub fn find_all_definitions(&self, name: &str) -> Vec<Location> {
         self.symbols
             .get(name)
@@ -264,6 +265,7 @@ impl Workspace {
     }
 
     /// Get all symbol names in the workspace
+    #[allow(dead_code)]
     pub fn all_symbol_names(&self) -> Vec<String> {
         self.symbols.iter().map(|e| e.key().clone()).collect()
     }

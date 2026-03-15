@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::deps::{Manifest, ModuleLoader};
 use crate::diag::CompileError;
 use crate::emit::Emitter;
-use crate::lexer::{strip_comments, Lexer};
+use crate::lexer::{Lexer, strip_comments};
 use crate::lower::Lower;
 use crate::parser::Parser;
 use crate::resolve::Resolver;
