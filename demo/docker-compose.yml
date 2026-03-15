@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  fastc-playground:
+    build:
+      context: ..
+      dockerfile: demo/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - FASTC_RUNTIME=/app/runtime
+      - RUST_LOG=info
+    restart: unless-stopped
+    # Resource limits for safety
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    read_only: false  # Needs /tmp for compilation
+    tmpfs:
+      - /tmp:size=100M,mode=1777

@@ -1,0 +1,33 @@
+# Build artifacts
+target/
+node_modules/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Documentation
+documentation/
+*.md
+!README.md
+
+# Tests
+**/tests/
+**/snapshots/
+
+# Examples
+examples/
+
+# Demo (don't include demo in itself)
+demo/
+
+# Misc
+.env
+.env.*
+*.log
