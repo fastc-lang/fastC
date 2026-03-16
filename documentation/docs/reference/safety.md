@@ -1,6 +1,6 @@
 # Safety Guarantees
 
-FastC provides memory safety guarantees while maintaining C interoperability.
+FastC provides memory safety guarantees while maintaining C interoperability. For safety-critical applications, FastC also enforces NASA/JPL's [Power of 10 rules](power-of-10.md).
 
 ## Overview
 
@@ -315,6 +315,8 @@ Default behavior: program abort.
 
 ## See Also
 
+- [Power of 10 Rules](power-of-10.md) - NASA/JPL safety-critical coding rules
+- [Certification & AI](certification.md) - Compliance reports for CI/CD and AI agents
 - [Unsafe Code](../language/unsafe.md) - Using unsafe blocks
 - [Optionals](../language/optionals.md) - Safe null handling
 - [Results](../language/results.md) - Safe error handling

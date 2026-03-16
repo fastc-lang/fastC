@@ -10,6 +10,28 @@ struct Cli {
     command: Commands,
 }
 
+/// Safety level for Power of 10 rule enforcement
+#[derive(Debug, Clone, Copy, ValueEnum, Default)]
+enum CliSafetyLevel {
+    /// Standard FastC safety (default)
+    #[default]
+    Standard,
+    /// Full Power of 10 compliance for safety-critical code
+    Critical,
+    /// Relaxed mode for prototyping
+    Relaxed,
+}
+
+impl From<CliSafetyLevel> for fastc::SafetyLevel {
+    fn from(level: CliSafetyLevel) -> Self {
+        match level {
+            CliSafetyLevel::Standard => fastc::SafetyLevel::Standard,
+            CliSafetyLevel::Critical => fastc::SafetyLevel::SafetyCritical,
+            CliSafetyLevel::Relaxed => fastc::SafetyLevel::Relaxed,
+        }
+    }
+}
+
 /// Project type for scaffolding
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum CliProjectType {
@@ -52,6 +74,18 @@ impl From<CliBuildTemplate> for fastc::BuildTemplate {
     }
 }
 
+/// Report output format
+#[derive(Debug, Clone, Copy, ValueEnum, Default)]
+enum CliReportFormat {
+    /// Pretty-printed JSON (for AI agents)
+    #[default]
+    Json,
+    /// Compact JSON (for CI/CD)
+    Compact,
+    /// Human-readable text
+    Text,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Compile a FastC source file to C
@@ -66,12 +100,74 @@ enum Commands {
         /// Also emit a C header file
         #[arg(long)]
         emit_header: bool,
+
+        /// Enable Power of 10 safety-critical rules (enabled by default)
+        #[arg(long, hide = true)]
+        p10: bool,
+
+        /// Safety level: standard (default), critical (strictest), relaxed (no P10 checks)
+        #[arg(long, value_enum, default_value = "standard")]
+        safety_level: CliSafetyLevel,
+
+        /// Treat all warnings as errors (strict mode)
+        #[arg(long)]
+        strict: bool,
     },
 
     /// Type-check a FastC source file without emitting C
     Check {
         /// Input FastC source file
         input: PathBuf,
+
+        /// Enable Power of 10 safety-critical rules (enabled by default)
+        #[arg(long, hide = true)]
+        p10: bool,
+
+        /// Safety level: standard (default), critical (strictest), relaxed (no P10 checks)
+        #[arg(long, value_enum, default_value = "standard")]
+        safety_level: CliSafetyLevel,
+
+        /// Treat all warnings as errors (strict mode)
+        #[arg(long)]
+        strict: bool,
+    },
+
+    /// List Power of 10 rules and their status
+    P10Rules {
+        /// Safety level to show rules for
+        #[arg(long, value_enum, default_value = "critical")]
+        safety_level: CliSafetyLevel,
+    },
+
+    /// Generate compliance certification report (for AI agents and audits)
+    CertReport {
+        /// Input FastC source file(s)
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+
+        /// Output format: json (default), text, or compact
+        #[arg(long, value_enum, default_value = "json")]
+        format: CliReportFormat,
+
+        /// Output file (use - for stdout)
+        #[arg(short, long, default_value = "-")]
+        output: String,
+
+        /// Safety level for checking
+        #[arg(long, value_enum, default_value = "standard")]
+        safety_level: CliSafetyLevel,
+
+        /// Generate project-wide report (aggregates all files)
+        #[arg(long)]
+        project: bool,
+
+        /// Project name for project report
+        #[arg(long)]
+        project_name: Option<String>,
+
+        /// Fail with exit code 1 if non-compliant
+        #[arg(long)]
+        fail_on_violation: bool,
     },
 
     /// Format a FastC source file
@@ -171,11 +267,19 @@ fn main() -> Result<()> {
             input,
             output,
             emit_header,
+            p10: _,
+            safety_level,
+            strict,
         } => {
             let source = std::fs::read_to_string(&input).into_diagnostic()?;
             let filename = input.display().to_string();
 
-            let (c_code, header) = fastc::compile_with_options(&source, &filename, emit_header)?;
+            // P10 rules are always enabled (use --safety-level=relaxed to disable)
+            let mut config = fastc::P10Config::from_level(safety_level.into());
+            if strict {
+                config.strict_mode = true;
+            }
+            let (c_code, header) = fastc::compile_with_p10(&source, &filename, emit_header, config)?;
 
             if output == "-" {
                 println!("{}", c_code);
@@ -192,12 +296,120 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::Check { input } => {
+        Commands::Check { input, p10: _, safety_level, strict } => {
             let source = std::fs::read_to_string(&input).into_diagnostic()?;
             let filename = input.display().to_string();
 
-            fastc::check(&source, &filename)?;
+            // P10 rules are always enabled (use --safety-level=relaxed to disable)
+            let mut config = fastc::P10Config::from_level(safety_level.into());
+            if strict {
+                config.strict_mode = true;
+            }
+            fastc::check_with_p10(&source, &filename, config)?;
             eprintln!("No errors found.");
+        }
+
+        Commands::P10Rules { safety_level } => {
+            let config = fastc::P10Config::from_level(safety_level.into());
+            let checker = fastc::P10Checker::new(config);
+            checker.print_rules_summary();
+        }
+
+        Commands::CertReport {
+            inputs,
+            format,
+            output,
+            safety_level,
+            project,
+            project_name,
+            fail_on_violation,
+        } => {
+            let config = fastc::P10Config::from_level(safety_level.into());
+            let checker = fastc::P10Checker::new(config.clone());
+
+            let mut file_reports = Vec::new();
+            let mut any_non_compliant = false;
+
+            for input in &inputs {
+                let source = std::fs::read_to_string(input).into_diagnostic()?;
+                let filename = input.display().to_string();
+
+                // Parse the file to count functions and check for violations
+                let ast = match fastc::parse(&source, &filename) {
+                    Ok(ast) => ast,
+                    Err(e) => {
+                        eprintln!("Parse error in {}: {:?}", filename, e);
+                        continue;
+                    }
+                };
+
+                let function_count = ast.items.iter().filter(|item| matches!(item, fastc::Item::Fn(_))).count();
+                let violations = checker.check(&ast, &source);
+
+                let report = fastc::ComplianceReport::new(
+                    &filename,
+                    &config,
+                    &violations,
+                    &source,
+                    function_count,
+                );
+
+                if !report.is_compliant() {
+                    any_non_compliant = true;
+                }
+
+                file_reports.push(report);
+            }
+
+            // Generate output
+            let output_text = if project {
+                let project_report = fastc::ProjectReport::from_files(
+                    project_name,
+                    safety_level.into(),
+                    file_reports,
+                );
+                match format {
+                    CliReportFormat::Json => project_report.to_json(),
+                    CliReportFormat::Compact => serde_json::to_string(&project_report).unwrap_or_default(),
+                    CliReportFormat::Text => {
+                        // For project reports in text, concatenate individual reports
+                        let mut text = String::new();
+                        text.push_str(&format!("Project: {}\n", project_report.project_name.as_deref().unwrap_or("unnamed")));
+                        text.push_str(&format!("Status: {:?}\n", project_report.status));
+                        text.push_str(&format!("Files: {} analyzed, {} compliant\n\n",
+                            project_report.summary.files_analyzed,
+                            project_report.summary.files_compliant));
+                        text
+                    }
+                }
+            } else if file_reports.len() == 1 {
+                let report = &file_reports[0];
+                match format {
+                    CliReportFormat::Json => report.to_json(),
+                    CliReportFormat::Compact => report.to_json_compact(),
+                    CliReportFormat::Text => report.to_text(),
+                }
+            } else {
+                // Multiple files without project flag - output as JSON array
+                match format {
+                    CliReportFormat::Json => serde_json::to_string_pretty(&file_reports).unwrap_or_default(),
+                    CliReportFormat::Compact => serde_json::to_string(&file_reports).unwrap_or_default(),
+                    CliReportFormat::Text => {
+                        file_reports.iter().map(|r| r.to_text()).collect::<Vec<_>>().join("\n\n")
+                    }
+                }
+            };
+
+            if output == "-" {
+                println!("{}", output_text);
+            } else {
+                std::fs::write(&output, &output_text).into_diagnostic()?;
+                eprintln!("Report written to {}", output);
+            }
+
+            if fail_on_violation && any_non_compliant {
+                std::process::exit(1);
+            }
         }
 
         Commands::Fmt {

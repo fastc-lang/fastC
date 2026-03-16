@@ -142,6 +142,33 @@ pub fn compile_error_to_diagnostics(error: &CompileError, source: &str) -> Vec<D
                 ..Default::default()
             });
         }
+        CompileError::P10 {
+            code,
+            message,
+            span,
+            hint,
+            ..
+        } => {
+            diagnostics.push(Diagnostic {
+                range: byte_span_to_range(source, span.start, span.end),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: Some(tower_lsp::lsp_types::NumberOrString::String(
+                    format!("fastc::p10::{}", code),
+                )),
+                source: Some("fastc".to_string()),
+                message: format!("Power of 10 [{}]: {}", code, message),
+                related_information: hint.as_ref().map(|h| {
+                    vec![tower_lsp::lsp_types::DiagnosticRelatedInformation {
+                        location: tower_lsp::lsp_types::Location {
+                            uri: tower_lsp::lsp_types::Url::parse("file:///hint").unwrap(),
+                            range: Range::default(),
+                        },
+                        message: h.clone(),
+                    }]
+                }),
+                ..Default::default()
+            });
+        }
         CompileError::Multiple { errors } => {
             for error in errors {
                 diagnostics.extend(compile_error_to_diagnostics(error, source));

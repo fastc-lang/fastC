@@ -168,11 +168,50 @@ fastc/
 
 ## Design Principles
 
-1. **No ambiguity** - Every construct has exactly one meaning
-2. **Explicit over implicit** - Types, casts, and unsafe are always visible
-3. **C compatibility** - Output is standard C11, ABI-compatible
-4. **Predictable codegen** - Same input always produces same output
-5. **Minimal runtime** - Just a small header, no hidden allocations
+FastC is built on NASA/JPL's **Power of 10** rules for safety-critical code, developed by Gerard J. Holzmann for the Mars Science Laboratory mission.
+
+### Core Values
+
+- **No ambiguity** - Every construct has exactly one meaning
+- **Explicit over implicit** - Types, casts, and unsafe are always visible
+- **C compatibility** - Output is standard C11, ABI-compatible
+- **Predictable codegen** - Same input always produces same output
+- **Minimal runtime** - Just a small header, no hidden allocations
+
+### NASA/JPL Power of 10 Rules
+
+FastC enforces safety-critical coding rules **by default**:
+
+| Rule | Description | Standard | Critical |
+|------|-------------|:--------:|:--------:|
+| 1 | No recursion | - | Yes |
+| 2 | Bounded loops | Yes | Yes |
+| 3 | No dynamic allocation | Yes | Yes |
+| 4 | Function size limit (60 lines) | Yes | Yes |
+| 5 | Assertion density | Planned | Planned |
+| 6 | Minimal scope | By design | By design |
+| 7 | Check return values | By design | By design |
+| 8 | No preprocessor | By design | By design |
+| 9 | Single-level pointers | Yes | Yes |
+| 10 | Zero warnings | --strict | --strict |
+
+### Safety Levels
+
+```bash
+# Standard (default) - key safety rules enabled
+fastc check src/main.fc
+
+# Critical - full Power of 10 for safety-critical systems
+fastc check --safety-level=critical src/main.fc
+
+# Strict - treat all warnings as errors
+fastc compile --strict src/main.fc -o main.c
+
+# List enabled rules
+fastc p10-rules --safety-level=critical
+```
+
+See the [Power of 10 Guide](https://docs.skelfresearch.com/fastc/reference/power-of-10/) for detailed documentation.
 
 ## Contributing
 

@@ -61,6 +61,7 @@ fn extract_error_info(code: &str, e: &fastc::diag::CompileError) -> CompileError
         CompileError::Resolve { span, hint, .. } => (Some(span.clone()), hint.clone()),
         CompileError::Type { span, hint, .. } => (Some(span.clone()), hint.clone()),
         CompileError::Safety { span, hint, .. } => (Some(span.clone()), hint.clone()),
+        CompileError::P10 { span, hint, .. } => (Some(span.clone()), hint.clone()),
         CompileError::Multiple { errors } => {
             // For multiple errors, use the first error's span
             if let Some(first) = errors.first() {

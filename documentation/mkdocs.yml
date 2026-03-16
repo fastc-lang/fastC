@@ -68,6 +68,8 @@ nav:
     - reference/grammar.md
     - reference/runtime.md
     - reference/safety.md
+    - Power of 10: reference/power-of-10.md
+    - Certification & AI: reference/certification.md
 
 markdown_extensions:
   - pymdownx.highlight:

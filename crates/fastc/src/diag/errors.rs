@@ -53,6 +53,18 @@ pub enum CompileError {
         hint: Option<String>,
     },
 
+    #[error("Power of 10 violation [{code}]: {message}")]
+    #[diagnostic(code(fastc::p10), help("{}", hint.as_deref().unwrap_or("")))]
+    P10 {
+        code: String,
+        message: String,
+        #[label("here")]
+        span: Span,
+        #[source_code]
+        src: String,
+        hint: Option<String>,
+    },
+
     #[error("Multiple errors occurred")]
     #[diagnostic(code(fastc::multiple))]
     Multiple {
