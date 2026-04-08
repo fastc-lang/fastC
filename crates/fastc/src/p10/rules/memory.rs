@@ -10,8 +10,8 @@
 //! Note: FastC doesn't have malloc as a built-in, so this rule primarily
 //! checks for FFI calls to known allocation functions.
 
-use crate::ast::Expr;
 use super::{P10Config, P10Rule, P10Violation};
+use crate::ast::Expr;
 use crate::p10::config::SafetyLevel;
 
 /// Known memory allocation functions to flag
@@ -91,7 +91,10 @@ mod tests {
                 name: "malloc".to_string(),
                 span: 0..6,
             }),
-            args: vec![Expr::IntLit { value: 100, span: 7..10 }],
+            args: vec![Expr::IntLit {
+                value: 100,
+                span: 7..10,
+            }],
             span: 0..11,
         };
         let config = P10Config::safety_critical();
@@ -127,7 +130,10 @@ mod tests {
                 name: "free".to_string(),
                 span: 0..4,
             }),
-            args: vec![Expr::Ident { name: "ptr".to_string(), span: 5..8 }],
+            args: vec![Expr::Ident {
+                name: "ptr".to_string(),
+                span: 5..8,
+            }],
             span: 0..9,
         };
         let config = P10Config::safety_critical();

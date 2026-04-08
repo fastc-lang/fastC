@@ -209,9 +209,15 @@ impl ComplianceReport {
     pub fn to_text(&self) -> String {
         let mut out = String::new();
 
-        out.push_str(&format!("╔══════════════════════════════════════════════════════════════╗\n"));
-        out.push_str(&format!("║              FASTC COMPLIANCE REPORT                         ║\n"));
-        out.push_str(&format!("╚══════════════════════════════════════════════════════════════╝\n\n"));
+        out.push_str(&format!(
+            "╔══════════════════════════════════════════════════════════════╗\n"
+        ));
+        out.push_str(&format!(
+            "║              FASTC COMPLIANCE REPORT                         ║\n"
+        ));
+        out.push_str(&format!(
+            "╚══════════════════════════════════════════════════════════════╝\n\n"
+        ));
 
         out.push_str(&format!("File:         {}\n", self.file));
         out.push_str(&format!("Safety Level: {}\n", self.safety_level));
@@ -445,13 +451,21 @@ fn build_rule_results(
 ) -> Vec<RuleResult> {
     // All 10 rules
     let rule_info: [(u8, &str, bool); 10] = [
-        (1, "Simple Control Flow (no recursion)", !config.allow_recursion),
+        (
+            1,
+            "Simple Control Flow (no recursion)",
+            !config.allow_recursion,
+        ),
         (2, "Bounded Loops", config.require_loop_bounds),
         (3, "No Dynamic Allocation", !config.allow_runtime_alloc),
-        (4, "Function Size Limit", config.level != SafetyLevel::Relaxed),
+        (
+            4,
+            "Function Size Limit",
+            config.level != SafetyLevel::Relaxed,
+        ),
         (5, "Assertion Density", config.min_assertions_per_fn > 0),
-        (6, "Minimal Scope", true), // By language design
-        (7, "Check Return Values", true), // By type system
+        (6, "Minimal Scope", true),        // By language design
+        (7, "Check Return Values", true),  // By type system
         (8, "Limited Preprocessor", true), // No preprocessor in FastC
         (9, "Restricted Pointers", config.max_pointer_depth <= 1),
         (10, "Zero Warnings", config.strict_mode),

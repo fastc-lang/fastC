@@ -24,6 +24,8 @@ pub struct ModuleResolver {
     src_dir: PathBuf,
     /// Cache of resolved modules
     cache: HashMap<String, ResolvedModule>,
+    /// Dependency directories: maps dependency name → source directory
+    dep_dirs: Vec<(String, PathBuf)>,
 }
 
 impl ModuleResolver {
@@ -34,6 +36,18 @@ impl ModuleResolver {
             root,
             src_dir,
             cache: HashMap::new(),
+            dep_dirs: Vec::new(),
+        }
+    }
+
+    /// Create a new module resolver with dependency directories
+    pub fn with_dep_dirs(root: PathBuf, dep_dirs: Vec<(String, PathBuf)>) -> Self {
+        let src_dir = root.join("src");
+        Self {
+            root,
+            src_dir,
+            cache: HashMap::new(),
+            dep_dirs,
         }
     }
 
@@ -104,6 +118,26 @@ impl ModuleResolver {
         let dir_path = self.src_dir.join(module_name).join("mod.fc");
         if dir_path.exists() {
             return Ok(dir_path);
+        }
+
+        // Try dependency directories
+        for (dep_name, dep_dir) in &self.dep_dirs {
+            if dep_name == module_name {
+                // Look for lib.fc or mod.fc in the dependency's source dir
+                let lib_path = dep_dir.join("src").join("lib.fc");
+                if lib_path.exists() {
+                    return Ok(lib_path);
+                }
+                let mod_path = dep_dir.join("src").join("mod.fc");
+                if mod_path.exists() {
+                    return Ok(mod_path);
+                }
+                // Also check the root of the dependency
+                let root_lib = dep_dir.join("lib.fc");
+                if root_lib.exists() {
+                    return Ok(root_lib);
+                }
+            }
         }
 
         Err(ModuleError::NotFound {

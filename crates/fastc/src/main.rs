@@ -279,7 +279,8 @@ fn main() -> Result<()> {
             if strict {
                 config.strict_mode = true;
             }
-            let (c_code, header) = fastc::compile_with_p10(&source, &filename, emit_header, config)?;
+            let (c_code, header) =
+                fastc::compile_with_p10(&source, &filename, emit_header, config)?;
 
             if output == "-" {
                 println!("{}", c_code);
@@ -296,7 +297,12 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::Check { input, p10: _, safety_level, strict } => {
+        Commands::Check {
+            input,
+            p10: _,
+            safety_level,
+            strict,
+        } => {
             let source = std::fs::read_to_string(&input).into_diagnostic()?;
             let filename = input.display().to_string();
 
@@ -343,7 +349,11 @@ fn main() -> Result<()> {
                     }
                 };
 
-                let function_count = ast.items.iter().filter(|item| matches!(item, fastc::Item::Fn(_))).count();
+                let function_count = ast
+                    .items
+                    .iter()
+                    .filter(|item| matches!(item, fastc::Item::Fn(_)))
+                    .count();
                 let violations = checker.check(&ast, &source);
 
                 let report = fastc::ComplianceReport::new(
@@ -370,15 +380,22 @@ fn main() -> Result<()> {
                 );
                 match format {
                     CliReportFormat::Json => project_report.to_json(),
-                    CliReportFormat::Compact => serde_json::to_string(&project_report).unwrap_or_default(),
+                    CliReportFormat::Compact => {
+                        serde_json::to_string(&project_report).unwrap_or_default()
+                    }
                     CliReportFormat::Text => {
                         // For project reports in text, concatenate individual reports
                         let mut text = String::new();
-                        text.push_str(&format!("Project: {}\n", project_report.project_name.as_deref().unwrap_or("unnamed")));
+                        text.push_str(&format!(
+                            "Project: {}\n",
+                            project_report.project_name.as_deref().unwrap_or("unnamed")
+                        ));
                         text.push_str(&format!("Status: {:?}\n", project_report.status));
-                        text.push_str(&format!("Files: {} analyzed, {} compliant\n\n",
+                        text.push_str(&format!(
+                            "Files: {} analyzed, {} compliant\n\n",
                             project_report.summary.files_analyzed,
-                            project_report.summary.files_compliant));
+                            project_report.summary.files_compliant
+                        ));
                         text
                     }
                 }
@@ -392,11 +409,17 @@ fn main() -> Result<()> {
             } else {
                 // Multiple files without project flag - output as JSON array
                 match format {
-                    CliReportFormat::Json => serde_json::to_string_pretty(&file_reports).unwrap_or_default(),
-                    CliReportFormat::Compact => serde_json::to_string(&file_reports).unwrap_or_default(),
-                    CliReportFormat::Text => {
-                        file_reports.iter().map(|r| r.to_text()).collect::<Vec<_>>().join("\n\n")
+                    CliReportFormat::Json => {
+                        serde_json::to_string_pretty(&file_reports).unwrap_or_default()
                     }
+                    CliReportFormat::Compact => {
+                        serde_json::to_string(&file_reports).unwrap_or_default()
+                    }
+                    CliReportFormat::Text => file_reports
+                        .iter()
+                        .map(|r| r.to_text())
+                        .collect::<Vec<_>>()
+                        .join("\n\n"),
                 }
             };
 

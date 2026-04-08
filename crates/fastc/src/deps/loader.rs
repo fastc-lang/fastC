@@ -29,6 +29,14 @@ impl ModuleLoader {
         }
     }
 
+    /// Create a new module loader with dependency directories
+    pub fn with_dep_dirs(project_root: &Path, dep_dirs: Vec<(String, PathBuf)>) -> Self {
+        Self {
+            resolver: ModuleResolver::with_dep_dirs(project_root.to_path_buf(), dep_dirs),
+            loaded: HashSet::new(),
+        }
+    }
+
     /// Create a module loader from a source file path
     ///
     /// Walks up the directory tree to find the project root (fastc.toml)

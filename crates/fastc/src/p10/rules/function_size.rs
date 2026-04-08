@@ -10,8 +10,8 @@
 //! a logical unit that spans multiple pages. Excessively long functions are
 //! often a sign of poorly structured code.
 
-use crate::ast::FnDecl;
 use super::{P10Config, P10Rule, P10Violation};
+use crate::ast::FnDecl;
 use crate::p10::config::SafetyLevel;
 
 /// Rule 4: Function size limit

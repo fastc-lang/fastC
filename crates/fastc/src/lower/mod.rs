@@ -17,6 +17,8 @@ pub struct Lower {
     res_types: HashSet<String>, // Track used res types for typedef generation
     slice_types: HashSet<String>, // Track used slice types for typedef generation
     var_types: HashMap<String, CType>, // Track variable types for type inference
+    module_path: Vec<String>, // Stack of module names for name mangling
+    import_map: HashMap<String, String>, // Maps imported name → mangled C name
 }
 
 impl Lower {
@@ -28,6 +30,127 @@ impl Lower {
             res_types: HashSet::new(),
             slice_types: HashSet::new(),
             var_types: HashMap::new(),
+            module_path: Vec::new(),
+            import_map: HashMap::new(),
+        }
+    }
+
+    /// Get the current mangled prefix from the module path
+    fn mangle_prefix(&self) -> String {
+        if self.module_path.is_empty() {
+            String::new()
+        } else {
+            format!("{}__", self.module_path.join("__"))
+        }
+    }
+
+    /// Mangle a name with the current module path
+    fn mangle_name(&self, name: &str) -> String {
+        let prefix = self.mangle_prefix();
+        if prefix.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}{}", prefix, name)
+        }
+    }
+
+    /// Resolve an identifier: check import_map first, then return as-is
+    fn resolve_ident(&self, name: &str) -> String {
+        if let Some(mangled) = self.import_map.get(name) {
+            mangled.clone()
+        } else {
+            name.to_string()
+        }
+    }
+
+    /// Build the import map by walking the AST for `use` declarations
+    fn build_import_map(&mut self, items: &[ast::Item]) {
+        self.build_import_map_inner(items, &[]);
+    }
+
+    fn build_import_map_inner(&mut self, items: &[ast::Item], current_path: &[String]) {
+        for item in items {
+            match item {
+                ast::Item::Use(use_decl) => {
+                    // Build the full module path for the use target
+                    let mut full_path: Vec<String> = current_path.to_vec();
+                    full_path.extend(use_decl.path.clone());
+                    let mangled_prefix = full_path.join("__");
+
+                    match &use_decl.items {
+                        ast::UseItems::Single(name) => {
+                            self.import_map
+                                .insert(name.clone(), format!("{}__{}", mangled_prefix, name));
+                        }
+                        ast::UseItems::Multiple(names) => {
+                            for name in names {
+                                self.import_map
+                                    .insert(name.clone(), format!("{}__{}", mangled_prefix, name));
+                            }
+                        }
+                        ast::UseItems::Glob => {
+                            // For glob imports, we need to find the module body and enumerate items
+                            if let Some(mod_items) = self.find_module_items(items, &use_decl.path) {
+                                for mod_item in mod_items {
+                                    if let Some(name) = Self::item_name(mod_item) {
+                                        self.import_map.insert(
+                                            name.clone(),
+                                            format!("{}__{}", mangled_prefix, name),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        ast::UseItems::Module => {} // Module name itself, no mapping needed
+                    }
+                }
+                ast::Item::Mod(mod_decl) => {
+                    if let Some(body) = &mod_decl.body {
+                        let mut child_path = current_path.to_vec();
+                        child_path.push(mod_decl.name.clone());
+                        self.build_import_map_inner(body, &child_path);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Find the body items of a module given a path from root items
+    fn find_module_items<'b>(
+        &self,
+        items: &'b [ast::Item],
+        path: &[String],
+    ) -> Option<&'b [ast::Item]> {
+        if path.is_empty() {
+            return Some(items);
+        }
+
+        for item in items {
+            if let ast::Item::Mod(mod_decl) = item {
+                if mod_decl.name == path[0] {
+                    if let Some(body) = &mod_decl.body {
+                        if path.len() == 1 {
+                            return Some(body);
+                        } else {
+                            return self.find_module_items(body, &path[1..]);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Get the declared name of an item (if any)
+    fn item_name(item: &ast::Item) -> Option<String> {
+        match item {
+            ast::Item::Fn(f) => Some(f.name.clone()),
+            ast::Item::Struct(s) => Some(s.name.clone()),
+            ast::Item::Enum(e) => Some(e.name.clone()),
+            ast::Item::Const(c) => Some(c.name.clone()),
+            ast::Item::Opaque(o) => Some(o.name.clone()),
+            _ => None,
         }
     }
 
@@ -112,6 +235,9 @@ impl Lower {
         c_file.includes.push("<stdbool.h>".to_string());
         c_file.includes.push("\"fastc_runtime.h\"".to_string());
 
+        // Build import map before lowering
+        self.build_import_map(&file.items);
+
         self.lower_items(&file.items, &mut c_file);
 
         // Sort user-defined type_defs by name for deterministic output
@@ -146,12 +272,14 @@ impl Lower {
                     c_file.type_defs.push(self.lower_enum(enum_decl));
                 }
                 ast::Item::Mod(mod_decl) => {
-                    // Recursively lower items inside the module
+                    // Push module name for name mangling
+                    self.module_path.push(mod_decl.name.clone());
                     if let Some(body) = &mod_decl.body {
                         self.lower_items(body, c_file);
                     }
+                    self.module_path.pop();
                 }
-                // TODO: Handle other items (Const, Opaque, Extern, Use)
+                // Use declarations, Const, Opaque, Extern handled elsewhere
                 _ => {}
             }
         }
@@ -499,8 +627,15 @@ impl Lower {
 
         let body = self.lower_block(&fn_decl.body);
 
+        // Mangle function name, except `main` in root scope
+        let c_name = if fn_decl.name == "main" && self.module_path.is_empty() {
+            "main".to_string()
+        } else {
+            self.mangle_name(&fn_decl.name)
+        };
+
         CFnDef {
-            name: fn_decl.name.clone(),
+            name: c_name,
             params,
             return_type: self.lower_type(&fn_decl.return_type),
             body,
@@ -518,21 +653,19 @@ impl Lower {
             .collect();
 
         CDecl::Struct {
-            name: struct_decl.name.clone(),
+            name: self.mangle_name(&struct_decl.name),
             fields,
         }
     }
 
     fn lower_enum(&mut self, enum_decl: &ast::EnumDecl) -> CDecl {
+        let mangled_name = self.mangle_name(&enum_decl.name);
+
         // Check if any variant has associated data
         let has_data = enum_decl.variants.iter().any(|v| v.fields.is_some());
 
         if has_data {
             // Tagged enum with associated data - lower to struct with tag + union
-            // This is more complex and requires union support in C AST
-            // For now, generate a struct with tag and fields for each variant
-            // TODO: Implement proper union-based lowering
-            let name = enum_decl.name.clone();
             let mut fields = vec![CField {
                 name: "tag".to_string(),
                 ty: CType::Int32,
@@ -541,7 +674,6 @@ impl Lower {
             // Add a field for each variant's data
             for variant in &enum_decl.variants {
                 if let Some(variant_fields) = &variant.fields {
-                    // For now, only handle single-field variants
                     if let Some(ty) = variant_fields.first() {
                         fields.push(CField {
                             name: format!("{}_data", variant.name.to_lowercase()),
@@ -551,17 +683,20 @@ impl Lower {
                 }
             }
 
-            CDecl::Struct { name, fields }
+            CDecl::Struct {
+                name: mangled_name,
+                fields,
+            }
         } else {
             // Simple enum with no associated data - lower to C enum
             let variants: Vec<String> = enum_decl
                 .variants
                 .iter()
-                .map(|v| format!("{}_{}", enum_decl.name, v.name))
+                .map(|v| format!("{}_{}", mangled_name, v.name))
                 .collect();
 
             CDecl::Enum {
-                name: enum_decl.name.clone(),
+                name: mangled_name,
                 variants,
             }
         }
@@ -769,7 +904,7 @@ impl Lower {
             ast::Expr::IntLit { value, .. } => CExpr::IntLit(value.to_string()),
             ast::Expr::FloatLit { raw, .. } => CExpr::FloatLit(raw.clone()),
             ast::Expr::BoolLit { value, .. } => CExpr::BoolLit(*value),
-            ast::Expr::Ident { name, .. } => CExpr::Ident(name.clone()),
+            ast::Expr::Ident { name, .. } => CExpr::Ident(self.resolve_ident(name)),
             ast::Expr::Binary { op, lhs, rhs, .. } => {
                 // Handle short-circuit operators with temporaries
                 match op {
@@ -1040,7 +1175,7 @@ impl Lower {
                     .collect();
 
                 CExpr::Compound {
-                    ty: CType::Named(name.clone()),
+                    ty: CType::Named(self.resolve_ident(name)),
                     fields: c_fields,
                 }
             }
@@ -1070,7 +1205,7 @@ impl Lower {
                 ast::PrimitiveType::Isize => CType::PtrDiffT,
             },
             ast::TypeExpr::Void => CType::Void,
-            ast::TypeExpr::Named(name) => CType::Named(name.clone()),
+            ast::TypeExpr::Named(name) => CType::Named(self.resolve_ident(name)),
 
             // Immutable references -> const T*
             ast::TypeExpr::Ref(inner) | ast::TypeExpr::Raw(inner) => {
@@ -1114,7 +1249,7 @@ impl Lower {
             ast::ConstExpr::IntLit(n) => CExpr::IntLit(n.to_string()),
             ast::ConstExpr::FloatLit(n) => CExpr::FloatLit(n.to_string()),
             ast::ConstExpr::BoolLit(b) => CExpr::BoolLit(*b),
-            ast::ConstExpr::Ident(name) => CExpr::Ident(name.clone()),
+            ast::ConstExpr::Ident(name) => CExpr::Ident(self.resolve_ident(name)),
             ast::ConstExpr::Binary { op, lhs, rhs } => CExpr::Binary {
                 op: self.lower_binop(*op),
                 lhs: Box::new(self.lower_const_expr(lhs)),

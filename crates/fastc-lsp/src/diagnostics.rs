@@ -152,9 +152,10 @@ pub fn compile_error_to_diagnostics(error: &CompileError, source: &str) -> Vec<D
             diagnostics.push(Diagnostic {
                 range: byte_span_to_range(source, span.start, span.end),
                 severity: Some(DiagnosticSeverity::ERROR),
-                code: Some(tower_lsp::lsp_types::NumberOrString::String(
-                    format!("fastc::p10::{}", code),
-                )),
+                code: Some(tower_lsp::lsp_types::NumberOrString::String(format!(
+                    "fastc::p10::{}",
+                    code
+                ))),
                 source: Some("fastc".to_string()),
                 message: format!("Power of 10 [{}]: {}", code, message),
                 related_information: hint.as_ref().map(|h| {

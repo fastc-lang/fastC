@@ -103,16 +103,16 @@ This roadmap is a living plan. Dates are intentionally omitted until implementat
 - [x] Add `fastc.toml` manifest parsing and module resolver infrastructure.
 - [x] Add Git-based dependency fetching infrastructure.
 - [x] Add `fastc.lock` lockfile support for reproducible builds.
-- [ ] Integrate module resolution into compilation pipeline.
-- [ ] Wire up dependency fetching in build command.
+- [x] Integrate module resolution into compilation pipeline.
+- [x] Wire up dependency fetching in build command.
 
 **Definition of Done**
 
 - [x] Tutorial examples cover all major language features.
 - [x] Advanced examples demonstrate real-world patterns (FFI, networking, algorithms).
 - [x] `fastc new my_project` creates a working project structure.
-- [ ] Module imports work across files.
-- [ ] Dependencies can be fetched from Git URLs with version pinning.
+- [x] Module imports work across files.
+- [x] Dependencies can be fetched from Git URLs with version pinning.
 
 ---
 
@@ -207,18 +207,19 @@ This is the key insight: **the compiler's constraints are not limitations — th
 > **Complexity managed:** Programs can span multiple files without copy-pasting code or relying on C `#include` hacks.
 > **Complexity refused:** No complex module visibility rules. Modules are files. `pub` means visible outside the module. That's it.
 
-- [ ] Wire module resolution into name resolver (`resolve/mod.rs` currently flattens modules).
-- [ ] Wire dependency fetching into `fastc build` (build.rs has infrastructure but doesn't feed into pipeline).
-- [ ] Implement `use` path resolution in type checker (`typecheck/mod.rs` skips `Item::Use`).
-- [ ] Multi-file C output with correct `#include` relationships.
-- [ ] GitHub Actions CI (`cargo test` + C compilation with gcc/clang).
-- [ ] Cross-platform CI (Linux x86_64, macOS ARM64).
+- [x] Wire module resolution into name resolver (`resolve/mod.rs` — modules create namespaces).
+- [x] Wire dependency fetching into `fastc build` (build.rs passes dep paths to pipeline).
+- [x] Implement `use` path resolution in name resolver (Single, Multiple, Glob, Module variants).
+- [x] Type checker enters module scopes for checking module body items.
+- [x] C name mangling with `module__name` prefix for namespace isolation.
+- [x] GitHub Actions CI (`cargo test` + gcc installation on Linux).
+- [x] Cross-platform CI (Linux x86_64, macOS ARM64, Windows x64).
 
 **Definition of Done**
 
-- [ ] `mod utils;` + `use utils::helper;` compiles to working C11.
-- [ ] CI runs green on every push and PR.
-- [ ] Dependencies from `fastc.toml` are fetched and compiled.
+- [x] `mod utils;` + `use utils::helper;` compiles to working C11.
+- [x] CI runs green on every push and PR.
+- [x] Dependencies from `fastc.toml` are fetched and compiled.
 
 ## 0.8 — Generics via Monomorphization
 

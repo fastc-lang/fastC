@@ -23,7 +23,9 @@ mod driver;
 pub use ast::Item;
 pub use build::{BuildContext, BuildError};
 pub use deps::{Cache, Fetcher, Lockfile, Manifest, ModuleLoader, ModuleResolver};
-pub use driver::{check, check_with_p10, compile, compile_with_options, compile_with_p10, parse};
+pub use driver::{
+    check, check_with_p10, compile, compile_project, compile_with_options, compile_with_p10, parse,
+};
 pub use fmt::{check_formatted, format};
 pub use p10::{ComplianceReport, P10Checker, P10Config, ProjectReport, SafetyLevel};
 pub use scaffold::{BuildTemplate, ProjectType, create_project, init_project};

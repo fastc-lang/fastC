@@ -210,6 +210,35 @@ impl BuildContext {
         source
     }
 
+    /// Gather dependency source directories from the cache
+    fn dependency_dirs(&self) -> Vec<(String, std::path::PathBuf)> {
+        let mut dirs = Vec::new();
+        for (name, dep) in &self.manifest.dependencies {
+            if let crate::deps::Dependency::Git { git, version } = dep {
+                let version_str = if let Some(tag) = &version.tag {
+                    format!("tag-{}", tag)
+                } else if let Some(branch) = &version.branch {
+                    format!("branch-{}", branch)
+                } else if let Some(rev) = &version.rev {
+                    format!("rev-{}", rev)
+                } else {
+                    "default".to_string()
+                };
+
+                let dep_path = self.fetcher.cache().dep_path(name, git, &version_str);
+                if dep_path.exists() {
+                    dirs.push((name.clone(), dep_path));
+                }
+            } else if let crate::deps::Dependency::Path { path } = dep {
+                let dep_path = self.project_root.join(path);
+                if dep_path.exists() {
+                    dirs.push((name.clone(), dep_path));
+                }
+            }
+        }
+        dirs
+    }
+
     /// Compile the project to C code
     ///
     /// Returns the path to the generated C file
@@ -235,9 +264,12 @@ impl BuildContext {
         let source =
             std::fs::read_to_string(&source_file).map_err(|e| BuildError::Io(e.to_string()))?;
 
-        // Compile
+        // Gather dependency paths
+        let dep_dirs = self.dependency_dirs();
+
+        // Compile with dependency awareness
         let filename = source_file.display().to_string();
-        let (c_code, header) = crate::compile_with_options(&source, &filename, true)?;
+        let (c_code, header) = crate::compile_project(&source, &filename, true, dep_dirs)?;
 
         // Create output directory
         std::fs::create_dir_all(output_dir).map_err(|e| BuildError::Io(e.to_string()))?;

@@ -18,9 +18,9 @@ pub mod loop_bounds;
 pub mod memory;
 pub mod pointers;
 
+use super::config::P10Config;
 use crate::ast::{Block, Expr, File, FnDecl, Item, Stmt};
 use crate::lexer::Span;
-use super::config::P10Config;
 
 /// A Power of 10 rule violation
 #[derive(Debug, Clone)]
@@ -85,7 +85,12 @@ pub trait P10Rule: Send + Sync {
     }
 
     /// Check a function declaration
-    fn check_function(&self, _func: &FnDecl, _config: &P10Config, _source: &str) -> Vec<P10Violation> {
+    fn check_function(
+        &self,
+        _func: &FnDecl,
+        _config: &P10Config,
+        _source: &str,
+    ) -> Vec<P10Violation> {
         vec![]
     }
 
@@ -188,16 +193,23 @@ impl RuleRegistry {
         let mut violations = Vec::new();
 
         match stmt {
-            Stmt::If { cond, then_block, else_block, .. } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+                ..
+            } => {
                 violations.extend(rule.check_expr(cond, config, source));
                 violations.extend(self.check_block_recursive(then_block, rule, config, source));
                 if let Some(else_branch) = else_block {
                     match else_branch {
                         crate::ast::ElseBranch::ElseIf(else_if) => {
-                            violations.extend(self.check_stmt_recursive(else_if, rule, config, source));
+                            violations
+                                .extend(self.check_stmt_recursive(else_if, rule, config, source));
                         }
                         crate::ast::ElseBranch::Else(else_blk) => {
-                            violations.extend(self.check_block_recursive(else_blk, rule, config, source));
+                            violations
+                                .extend(self.check_block_recursive(else_blk, rule, config, source));
                         }
                     }
                 }
@@ -209,7 +221,12 @@ impl RuleRegistry {
             Stmt::For { body, .. } => {
                 violations.extend(self.check_block_recursive(body, rule, config, source));
             }
-            Stmt::Switch { expr, cases, default, .. } => {
+            Stmt::Switch {
+                expr,
+                cases,
+                default,
+                ..
+            } => {
                 violations.extend(rule.check_expr(expr, config, source));
                 for case in cases {
                     for case_stmt in &case.stmts {
@@ -231,7 +248,12 @@ impl RuleRegistry {
             Stmt::Defer { body, .. } => {
                 violations.extend(self.check_block_recursive(body, rule, config, source));
             }
-            Stmt::IfLet { expr, then_block, else_block, .. } => {
+            Stmt::IfLet {
+                expr,
+                then_block,
+                else_block,
+                ..
+            } => {
                 violations.extend(rule.check_expr(expr, config, source));
                 violations.extend(self.check_block_recursive(then_block, rule, config, source));
                 if let Some(else_blk) = else_block {

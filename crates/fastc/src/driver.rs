@@ -41,7 +41,11 @@ pub fn check(source: &str, filename: &str) -> Result<(), CompileError> {
 ///
 /// Runs phases 1-4 plus Power of 10 checking.
 /// Returns `Ok(())` if the source is valid, or an error otherwise.
-pub fn check_with_p10(source: &str, filename: &str, p10_config: P10Config) -> Result<(), CompileError> {
+pub fn check_with_p10(
+    source: &str,
+    filename: &str,
+    p10_config: P10Config,
+) -> Result<(), CompileError> {
     // Phase 1: Lex (strip comments for parser)
     let lexer = Lexer::new(source);
     let tokens = strip_comments(lexer.collect());
@@ -152,6 +156,69 @@ pub fn compile_with_options(
     emit_header: bool,
 ) -> Result<(String, Option<String>), CompileError> {
     compile_with_p10(source, filename, emit_header, P10Config::standard())
+}
+
+/// Compile FastC source code to C11 with dependency support
+///
+/// This entry point is used by `BuildContext::compile` to pass dependency paths
+/// through the module loader.
+pub fn compile_project(
+    source: &str,
+    filename: &str,
+    emit_header: bool,
+    dep_dirs: Vec<(String, std::path::PathBuf)>,
+) -> Result<(String, Option<String>), CompileError> {
+    // Phase 1: Lex (strip comments for parser)
+    let lexer = Lexer::new(source);
+    let tokens = strip_comments(lexer.collect());
+
+    // Phase 2: Parse
+    let mut parser = Parser::new(&tokens, source, filename);
+    let mut ast = parser.parse_file()?;
+
+    // Phase 2.5: Module expansion with dependency awareness
+    let source_path = Path::new(filename);
+    if let Some(project_root) = find_project_root(source_path) {
+        let source_dir = source_path.parent().unwrap_or(Path::new("."));
+        let mut loader = ModuleLoader::with_dep_dirs(&project_root, dep_dirs);
+        loader.expand_modules(&mut ast, source_dir)?;
+    }
+
+    // Phase 3: Resolve names
+    let mut resolver = Resolver::new(source);
+    let symbols = {
+        resolver.resolve(&ast)?;
+        resolver.into_symbols()
+    };
+
+    // Phase 4: Type check
+    let mut typechecker = TypeChecker::new(source, symbols);
+    typechecker.check(&ast)?;
+
+    // Phase 4.5: Power of 10 rule checking
+    let p10_checker = P10Checker::new(P10Config::standard());
+    p10_checker.check_and_report(&ast, source)?;
+
+    // Phase 5: Lower to C AST
+    let mut lowerer = Lower::new();
+    let c_ast = lowerer.lower(&ast);
+
+    // Phase 6: Emit C code
+    let mut emitter = Emitter::new();
+    let c_code = emitter.emit(&c_ast);
+
+    // Phase 7 (optional): Emit header
+    let header = if emit_header {
+        let module_name = std::path::Path::new(filename)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("module");
+        Some(emitter.emit_header(&c_ast, module_name))
+    } else {
+        None
+    };
+
+    Ok((c_code, header))
 }
 
 /// Find the project root by looking for fastc.toml

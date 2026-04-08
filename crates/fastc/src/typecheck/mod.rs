@@ -46,20 +46,8 @@ impl<'a> TypeChecker<'a> {
     }
 
     pub fn check(&mut self, file: &File) -> Result<(), CompileError> {
-        // First pass: collect type declarations for validation
-        for item in &file.items {
-            match item {
-                Item::Enum(enum_decl) => {
-                    self.enum_decls
-                        .insert(enum_decl.name.clone(), enum_decl.clone());
-                }
-                Item::Struct(struct_decl) => {
-                    self.struct_decls
-                        .insert(struct_decl.name.clone(), struct_decl.clone());
-                }
-                _ => {}
-            }
-        }
+        // First pass: collect type declarations for validation (including from modules)
+        self.collect_type_decls(&file.items);
 
         // Second pass: type check items
         for item in &file.items {
@@ -71,6 +59,28 @@ impl<'a> TypeChecker<'a> {
             Err(CompileError::multiple(std::mem::take(&mut self.errors)))
         } else {
             Ok(())
+        }
+    }
+
+    /// Recursively collect enum/struct declarations from items (including modules)
+    fn collect_type_decls(&mut self, items: &[Item]) {
+        for item in items {
+            match item {
+                Item::Enum(enum_decl) => {
+                    self.enum_decls
+                        .insert(enum_decl.name.clone(), enum_decl.clone());
+                }
+                Item::Struct(struct_decl) => {
+                    self.struct_decls
+                        .insert(struct_decl.name.clone(), struct_decl.clone());
+                }
+                Item::Mod(mod_decl) => {
+                    if let Some(body) = &mod_decl.body {
+                        self.collect_type_decls(body);
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -94,8 +104,8 @@ impl<'a> TypeChecker<'a> {
                     }
                 }
             }
-            Item::Use(_) => {} // Module imports don't need type checking
-            Item::Mod(_) => {} // Module declarations handled separately
+            Item::Use(_) => {} // Module imports resolved during name resolution
+            Item::Mod(mod_decl) => self.check_mod(mod_decl),
         }
     }
 
@@ -131,6 +141,21 @@ impl<'a> TypeChecker<'a> {
             self.safety.exit_unsafe();
         }
         self.symbols.exit_scope();
+    }
+
+    fn check_mod(&mut self, mod_decl: &crate::ast::ModDecl) {
+        if let Some(body) = &mod_decl.body {
+            // Look up the module's scope_id from the symbol table
+            if let Some(sym) = self.symbols.lookup(&mod_decl.name) {
+                if let SymbolKind::Module { scope_id } = sym.kind {
+                    let old = self.symbols.set_scope(scope_id);
+                    for item in body {
+                        self.check_item(item);
+                    }
+                    self.symbols.set_scope(old);
+                }
+            }
+        }
     }
 
     fn check_block(&mut self, block: &Block) {

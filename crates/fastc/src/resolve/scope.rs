@@ -29,6 +29,8 @@ pub enum SymbolKind {
     Constant,
     /// Opaque type
     Opaque,
+    /// Module with its own scope
+    Module { scope_id: usize },
 }
 
 /// A scope containing symbols
@@ -135,6 +137,36 @@ impl SymbolTable {
             scope_idx = self.scopes[idx].parent();
         }
         depth
+    }
+
+    /// Enter a new module scope and return its index for storage in the Module symbol
+    pub fn enter_module_scope(&mut self) -> usize {
+        let new_scope = Scope::new(Some(self.current));
+        self.scopes.push(new_scope);
+        let scope_id = self.scopes.len() - 1;
+        self.current = scope_id;
+        scope_id
+    }
+
+    /// Look up a name in a specific scope (needed for `use` resolution)
+    pub fn lookup_in_scope(&self, scope_id: usize, name: &str) -> Option<&Symbol> {
+        self.scopes.get(scope_id)?.lookup_local(name)
+    }
+
+    /// Switch to a specific scope, returning the old scope index (needed for type checker to enter module scopes)
+    pub fn set_scope(&mut self, scope_id: usize) -> usize {
+        let old = self.current;
+        self.current = scope_id;
+        old
+    }
+
+    /// Get all symbols defined directly in a scope (needed for glob imports)
+    pub fn scope_symbols(&self, scope_id: usize) -> Vec<Symbol> {
+        if let Some(scope) = self.scopes.get(scope_id) {
+            scope.symbols.values().cloned().collect()
+        } else {
+            Vec::new()
+        }
     }
 
     /// Get all symbol names visible from the current scope (for suggestions)

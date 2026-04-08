@@ -12,8 +12,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Expr, File, Item, Stmt};
 use super::{P10Config, P10Rule, P10Violation};
+use crate::ast::{Expr, File, Item, Stmt};
 use crate::p10::config::SafetyLevel;
 
 /// Rule 1: No recursion (goto/setjmp not in FastC)
@@ -45,7 +45,11 @@ impl ControlFlowRule {
     }
 
     /// Collect all function calls from a list of statements
-    fn collect_calls(&self, stmts: &[Stmt], known_fns: &HashMap<String, HashSet<String>>) -> HashSet<String> {
+    fn collect_calls(
+        &self,
+        stmts: &[Stmt],
+        known_fns: &HashMap<String, HashSet<String>>,
+    ) -> HashSet<String> {
         let mut calls = HashSet::new();
 
         for stmt in stmts {
@@ -69,7 +73,12 @@ impl ControlFlowRule {
                 self.collect_calls_from_expr(lhs, known_fns, calls);
                 self.collect_calls_from_expr(rhs, known_fns, calls);
             }
-            Stmt::If { cond, then_block, else_block, .. } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+                ..
+            } => {
                 self.collect_calls_from_expr(cond, known_fns, calls);
                 calls.extend(self.collect_calls(&then_block.stmts, known_fns));
                 if let Some(else_branch) = else_block {
@@ -83,7 +92,12 @@ impl ControlFlowRule {
                     }
                 }
             }
-            Stmt::IfLet { expr, then_block, else_block, .. } => {
+            Stmt::IfLet {
+                expr,
+                then_block,
+                else_block,
+                ..
+            } => {
                 self.collect_calls_from_expr(expr, known_fns, calls);
                 calls.extend(self.collect_calls(&then_block.stmts, known_fns));
                 if let Some(else_blk) = else_block {
@@ -94,7 +108,13 @@ impl ControlFlowRule {
                 self.collect_calls_from_expr(cond, known_fns, calls);
                 calls.extend(self.collect_calls(&body.stmts, known_fns));
             }
-            Stmt::For { init, cond, step, body, .. } => {
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+                ..
+            } => {
                 if let Some(init) = init {
                     match init {
                         crate::ast::ForInit::Let { init, .. } => {
@@ -125,7 +145,12 @@ impl ControlFlowRule {
                 }
                 calls.extend(self.collect_calls(&body.stmts, known_fns));
             }
-            Stmt::Switch { expr, cases, default, .. } => {
+            Stmt::Switch {
+                expr,
+                cases,
+                default,
+                ..
+            } => {
                 self.collect_calls_from_expr(expr, known_fns, calls);
                 for case in cases {
                     calls.extend(self.collect_calls(&case.stmts, known_fns));
@@ -246,7 +271,16 @@ impl ControlFlowRule {
             if let Some(successors) = graph.get(v) {
                 for w in successors {
                     if !indices.contains_key(w) {
-                        strongconnect(w, graph, index_counter, stack, lowlinks, indices, on_stack, sccs);
+                        strongconnect(
+                            w,
+                            graph,
+                            index_counter,
+                            stack,
+                            lowlinks,
+                            indices,
+                            on_stack,
+                            sccs,
+                        );
                         let low_v = *lowlinks.get(v).unwrap();
                         let low_w = *lowlinks.get(w).unwrap();
                         lowlinks.insert(v.to_string(), low_v.min(low_w));

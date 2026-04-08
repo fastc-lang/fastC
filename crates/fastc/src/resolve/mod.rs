@@ -10,7 +10,8 @@ mod scope;
 pub use scope::*;
 
 use crate::ast::{
-    Block, ConstExpr, Expr, ExternBlock, ExternItem, File, FnDecl, Item, Stmt, StructDecl, TypeExpr,
+    Block, ConstExpr, Expr, ExternBlock, ExternItem, File, FnDecl, Item, Stmt, StructDecl,
+    TypeExpr, UseDecl, UseItems,
 };
 use crate::diag::CompileError;
 use crate::lexer::Span;
@@ -36,6 +37,11 @@ impl<'a> Resolver<'a> {
         // First pass: collect all top-level declarations
         for item in &file.items {
             self.declare_item(item);
+        }
+
+        // Pass 1.5: resolve all `use` declarations (imports)
+        for item in &file.items {
+            self.resolve_uses(item);
         }
 
         // Second pass: resolve all references
@@ -72,11 +78,29 @@ impl<'a> Resolver<'a> {
     }
 
     fn declare_mod(&mut self, mod_decl: &crate::ast::ModDecl) {
-        // For inline modules (body is Some), declare all items from the module
-        // This makes module items available in the current scope
+        // For inline modules (body is Some), create a module scope and declare items inside it
         if let Some(body) = &mod_decl.body {
+            // Create a new scope for this module
+            let scope_id = self.symbols.enter_module_scope();
+
+            // Declare all items inside the module scope
             for item in body {
                 self.declare_item(item);
+            }
+
+            // Exit back to parent scope
+            self.symbols.exit_scope();
+
+            // Register the module name in the parent scope
+            let symbol = Symbol {
+                name: mod_decl.name.clone(),
+                kind: SymbolKind::Module { scope_id },
+                ty: TypeExpr::Void,
+                span: mod_decl.span.clone(),
+            };
+
+            if let Err(sym) = self.symbols.define(symbol) {
+                self.error_redefinition(&sym.name, &sym.span);
             }
         }
         // External modules (body is None) should have been expanded by ModuleLoader
@@ -199,6 +223,131 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    // === Pass 1.5: Resolve `use` declarations ===
+
+    fn resolve_uses(&mut self, item: &Item) {
+        match item {
+            Item::Use(use_decl) => self.resolve_use(use_decl),
+            Item::Mod(mod_decl) => {
+                // Recursively resolve uses inside modules
+                if let Some(body) = &mod_decl.body {
+                    // Enter the module's scope
+                    if let Some(sym) = self.symbols.lookup(&mod_decl.name) {
+                        if let SymbolKind::Module { scope_id } = sym.kind {
+                            let old = self.symbols.set_scope(scope_id);
+                            for inner_item in body {
+                                self.resolve_uses(inner_item);
+                            }
+                            self.symbols.set_scope(old);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn resolve_use(&mut self, use_decl: &UseDecl) {
+        // Walk the path segments to find the target module scope
+        let mut current_scope_id = None;
+
+        for (i, segment) in use_decl.path.iter().enumerate() {
+            let sym = if let Some(scope_id) = current_scope_id {
+                self.symbols.lookup_in_scope(scope_id, segment).cloned()
+            } else {
+                self.symbols.lookup(segment).cloned()
+            };
+
+            match sym {
+                Some(s) => {
+                    if let SymbolKind::Module { scope_id } = s.kind {
+                        current_scope_id = Some(scope_id);
+                    } else if i < use_decl.path.len() - 1 {
+                        // Intermediate segment is not a module
+                        self.errors.push(CompileError::resolve(
+                            format!("'{}' is not a module", segment),
+                            use_decl.span.clone(),
+                            self.source,
+                        ));
+                        return;
+                    } else {
+                        // Last segment is a non-module item — only valid for UseItems::Module
+                        // which means `use path;` importing the name itself
+                        current_scope_id = None;
+                    }
+                }
+                None => {
+                    self.errors.push(CompileError::resolve(
+                        format!("module '{}' not found", segment),
+                        use_decl.span.clone(),
+                        self.source,
+                    ));
+                    return;
+                }
+            }
+        }
+
+        let Some(target_scope) = current_scope_id else {
+            // The path resolved to a non-module (shouldn't happen if path is correct)
+            return;
+        };
+
+        match &use_decl.items {
+            UseItems::Single(name) => {
+                if let Some(sym) = self.symbols.lookup_in_scope(target_scope, name) {
+                    let imported = sym.clone();
+                    if let Err(s) = self.symbols.define(imported) {
+                        self.error_redefinition(&s.name, &s.span);
+                    }
+                } else {
+                    self.errors.push(CompileError::resolve(
+                        format!(
+                            "'{}' not found in module '{}'",
+                            name,
+                            use_decl.path.last().unwrap_or(&String::new())
+                        ),
+                        use_decl.span.clone(),
+                        self.source,
+                    ));
+                }
+            }
+            UseItems::Multiple(names) => {
+                for name in names {
+                    if let Some(sym) = self.symbols.lookup_in_scope(target_scope, name) {
+                        let imported = sym.clone();
+                        if let Err(s) = self.symbols.define(imported) {
+                            self.error_redefinition(&s.name, &s.span);
+                        }
+                    } else {
+                        self.errors.push(CompileError::resolve(
+                            format!(
+                                "'{}' not found in module '{}'",
+                                name,
+                                use_decl.path.last().unwrap_or(&String::new())
+                            ),
+                            use_decl.span.clone(),
+                            self.source,
+                        ));
+                    }
+                }
+            }
+            UseItems::Glob => {
+                let all_symbols = self.symbols.scope_symbols(target_scope);
+                for sym in all_symbols {
+                    // Skip sub-modules in glob imports
+                    if matches!(sym.kind, SymbolKind::Module { .. }) {
+                        continue;
+                    }
+                    let _ = self.symbols.define(sym);
+                }
+            }
+            UseItems::Module => {
+                // `use path;` — the module name is already registered by declare_mod
+                // Nothing to do here
+            }
+        }
+    }
+
     // === Second pass: Resolve references ===
 
     fn resolve_item(&mut self, item: &Item) {
@@ -209,16 +358,22 @@ impl<'a> Resolver<'a> {
             Item::Const(const_decl) => self.resolve_const(const_decl),
             Item::Opaque(_) => {} // Opaque types don't reference other names
             Item::Extern(extern_block) => self.resolve_extern(extern_block),
-            Item::Use(_) => {} // Use declarations are informational
+            Item::Use(_) => {} // Use declarations resolved in pass 1.5
             Item::Mod(mod_decl) => self.resolve_mod(mod_decl),
         }
     }
 
     fn resolve_mod(&mut self, mod_decl: &crate::ast::ModDecl) {
-        // For inline modules, resolve all items in the module body
+        // For inline modules, switch to the module's scope and resolve items
         if let Some(body) = &mod_decl.body {
-            for item in body {
-                self.resolve_item(item);
+            if let Some(sym) = self.symbols.lookup(&mod_decl.name) {
+                if let SymbolKind::Module { scope_id } = sym.kind {
+                    let old = self.symbols.set_scope(scope_id);
+                    for item in body {
+                        self.resolve_item(item);
+                    }
+                    self.symbols.set_scope(old);
+                }
             }
         }
     }
@@ -817,5 +972,60 @@ mod tests {
     fn test_function_forward_reference() {
         // Functions should be able to call other functions declared later
         check_ok("fn foo() -> i32 { return bar(); } fn bar() -> i32 { return 1; }");
+    }
+
+    // === Module tests ===
+
+    #[test]
+    fn test_module_creates_scope() {
+        // Items inside a module should not be visible in the parent scope without `use`
+        check_error(
+            "mod utils { fn helper() -> i32 { return 42; } } fn main() -> i32 { return helper(); }",
+            "undefined name 'helper'",
+        );
+    }
+
+    #[test]
+    fn test_use_single_import() {
+        check_ok(
+            "mod utils { fn helper() -> i32 { return 42; } } use utils::helper; fn main() -> i32 { return helper(); }",
+        );
+    }
+
+    #[test]
+    fn test_use_multiple_imports() {
+        check_ok(
+            "mod utils { fn helper() -> i32 { return 42; } fn other() -> i32 { return 1; } } use utils::{helper, other}; fn main() -> i32 { return helper(); }",
+        );
+    }
+
+    #[test]
+    fn test_use_glob_import() {
+        check_ok(
+            "mod utils { fn helper() -> i32 { return 42; } } use utils::*; fn main() -> i32 { return helper(); }",
+        );
+    }
+
+    #[test]
+    fn test_use_nonexistent_module() {
+        check_error(
+            "use nonexistent::foo; fn main() -> i32 { return 0; }",
+            "module 'nonexistent' not found",
+        );
+    }
+
+    #[test]
+    fn test_use_nonexistent_item() {
+        check_error(
+            "mod utils { fn helper() -> i32 { return 42; } } use utils::nonexistent; fn main() -> i32 { return 0; }",
+            "'nonexistent' not found in module",
+        );
+    }
+
+    #[test]
+    fn test_nested_modules() {
+        check_ok(
+            "mod a { mod b { fn f() -> i32 { return 1; } } use b::f; } use a::f; fn main() -> i32 { return f(); }",
+        );
     }
 }

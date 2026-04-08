@@ -8,8 +8,8 @@
 //! prevents runaway code. This rule does not apply to iterations that are
 //! meant to be nonterminating (e.g., in a process scheduler).
 
-use crate::ast::{Expr, Stmt};
 use super::{P10Config, P10Rule, P10Violation};
+use crate::ast::{Expr, Stmt};
 use crate::p10::config::SafetyLevel;
 
 /// Rule 2: All loops must have provable bounds
@@ -78,13 +78,11 @@ impl P10Rule for LoopBoundsRule {
             Stmt::For { cond, span, .. } => {
                 if !self.is_bounded_for(cond) {
                     vec![
-                        P10Violation::new(
-                            2,
-                            "for loop has no termination condition",
-                            span.clone(),
-                        )
-                        .with_help("Power of 10 Rule 2 requires all loops have provable termination")
-                        .with_note("Add a condition to ensure the loop terminates"),
+                        P10Violation::new(2, "for loop has no termination condition", span.clone())
+                            .with_help(
+                                "Power of 10 Rule 2 requires all loops have provable termination",
+                            )
+                            .with_note("Add a condition to ensure the loop terminates"),
                     ]
                 } else {
                     vec![]
@@ -103,8 +101,14 @@ mod tests {
     #[test]
     fn test_unbounded_while_true() {
         let stmt = Stmt::While {
-            cond: Expr::BoolLit { value: true, span: 0..4 },
-            body: Block { stmts: vec![], span: 5..7 },
+            cond: Expr::BoolLit {
+                value: true,
+                span: 0..4,
+            },
+            body: Block {
+                stmts: vec![],
+                span: 5..7,
+            },
             span: 0..7,
         };
         let config = P10Config::safety_critical();
@@ -120,11 +124,20 @@ mod tests {
         let stmt = Stmt::While {
             cond: Expr::Binary {
                 op: crate::ast::BinOp::Lt,
-                lhs: Box::new(Expr::Ident { name: "i".to_string(), span: 0..1 }),
-                rhs: Box::new(Expr::IntLit { value: 10, span: 4..6 }),
+                lhs: Box::new(Expr::Ident {
+                    name: "i".to_string(),
+                    span: 0..1,
+                }),
+                rhs: Box::new(Expr::IntLit {
+                    value: 10,
+                    span: 4..6,
+                }),
                 span: 0..6,
             },
-            body: Block { stmts: vec![], span: 7..9 },
+            body: Block {
+                stmts: vec![],
+                span: 7..9,
+            },
             span: 0..9,
         };
         let config = P10Config::safety_critical();
@@ -140,7 +153,10 @@ mod tests {
             init: None,
             cond: None,
             step: None,
-            body: Block { stmts: vec![], span: 10..12 },
+            body: Block {
+                stmts: vec![],
+                span: 10..12,
+            },
             span: 0..12,
         };
         let config = P10Config::safety_critical();

@@ -9,8 +9,8 @@
 //! They can make it hard to follow or analyze the flow of data in a program,
 //! especially by tool-based analyzers.
 
-use crate::ast::Expr;
 use super::{P10Config, P10Rule, P10Violation};
+use crate::ast::Expr;
 use crate::p10::config::SafetyLevel;
 
 /// Rule 9: Restrict pointer dereference depth
