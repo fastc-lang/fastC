@@ -157,13 +157,15 @@ See [Editor Setup](https://docs.skelfresearch.com/fastc/getting-started/editor-s
 ```
 fastc/
 ├── crates/
-│   ├── fastc/          # Compiler and CLI
-│   └── fastc-lsp/      # Language server
-├── runtime/            # C runtime header
-├── examples/           # Example programs
-│   ├── tutorials/      # Learning examples (01-10)
-│   └── advanced/       # Real-world patterns
-└── documentation/      # MkDocs source
+│   ├── fastc/             # Compiler and CLI
+│   ├── fastc-lsp/         # Language server
+│   └── fastc-playground/  # Web playground (frontend + backend)
+├── runtime/               # C runtime header
+├── examples/              # Example programs
+│   ├── tutorials/         # Learning examples (01-10)
+│   └── advanced/          # Real-world patterns
+├── docs/                  # Design notes and internal references
+└── documentation/         # MkDocs source
 ```
 
 ## Design Principles
