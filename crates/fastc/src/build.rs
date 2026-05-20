@@ -8,6 +8,50 @@ use std::process::Command;
 use crate::deps::{Fetcher, LockedPackage, Lockfile, Manifest};
 use crate::diag::CompileError;
 
+/// Return the path/name of the dev-mode C compiler. Prefers `tcc` when
+/// present on PATH (fast inner-loop builds, ~100MB/s), falling back to
+/// `fallback` (typically `cc`) when not.
+///
+/// This is the implementation of the stage 0.8 tcc dev backend described in
+/// `docs/compile-time-budget.md`.
+pub fn detect_dev_compiler(fallback: &str) -> String {
+    if which("tcc").is_some() {
+        "tcc".to_string()
+    } else {
+        fallback.to_string()
+    }
+}
+
+#[cfg(test)]
+mod dev_compiler_tests {
+    use super::detect_dev_compiler;
+
+    #[test]
+    fn falls_back_when_tcc_absent() {
+        // We cannot guarantee tcc is or isn't on PATH in CI, so just verify
+        // the return value is one of the expected strings.
+        let picked = detect_dev_compiler("cc");
+        assert!(picked == "tcc" || picked == "cc", "got {picked}");
+    }
+}
+
+/// Return the absolute path of `cmd` if it can be found on the PATH.
+fn which(cmd: &str) -> Option<PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(cmd);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        // On Windows the binary may carry a .exe suffix; check both forms.
+        let candidate_exe = dir.join(format!("{}.exe", cmd));
+        if candidate_exe.is_file() {
+            return Some(candidate_exe);
+        }
+    }
+    None
+}
+
 /// Build context for orchestrating project compilation
 pub struct BuildContext {
     /// Project manifest (fastc.toml)

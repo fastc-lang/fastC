@@ -11,6 +11,7 @@ use crate::lower::Lower;
 use crate::p10::{P10Checker, P10Config};
 use crate::parser::Parser;
 use crate::resolve::Resolver;
+use crate::timing::time_pass;
 use crate::typecheck::TypeChecker;
 
 /// Parse FastC source code into an AST (phases 1-2 only)
@@ -19,12 +20,16 @@ use crate::typecheck::TypeChecker;
 /// Does not perform name resolution or type checking.
 pub fn parse(source: &str, filename: &str) -> Result<File, CompileError> {
     // Phase 1: Lex (strip comments for parser)
-    let lexer = Lexer::new(source);
-    let tokens = strip_comments(lexer.collect());
+    let tokens = time_pass("lex", || {
+        let lexer = Lexer::new(source);
+        strip_comments(lexer.collect())
+    });
 
     // Phase 2: Parse
-    let mut parser = Parser::new(&tokens, source, filename);
-    let ast = parser.parse_file()?;
+    let ast = time_pass("parse", || {
+        let mut parser = Parser::new(&tokens, source, filename);
+        parser.parse_file()
+    })?;
 
     Ok(ast)
 }
@@ -46,36 +51,40 @@ pub fn check_with_p10(
     filename: &str,
     p10_config: P10Config,
 ) -> Result<(), CompileError> {
-    // Phase 1: Lex (strip comments for parser)
-    let lexer = Lexer::new(source);
-    let tokens = strip_comments(lexer.collect());
+    let tokens = time_pass("lex", || {
+        let lexer = Lexer::new(source);
+        strip_comments(lexer.collect())
+    });
 
-    // Phase 2: Parse
-    let mut parser = Parser::new(&tokens, source, filename);
-    let mut ast = parser.parse_file()?;
+    let mut ast = time_pass("parse", || {
+        let mut parser = Parser::new(&tokens, source, filename);
+        parser.parse_file()
+    })?;
 
-    // Phase 2.5: Module expansion (if in a project)
     let source_path = Path::new(filename);
     if let Some(project_root) = find_project_root(source_path) {
         let source_dir = source_path.parent().unwrap_or(Path::new("."));
-        let mut loader = ModuleLoader::new(&project_root);
-        loader.expand_modules(&mut ast, source_dir)?;
+        time_pass("module_load", || {
+            let mut loader = ModuleLoader::new(&project_root);
+            loader.expand_modules(&mut ast, source_dir)
+        })?;
     }
 
-    // Phase 3: Resolve names
-    let mut resolver = Resolver::new(source);
-    let symbols = {
+    let symbols = time_pass("resolve", || {
+        let mut resolver = Resolver::new(source);
         resolver.resolve(&ast)?;
-        resolver.into_symbols()
-    };
+        Ok::<_, CompileError>(resolver.into_symbols())
+    })?;
 
-    // Phase 4: Type check
-    let mut typechecker = TypeChecker::new(source, symbols);
-    typechecker.check(&ast)?;
+    time_pass("typecheck", || {
+        let mut typechecker = TypeChecker::new(source, symbols);
+        typechecker.check(&ast)
+    })?;
 
-    // Phase 4.5: Power of 10 rule checking
-    let p10_checker = P10Checker::new(p10_config);
-    p10_checker.check_and_report(&ast, source)?;
+    time_pass("p10", || {
+        let p10_checker = P10Checker::new(p10_config);
+        p10_checker.check_and_report(&ast, source)
+    })?;
 
     Ok(())
 }
@@ -93,56 +102,60 @@ pub fn compile_with_p10(
     emit_header: bool,
     p10_config: P10Config,
 ) -> Result<(String, Option<String>), CompileError> {
-    // Phase 1: Lex (strip comments for parser)
-    let lexer = Lexer::new(source);
-    let tokens = strip_comments(lexer.collect());
+    let tokens = time_pass("lex", || {
+        let lexer = Lexer::new(source);
+        strip_comments(lexer.collect())
+    });
 
-    // Phase 2: Parse
-    let mut parser = Parser::new(&tokens, source, filename);
-    let mut ast = parser.parse_file()?;
+    let mut ast = time_pass("parse", || {
+        let mut parser = Parser::new(&tokens, source, filename);
+        parser.parse_file()
+    })?;
 
-    // Phase 2.5: Module expansion (if in a project)
     let source_path = Path::new(filename);
     if let Some(project_root) = find_project_root(source_path) {
         let source_dir = source_path.parent().unwrap_or(Path::new("."));
-        let mut loader = ModuleLoader::new(&project_root);
-        loader.expand_modules(&mut ast, source_dir)?;
+        time_pass("module_load", || {
+            let mut loader = ModuleLoader::new(&project_root);
+            loader.expand_modules(&mut ast, source_dir)
+        })?;
     }
 
-    // Phase 3: Resolve names
-    let mut resolver = Resolver::new(source);
-    let symbols = {
+    let symbols = time_pass("resolve", || {
+        let mut resolver = Resolver::new(source);
         resolver.resolve(&ast)?;
-        resolver.into_symbols()
-    };
+        Ok::<_, CompileError>(resolver.into_symbols())
+    })?;
 
-    // Phase 4: Type check
-    let mut typechecker = TypeChecker::new(source, symbols);
-    typechecker.check(&ast)?;
+    time_pass("typecheck", || {
+        let mut typechecker = TypeChecker::new(source, symbols);
+        typechecker.check(&ast)
+    })?;
 
-    // Phase 4.5: Power of 10 rule checking
-    let p10_checker = P10Checker::new(p10_config);
-    p10_checker.check_and_report(&ast, source)?;
+    time_pass("p10", || {
+        let p10_checker = P10Checker::new(p10_config);
+        p10_checker.check_and_report(&ast, source)
+    })?;
 
-    // Phase 5: Lower to C AST
-    let mut lowerer = Lower::new();
-    let c_ast = lowerer.lower(&ast);
+    let c_ast = time_pass("lower", || {
+        let mut lowerer = Lower::new();
+        lowerer.lower(&ast)
+    });
 
-    // Phase 6: Emit C code
-    let mut emitter = Emitter::new();
-    let c_code = emitter.emit(&c_ast);
-
-    // Phase 7 (optional): Emit header
-    let header = if emit_header {
-        // Extract module name from filename (without extension)
-        let module_name = std::path::Path::new(filename)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("module");
-        Some(emitter.emit_header(&c_ast, module_name))
-    } else {
-        None
-    };
+    let (c_code, header) = time_pass("emit", || {
+        let mut emitter = Emitter::new();
+        let c_code = emitter.emit(&c_ast);
+        let header = if emit_header {
+            let module_name = std::path::Path::new(filename)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("module");
+            Some(emitter.emit_header(&c_ast, module_name))
+        } else {
+            None
+        };
+        (c_code, header)
+    });
 
     Ok((c_code, header))
 }
@@ -168,55 +181,60 @@ pub fn compile_project(
     emit_header: bool,
     dep_dirs: Vec<(String, std::path::PathBuf)>,
 ) -> Result<(String, Option<String>), CompileError> {
-    // Phase 1: Lex (strip comments for parser)
-    let lexer = Lexer::new(source);
-    let tokens = strip_comments(lexer.collect());
+    let tokens = time_pass("lex", || {
+        let lexer = Lexer::new(source);
+        strip_comments(lexer.collect())
+    });
 
-    // Phase 2: Parse
-    let mut parser = Parser::new(&tokens, source, filename);
-    let mut ast = parser.parse_file()?;
+    let mut ast = time_pass("parse", || {
+        let mut parser = Parser::new(&tokens, source, filename);
+        parser.parse_file()
+    })?;
 
-    // Phase 2.5: Module expansion with dependency awareness
     let source_path = Path::new(filename);
     if let Some(project_root) = find_project_root(source_path) {
         let source_dir = source_path.parent().unwrap_or(Path::new("."));
-        let mut loader = ModuleLoader::with_dep_dirs(&project_root, dep_dirs);
-        loader.expand_modules(&mut ast, source_dir)?;
+        time_pass("module_load", || {
+            let mut loader = ModuleLoader::with_dep_dirs(&project_root, dep_dirs);
+            loader.expand_modules(&mut ast, source_dir)
+        })?;
     }
 
-    // Phase 3: Resolve names
-    let mut resolver = Resolver::new(source);
-    let symbols = {
+    let symbols = time_pass("resolve", || {
+        let mut resolver = Resolver::new(source);
         resolver.resolve(&ast)?;
-        resolver.into_symbols()
-    };
+        Ok::<_, CompileError>(resolver.into_symbols())
+    })?;
 
-    // Phase 4: Type check
-    let mut typechecker = TypeChecker::new(source, symbols);
-    typechecker.check(&ast)?;
+    time_pass("typecheck", || {
+        let mut typechecker = TypeChecker::new(source, symbols);
+        typechecker.check(&ast)
+    })?;
 
-    // Phase 4.5: Power of 10 rule checking
-    let p10_checker = P10Checker::new(P10Config::standard());
-    p10_checker.check_and_report(&ast, source)?;
+    time_pass("p10", || {
+        let p10_checker = P10Checker::new(P10Config::standard());
+        p10_checker.check_and_report(&ast, source)
+    })?;
 
-    // Phase 5: Lower to C AST
-    let mut lowerer = Lower::new();
-    let c_ast = lowerer.lower(&ast);
+    let c_ast = time_pass("lower", || {
+        let mut lowerer = Lower::new();
+        lowerer.lower(&ast)
+    });
 
-    // Phase 6: Emit C code
-    let mut emitter = Emitter::new();
-    let c_code = emitter.emit(&c_ast);
-
-    // Phase 7 (optional): Emit header
-    let header = if emit_header {
-        let module_name = std::path::Path::new(filename)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("module");
-        Some(emitter.emit_header(&c_ast, module_name))
-    } else {
-        None
-    };
+    let (c_code, header) = time_pass("emit", || {
+        let mut emitter = Emitter::new();
+        let c_code = emitter.emit(&c_ast);
+        let header = if emit_header {
+            let module_name = std::path::Path::new(filename)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("module");
+            Some(emitter.emit_header(&c_ast, module_name))
+        } else {
+            None
+        };
+        (c_code, header)
+    });
 
     Ok((c_code, header))
 }

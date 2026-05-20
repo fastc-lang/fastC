@@ -112,6 +112,14 @@ enum Commands {
         /// Treat all warnings as errors (strict mode)
         #[arg(long)]
         strict: bool,
+
+        /// Emit per-pass timing JSON when compilation finishes
+        #[arg(long)]
+        timing: bool,
+
+        /// Path to write the timing JSON (default: stderr)
+        #[arg(long, value_name = "PATH", requires = "timing")]
+        timing_output: Option<PathBuf>,
     },
 
     /// Type-check a FastC source file without emitting C
@@ -130,6 +138,14 @@ enum Commands {
         /// Treat all warnings as errors (strict mode)
         #[arg(long)]
         strict: bool,
+
+        /// Emit per-pass timing JSON when compilation finishes
+        #[arg(long)]
+        timing: bool,
+
+        /// Path to write the timing JSON (default: stderr)
+        #[arg(long, value_name = "PATH", requires = "timing")]
+        timing_output: Option<PathBuf>,
     },
 
     /// List Power of 10 rules and their status
@@ -216,8 +232,12 @@ enum Commands {
     /// Build the project using fastc.toml configuration
     Build {
         /// Build in release mode (optimizations enabled)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "dev")]
         release: bool,
+
+        /// Build in dev mode (tcc backend when available, no optimization)
+        #[arg(long)]
+        dev: bool,
 
         /// Output directory for generated C files
         #[arg(short, long, default_value = "build")]
@@ -227,9 +247,9 @@ enum Commands {
         #[arg(long)]
         cc: bool,
 
-        /// C compiler to use (default: cc)
-        #[arg(long, default_value = "cc")]
-        compiler: String,
+        /// C compiler to use. Default: tcc when --dev and tcc is on PATH, else cc.
+        #[arg(long)]
+        compiler: Option<String>,
 
         /// Additional flags to pass to the C compiler
         #[arg(long)]
@@ -239,12 +259,16 @@ enum Commands {
     /// Build, compile, and run the project
     Run {
         /// Build in release mode (optimizations enabled)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "dev")]
         release: bool,
 
-        /// C compiler to use (default: cc)
-        #[arg(long, default_value = "cc")]
-        compiler: String,
+        /// Build in dev mode (tcc backend when available, no optimization)
+        #[arg(long)]
+        dev: bool,
+
+        /// C compiler to use. Default: tcc when --dev and tcc is on PATH, else cc.
+        #[arg(long)]
+        compiler: Option<String>,
 
         /// Additional flags to pass to the C compiler
         #[arg(long)]
@@ -257,6 +281,21 @@ enum Commands {
 
     /// Fetch project dependencies without building
     Fetch,
+
+    /// Run the compile-time budget benchmark and report results
+    Bench {
+        /// Path to the budget TOML (default: auto-discovered)
+        #[arg(long)]
+        budget: Option<PathBuf>,
+
+        /// Fail with exit code 1 if any benchmark is over budget
+        #[arg(long)]
+        fail_on_regression: bool,
+
+        /// Only run the named benchmark (matches a key under [budgets.*])
+        #[arg(long)]
+        only: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -270,6 +309,8 @@ fn main() -> Result<()> {
             p10: _,
             safety_level,
             strict,
+            timing,
+            timing_output,
         } => {
             let source = std::fs::read_to_string(&input).into_diagnostic()?;
             let filename = input.display().to_string();
@@ -279,8 +320,17 @@ fn main() -> Result<()> {
             if strict {
                 config.strict_mode = true;
             }
+
+            if timing {
+                fastc::timing::install(&filename);
+            }
+
             let (c_code, header) =
                 fastc::compile_with_p10(&source, &filename, emit_header, config)?;
+
+            if timing {
+                emit_timing(timing_output.as_deref())?;
+            }
 
             if output == "-" {
                 println!("{}", c_code);
@@ -302,6 +352,8 @@ fn main() -> Result<()> {
             p10: _,
             safety_level,
             strict,
+            timing,
+            timing_output,
         } => {
             let source = std::fs::read_to_string(&input).into_diagnostic()?;
             let filename = input.display().to_string();
@@ -311,7 +363,17 @@ fn main() -> Result<()> {
             if strict {
                 config.strict_mode = true;
             }
+
+            if timing {
+                fastc::timing::install(&filename);
+            }
+
             fastc::check_with_p10(&source, &filename, config)?;
+
+            if timing {
+                emit_timing(timing_output.as_deref())?;
+            }
+
             eprintln!("No errors found.");
         }
 
@@ -498,6 +560,7 @@ fn main() -> Result<()> {
 
         Commands::Build {
             release,
+            dev,
             output,
             cc,
             compiler,
@@ -507,28 +570,27 @@ fn main() -> Result<()> {
             let mut ctx =
                 fastc::BuildContext::new(&current_dir).map_err(|e| miette::miette!("{}", e))?;
 
-            // Fetch dependencies first
             ctx.fetch_dependencies()
                 .map_err(|e| miette::miette!("{}", e))?;
 
-            // Compile the project to C
             let c_file = ctx
                 .compile(&output, release)
                 .map_err(|e| miette::miette!("{}", e))?;
 
-            // Optionally compile with C compiler
             if cc {
                 let cflags_vec: Vec<&str> = cflags
                     .as_deref()
                     .map(|s| s.split_whitespace().collect())
                     .unwrap_or_default();
-                ctx.cc_compile(&c_file, &compiler, &cflags_vec, release)
+                let resolved = resolve_compiler(compiler.as_deref(), dev, release);
+                ctx.cc_compile(&c_file, &resolved, &cflags_vec, release)
                     .map_err(|e| miette::miette!("{}", e))?;
             }
         }
 
         Commands::Run {
             release,
+            dev,
             compiler,
             cflags,
             args,
@@ -537,26 +599,23 @@ fn main() -> Result<()> {
             let mut ctx =
                 fastc::BuildContext::new(&current_dir).map_err(|e| miette::miette!("{}", e))?;
 
-            // Fetch dependencies first
             ctx.fetch_dependencies()
                 .map_err(|e| miette::miette!("{}", e))?;
 
-            // Compile the project to C
             let output = PathBuf::from("build");
             let c_file = ctx
                 .compile(&output, release)
                 .map_err(|e| miette::miette!("{}", e))?;
 
-            // Compile with C compiler
             let cflags_vec: Vec<&str> = cflags
                 .as_deref()
                 .map(|s| s.split_whitespace().collect())
                 .unwrap_or_default();
+            let resolved = resolve_compiler(compiler.as_deref(), dev, release);
             let executable = ctx
-                .cc_compile(&c_file, &compiler, &cflags_vec, release)
+                .cc_compile(&c_file, &resolved, &cflags_vec, release)
                 .map_err(|e| miette::miette!("{}", e))?;
 
-            // Run the program
             ctx.run(&executable, &args)
                 .map_err(|e| miette::miette!("{}", e))?;
         }
@@ -571,7 +630,107 @@ fn main() -> Result<()> {
 
             eprintln!("Dependencies fetched successfully.");
         }
+
+        Commands::Bench {
+            budget,
+            fail_on_regression,
+            only,
+        } => {
+            let current_dir = std::env::current_dir().into_diagnostic()?;
+            let budget_path = match budget {
+                Some(p) => p,
+                None => fastc::bench::find_budget_toml(&current_dir).ok_or_else(|| {
+                    miette::miette!(
+                        "no compile-time-budget.toml found in {} or any parent",
+                        current_dir.display()
+                    )
+                })?,
+            };
+
+            let project_root = budget_path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| current_dir.clone());
+
+            let mut config =
+                fastc::bench::load_budget(&budget_path).map_err(|e| miette::miette!("{}", e))?;
+
+            if let Some(only_name) = only {
+                config.budgets.retain(|k, _| k == &only_name);
+                if config.budgets.is_empty() {
+                    return Err(miette::miette!("no benchmark matched --only={}", only_name));
+                }
+            }
+
+            eprintln!(
+                "Running {} benchmark(s) from {}",
+                config.budgets.len(),
+                budget_path.display()
+            );
+
+            let report = fastc::bench::run_all(&config, &project_root);
+
+            // Markdown summary always to stderr.
+            eprintln!("\n{}", report.to_markdown());
+
+            // Always emit JSON to the configured path.
+            if let Some(json_path) = &config.reporting.emit_json {
+                let json_path = project_root.join(json_path);
+                if let Some(parent) = json_path.parent() {
+                    std::fs::create_dir_all(parent).into_diagnostic()?;
+                }
+                std::fs::write(&json_path, report.to_json()).into_diagnostic()?;
+                eprintln!("JSON report: {}", json_path.display());
+            }
+
+            if let Some(md_path) = &config.reporting.emit_markdown {
+                let md_path = project_root.join(md_path);
+                if let Some(parent) = md_path.parent() {
+                    std::fs::create_dir_all(parent).into_diagnostic()?;
+                }
+                std::fs::write(&md_path, report.to_markdown()).into_diagnostic()?;
+                eprintln!("Markdown report: {}", md_path.display());
+            }
+
+            if fail_on_regression && report.overall_status == fastc::bench::BudgetStatus::Fail {
+                std::process::exit(1);
+            }
+        }
     }
 
+    Ok(())
+}
+
+/// Pick the C compiler to invoke. Explicit `--compiler` wins; otherwise
+/// `--dev` (and the absence of `--release`) prefers `tcc` when present on
+/// PATH; everything else defaults to `cc`.
+fn resolve_compiler(explicit: Option<&str>, dev: bool, release: bool) -> String {
+    if let Some(c) = explicit {
+        return c.to_string();
+    }
+    if dev && !release {
+        fastc::build::detect_dev_compiler("cc")
+    } else {
+        "cc".to_string()
+    }
+}
+
+/// Write the active `TimingReport` to `dest`. `None` writes JSON to stderr;
+/// `Some(path)` writes to that file, creating parent directories as needed.
+fn emit_timing(dest: Option<&std::path::Path>) -> Result<()> {
+    let Some(report) = fastc::timing::take() else {
+        return Ok(());
+    };
+    let json = report.to_json();
+    match dest {
+        None => eprintln!("{}", json),
+        Some(path) => {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).into_diagnostic()?;
+            }
+            std::fs::write(path, &json).into_diagnostic()?;
+            eprintln!("Timing report written to {}", path.display());
+        }
+    }
     Ok(())
 }

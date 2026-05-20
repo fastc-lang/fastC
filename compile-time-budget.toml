@@ -1,0 +1,55 @@
+# fastC compile-time budget.
+#
+# Hard targets enforced in CI. A PR that regresses any metric by more than
+# `regression_threshold` versus the previous green build fails the budget
+# gate. See docs/compile-time-budget.md for methodology.
+#
+# Run `fastc bench` locally to reproduce CI numbers.
+
+[budgets.clean_examples]
+description = "Clean build of curated tutorial examples"
+target_ms = 2000
+regression_threshold = 0.20
+inputs = "examples/tutorials/*.fc"
+mode = "compile"
+
+[budgets.clean_fastc_crate]
+description = "Clean build of crates/fastc itself (cargo build --release)"
+target_ms = 10000
+regression_threshold = 0.20
+mode = "cargo_build_release"
+
+[budgets.incremental_edit]
+description = "Re-check a single file after a no-op edit (Salsa cache warm)"
+target_ms = 200
+regression_threshold = 0.20
+inputs = "examples/advanced/algorithms.fc"
+mode = "check_warm"
+
+[budgets.single_file_check]
+description = "Cold-cache `fastc check` on a representative file"
+target_ms = 500
+regression_threshold = 0.30
+inputs = "examples/advanced/algorithms.fc"
+mode = "check_cold"
+
+# Reserved for stage 1.2; HTTP+TLS server example does not exist yet.
+# Uncomment once fastc-http (stage 1.8) lands.
+#
+# [budgets.http_tls_server]
+# description = "Clean --dev build of the HTTP+TLS server reference program"
+# target_ms = 1500
+# regression_threshold = 0.20
+# inputs = "examples/advanced/http_server.fc"
+# mode = "compile_dev"
+
+[measurement]
+runs_per_benchmark = 5
+warmup_runs = 2
+# Aggregation method: "min" filters one-time noise, "median" is more robust on
+# noisy CI runners.
+report_metric = "min"
+
+[reporting]
+emit_json = ".fastc/timing/budget.json"
+emit_markdown = ".fastc/timing/budget.md"

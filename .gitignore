@@ -47,3 +47,6 @@ tarpaulin-report.html
 
 # Dependency cache
 /.cargo/
+
+# fastC build/timing artifacts
+/.fastc/

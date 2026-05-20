@@ -1,0 +1,67 @@
+name: Compile-Time Budget
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  budget:
+    name: Budget gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.85"
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build fastc (release)
+        run: cargo build --release -p fastc
+
+      - name: Run compile-time budget
+        run: ./target/release/fastc bench --fail-on-regression
+
+      - name: Upload budget report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-time-budget
+          path: |
+            .fastc/timing/budget.json
+            .fastc/timing/budget.md
+
+      - name: Post budget summary to PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            try {
+              const md = fs.readFileSync('.fastc/timing/budget.md', 'utf8');
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: '<!-- compile-time-budget -->\n' + md
+              });
+            } catch (e) {
+              core.warning('Budget markdown report not found: ' + e.message);
+            }
