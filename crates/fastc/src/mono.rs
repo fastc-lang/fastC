@@ -411,6 +411,21 @@ fn approx_expr_type(
     }
 }
 
+/// Extract the underlying named type from a receiver type — strips one
+/// level of `ref`/`mref` so `Ref(Named("Point"))` and `Named("Point")`
+/// both resolve to `"Point"`. Returns `None` when the receiver is not a
+/// named type (built-in primitives, slices, etc).
+fn struct_name_of(ty: &TypeExpr) -> Option<String> {
+    match ty {
+        TypeExpr::Named(n) => Some(n.clone()),
+        TypeExpr::Ref(inner) | TypeExpr::Mref(inner) => match inner.as_ref() {
+            TypeExpr::Named(n) => Some(n.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// Build a substitution from type-param-name to concrete TypeExpr.
 fn build_subst(type_params: &[TypeParam], type_args: &[TypeExpr]) -> HashMap<String, TypeExpr> {
     type_params
@@ -699,6 +714,61 @@ fn rewrite_expr(
     env: &mut HashMap<String, TypeExpr>,
 ) -> Expr {
     match expr {
+        // Method-call rewrite: `x.method(args)` (stage 1.0). The receiver's
+        // type, looked up in `env`, names the struct the method belongs to.
+        // We emit `Type_method(&x, args)` (auto-addressing when the receiver
+        // is a value type, passing through when it is already a reference).
+        Expr::Call { callee, args, span } if matches!(callee.as_ref(), Expr::Field { .. }) => {
+            if let Expr::Field {
+                base,
+                field,
+                span: field_span,
+            } = callee.as_ref()
+            {
+                let rewritten_base = rewrite_expr(base, subst, ctx, env);
+                let rewritten_args: Vec<Expr> = args
+                    .iter()
+                    .map(|a| rewrite_expr(a, subst, ctx, env))
+                    .collect();
+
+                let recv_ty = approx_expr_type(base, subst, env);
+                if let Some(type_name) = struct_name_of(&recv_ty) {
+                    let method_fn = format!("{}_{}", type_name, field);
+                    // Auto-address value-typed receivers so the call
+                    // matches `fn method(self: ref(Self), …)`.
+                    let receiver = match &recv_ty {
+                        TypeExpr::Ref(_) | TypeExpr::Mref(_) => rewritten_base,
+                        _ => Expr::Addr {
+                            operand: Box::new(rewritten_base),
+                            span: field_span.clone(),
+                        },
+                    };
+                    let mut new_args = Vec::with_capacity(rewritten_args.len() + 1);
+                    new_args.push(receiver);
+                    new_args.extend(rewritten_args);
+                    return Expr::Call {
+                        callee: Box::new(Expr::Ident {
+                            name: method_fn,
+                            span: field_span.clone(),
+                        }),
+                        args: new_args,
+                        span: span.clone(),
+                    };
+                }
+                // Receiver type unknown — fall through to a regular call
+                // (will fail typecheck with a useful diagnostic).
+                return Expr::Call {
+                    callee: Box::new(Expr::Field {
+                        base: Box::new(rewritten_base),
+                        field: field.clone(),
+                        span: field_span.clone(),
+                    }),
+                    args: rewritten_args,
+                    span: span.clone(),
+                };
+            }
+            unreachable!("matched but not Field")
+        }
         Expr::Call { callee, args, span } => {
             let rewritten_args: Vec<Expr> = args
                 .iter()

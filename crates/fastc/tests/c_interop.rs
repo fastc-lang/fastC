@@ -110,6 +110,14 @@ fn test_generic_id_compiles() {
 }
 
 #[test]
+fn test_methods_compiles() {
+    // Stage 1.0: inherent impl methods desugar to free `Type_method` C
+    // functions and `p.method(args)` call sites rewrite with auto-address
+    // of the receiver.
+    compile_and_verify("examples/methods.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

@@ -79,7 +79,26 @@ impl Formatter {
             Item::Extern(block) => self.format_extern(block),
             Item::Use(decl) => self.format_use(decl),
             Item::Mod(decl) => self.format_mod(decl),
+            Item::Impl(block) => self.format_impl(block),
         }
+    }
+
+    /// Format an inherent impl block.
+    fn format_impl(&mut self, block: &crate::ast::ImplBlock) {
+        self.write_indent();
+        self.write("impl ");
+        self.write(&block.target);
+        self.write(" {");
+        self.newline();
+        self.indent += 1;
+        for method in &block.methods {
+            self.format_fn(method);
+            self.newline();
+        }
+        self.indent -= 1;
+        self.write_indent();
+        self.write("}");
+        self.newline();
     }
 
     /// Format a function declaration

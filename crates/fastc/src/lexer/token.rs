@@ -75,6 +75,8 @@ pub enum Token {
     Mod,
     #[token("pub")]
     Pub,
+    #[token("impl")]
+    Impl,
 
     // Type keywords
     #[token("void")]
@@ -360,6 +362,7 @@ impl fmt::Display for Token {
             Token::Defer => write!(f, "defer"),
             Token::Unsafe => write!(f, "unsafe"),
             Token::Struct => write!(f, "struct"),
+            Token::Impl => write!(f, "impl"),
             Token::Enum => write!(f, "enum"),
             Token::Opaque => write!(f, "opaque"),
             Token::Extern => write!(f, "extern"),

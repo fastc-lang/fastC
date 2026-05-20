@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::ast::File;
 use crate::deps::{Manifest, ModuleLoader};
+use crate::desugar::desugar;
 use crate::diag::CompileError;
 use crate::emit::Emitter;
 use crate::lexer::{Lexer, strip_comments};
@@ -71,6 +72,10 @@ pub fn check_with_p10(
         })?;
     }
 
+    // Lower inherent-impl blocks to top-level fns before name resolution.
+    // After this pass, no `Item::Impl` remains in the AST.
+    let ast = time_pass("desugar", || desugar(&ast));
+
     let symbols = time_pass("resolve", || {
         let mut resolver = Resolver::new(source);
         resolver.resolve(&ast)?;
@@ -121,6 +126,10 @@ pub fn compile_with_p10(
             loader.expand_modules(&mut ast, source_dir)
         })?;
     }
+
+    // Lower inherent-impl blocks to top-level fns before name resolution.
+    // After this pass, no `Item::Impl` remains in the AST.
+    let ast = time_pass("desugar", || desugar(&ast));
 
     let symbols = time_pass("resolve", || {
         let mut resolver = Resolver::new(source);
@@ -204,6 +213,10 @@ pub fn compile_project(
             loader.expand_modules(&mut ast, source_dir)
         })?;
     }
+
+    // Lower inherent-impl blocks to top-level fns before name resolution.
+    // After this pass, no `Item::Impl` remains in the AST.
+    let ast = time_pass("desugar", || desugar(&ast));
 
     let symbols = time_pass("resolve", || {
         let mut resolver = Resolver::new(source);

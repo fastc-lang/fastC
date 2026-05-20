@@ -74,6 +74,9 @@ impl<'a> Resolver<'a> {
             Item::Extern(extern_block) => self.declare_extern(extern_block),
             Item::Use(_) => {} // Use declarations handled later
             Item::Mod(mod_decl) => self.declare_mod(mod_decl),
+            // Impl blocks are desugared away before resolve; if one leaks
+            // through it's a driver bug, but skipping is forward-compatible.
+            Item::Impl(_) => {}
         }
     }
 
@@ -366,6 +369,7 @@ impl<'a> Resolver<'a> {
             Item::Extern(extern_block) => self.resolve_extern(extern_block),
             Item::Use(_) => {} // Use declarations resolved in pass 1.5
             Item::Mod(mod_decl) => self.resolve_mod(mod_decl),
+            Item::Impl(_) => {} // Desugared away before resolve.
         }
     }
 

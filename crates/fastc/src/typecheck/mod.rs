@@ -106,6 +106,7 @@ impl<'a> TypeChecker<'a> {
             }
             Item::Use(_) => {} // Module imports resolved during name resolution
             Item::Mod(mod_decl) => self.check_mod(mod_decl),
+            Item::Impl(_) => {} // Desugared away before typecheck.
         }
     }
 
@@ -542,6 +543,89 @@ impl<'a> TypeChecker<'a> {
             Expr::Paren { inner, .. } => self.infer_expr(inner),
 
             Expr::Call { callee, args, span } => {
+                // Stage 1.0: method-call shape `x.method(args)` parses as a
+                // Call whose callee is a Field. Look up the method via the
+                // lifted free function `Type_method` and typecheck as a
+                // regular call with the receiver as the first argument.
+                if let Expr::Field { base, field, .. } = callee.as_ref() {
+                    let recv_ty = self.infer_expr(base);
+                    let type_name = match &recv_ty {
+                        TypeExpr::Named(n) => Some(n.clone()),
+                        TypeExpr::Ref(inner) | TypeExpr::Mref(inner) => match inner.as_ref() {
+                            TypeExpr::Named(n) => Some(n.clone()),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if let Some(type_name) = type_name {
+                        let method_fn = format!("{}_{}", type_name, field);
+                        if let Some(sym) = self.symbols.lookup(&method_fn).cloned() {
+                            if let TypeExpr::Fn {
+                                is_unsafe,
+                                params,
+                                ret,
+                            } = sym.ty.clone()
+                            {
+                                if is_unsafe && !self.safety.is_unsafe() {
+                                    self.error_with_hint(
+                                        "call to unsafe method requires unsafe block".to_string(),
+                                        span.clone(),
+                                        "wrap the call in an unsafe block: unsafe { ... }",
+                                    );
+                                }
+                                if args.len() + 1 != params.len() {
+                                    self.error(
+                                        format!(
+                                            "method '{}' expected {} argument(s) (after receiver), got {}",
+                                            field,
+                                            params.len().saturating_sub(1),
+                                            args.len()
+                                        ),
+                                        span.clone(),
+                                    );
+                                } else {
+                                    // First formal is the receiver; subsequent
+                                    // formals are matched against `args`.
+                                    let self_formal = &params[0];
+                                    // Auto-address value receivers; require
+                                    // exact match for already-reference receivers.
+                                    let recv_compat = self.types_compatible(
+                                        self_formal,
+                                        &TypeExpr::Ref(Box::new(recv_ty.clone())),
+                                    ) || self
+                                        .types_compatible(self_formal, &recv_ty);
+                                    if !recv_compat {
+                                        self.error_type_mismatch(
+                                            self_formal,
+                                            &recv_ty,
+                                            &base.span(),
+                                        );
+                                    }
+                                    for (arg, param_ty) in args.iter().zip(params.iter().skip(1)) {
+                                        let arg_ty = self.infer_expr(arg);
+                                        if !self.types_compatible(param_ty, &arg_ty) {
+                                            self.error_type_mismatch(
+                                                param_ty,
+                                                &arg_ty,
+                                                &arg.span(),
+                                            );
+                                        }
+                                    }
+                                }
+                                return *ret;
+                            }
+                        } else {
+                            self.error(
+                                format!("no method '{}' on type '{}'", field, type_name),
+                                span.clone(),
+                            );
+                            return TypeExpr::Void;
+                        }
+                    }
+                    // Fall through to the regular Field error path if the
+                    // receiver type is not a struct.
+                }
+
                 // Detect generic callees: look the identifier up directly so
                 // we can read `generic_params`. Non-Ident callees (rare —
                 // e.g. function pointer values) fall through to the existing
@@ -1207,6 +1291,45 @@ mod tests {
         check_error(
             "fn id[T](x: T) -> T { return x; } \
              fn main() -> i32 { let b: bool = id(42); return 0; }",
+            "type mismatch",
+        );
+    }
+
+    // === Method-call tests (stage 1.0) ===
+
+    #[test]
+    fn test_method_call_ok() {
+        check_ok(
+            "struct P { x: i32, y: i32 } \
+             impl P { fn x_value(self: ref(Self)) -> i32 { return 0; } } \
+             fn main() -> i32 { let p: P = P { x: 1, y: 2 }; return p.x_value(); }",
+        );
+    }
+
+    #[test]
+    fn test_method_call_with_extra_args() {
+        check_ok(
+            "struct P { x: i32, y: i32 } \
+             impl P { fn add(self: ref(Self), dx: i32) -> i32 { return dx; } } \
+             fn main() -> i32 { let p: P = P { x: 1, y: 2 }; return p.add(7); }",
+        );
+    }
+
+    #[test]
+    fn test_unknown_method_errors() {
+        check_error(
+            "struct P { x: i32, y: i32 } \
+             fn main() -> i32 { let p: P = P { x: 1, y: 2 }; return p.nope(); }",
+            "no method 'nope'",
+        );
+    }
+
+    #[test]
+    fn test_method_arg_type_mismatch_errors() {
+        check_error(
+            "struct P { x: i32, y: i32 } \
+             impl P { fn add(self: ref(Self), dx: i32) -> i32 { return dx; } } \
+             fn main() -> i32 { let p: P = P { x: 1, y: 2 }; return p.add(true); }",
             "type mismatch",
         );
     }

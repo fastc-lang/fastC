@@ -13,6 +13,24 @@ pub enum Item {
     Extern(ExternBlock),
     Use(UseDecl),
     Mod(ModDecl),
+    /// `impl Type { fn method(self: ref(Self), ...) -> T { ... } ... }`.
+    ///
+    /// Stage 1.0 v1 surface: inherent impls only — no traits yet. Methods
+    /// are desugared to free functions named `Type_method` between parse
+    /// and resolve so the rest of the pipeline does not need to know about
+    /// method dispatch.
+    Impl(ImplBlock),
+}
+
+/// An inherent impl block: methods attached to a concrete type.
+#[derive(Debug, Clone)]
+pub struct ImplBlock {
+    /// Name of the type these methods are attached to.
+    pub target: String,
+    /// Methods declared inside the block. Each method's body may reference
+    /// `Self` (the type) and `self` (the receiver parameter).
+    pub methods: Vec<FnDecl>,
+    pub span: Span,
 }
 
 /// Function declaration

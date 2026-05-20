@@ -755,6 +755,23 @@ impl LanguageServer for FastcLanguageServer {
                         children: None,
                     });
                 }
+                fastc::ast::Item::Impl(block) => {
+                    let range = Range::new(
+                        crate::diagnostics::byte_to_position(&content, block.span.start),
+                        crate::diagnostics::byte_to_position(&content, block.span.end),
+                    );
+                    #[allow(deprecated)]
+                    symbols.push(DocumentSymbol {
+                        name: format!("impl {}", block.target),
+                        detail: Some(format!("{} method(s)", block.methods.len())),
+                        kind: SymbolKind::CLASS,
+                        tags: None,
+                        deprecated: None,
+                        range,
+                        selection_range: range,
+                        children: None,
+                    });
+                }
             }
         }
 

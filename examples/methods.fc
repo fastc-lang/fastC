@@ -1,0 +1,25 @@
+// Stage 1.0: inherent-impl methods.
+// `impl Point { fn ... }` is desugared into free functions named
+// `Point_field`; method calls `p.method()` rewrite to `Point_method(&p)`.
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+impl Point {
+    fn x_value(self: ref(Self)) -> i32 {
+        return 0;
+    }
+
+    fn add_offset(self: ref(Self), dx: i32) -> i32 {
+        return dx;
+    }
+}
+
+fn main() -> i32 {
+    let p: Point = Point { x: 7, y: 35 };
+    let a: i32 = p.x_value();
+    let b: i32 = p.add_offset(35);
+    return a + b;
+}

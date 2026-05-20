@@ -211,6 +211,11 @@ impl Workspace {
                         ),
                     });
                 }
+                fastc::ast::Item::Impl(_block) => {
+                    // Methods are surfaced via the desugared free fns; the
+                    // workspace index does not currently expose `impl Type`
+                    // as its own symbol.
+                }
             }
         }
     }

@@ -1,7 +1,7 @@
 //! Declaration parsing
 
 use crate::ast::{
-    ConstDecl, EnumDecl, ExternBlock, ExternItem, Field, FnDecl, FnProto, Item, ModDecl,
+    ConstDecl, EnumDecl, ExternBlock, ExternItem, Field, FnDecl, FnProto, ImplBlock, Item, ModDecl,
     OpaqueDecl, Param, Repr, StructDecl, TypeParam, UseDecl, UseItems, Variant,
 };
 use crate::diag::CompileError;
@@ -44,8 +44,40 @@ impl Parser<'_> {
             Token::Extern => Ok(Item::Extern(self.parse_extern_block()?)),
             Token::Use => Ok(Item::Use(self.parse_use_decl()?)),
             Token::Mod => Ok(Item::Mod(self.parse_mod_decl(is_pub)?)),
+            Token::Impl => Ok(Item::Impl(self.parse_impl_block()?)),
             _ => Err(self.error("expected top-level item")),
         }
+    }
+
+    /// Parse `impl Type { fn method(...) -> T { ... } ... }`.
+    fn parse_impl_block(&mut self) -> Result<ImplBlock, CompileError> {
+        let start = self.current_span().start;
+        self.consume(&Token::Impl, "expected 'impl'")?;
+        let target = self.expect_ident()?;
+        self.consume(&Token::LBrace, "expected '{' after impl target")?;
+
+        let mut methods = Vec::new();
+        while !self.check(&Token::RBrace) && !self.is_at_end() {
+            // Inside impl: a sequence of fn declarations, optionally `unsafe`.
+            let is_unsafe = if self.check(&Token::Unsafe) {
+                self.advance();
+                true
+            } else {
+                false
+            };
+            if !self.check(&Token::Fn) {
+                return Err(self.error("expected 'fn' inside impl block"));
+            }
+            methods.push(self.parse_fn_decl(is_unsafe)?);
+        }
+
+        self.consume(&Token::RBrace, "expected '}' to close impl block")?;
+        let end = self.previous_span().end;
+        Ok(ImplBlock {
+            target,
+            methods,
+            span: start..end,
+        })
     }
 
     /// Parse @repr attribute

@@ -9,6 +9,7 @@ pub mod bench;
 pub mod build;
 pub mod db;
 pub mod deps;
+pub mod desugar;
 pub mod diag;
 pub mod emit;
 pub mod fmt;
