@@ -126,6 +126,14 @@ fn test_traits_compiles() {
 }
 
 #[test]
+fn test_builtin_traits_compiles() {
+    // Stage 1.0 slice 3: built-in Eq/Ord/Copy with primitive impls.
+    // Verifies `fn max[T: Ord]` instantiates for both i32 and f64 using
+    // the prelude-injected `i32_less_than` / `f64_less_than`.
+    compile_and_verify("examples/builtin_traits.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

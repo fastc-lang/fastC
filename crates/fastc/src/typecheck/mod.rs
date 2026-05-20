@@ -649,14 +649,7 @@ impl<'a> TypeChecker<'a> {
                 // regular call with the receiver as the first argument.
                 if let Expr::Field { base, field, .. } = callee.as_ref() {
                     let recv_ty = self.infer_expr(base);
-                    let type_name = match &recv_ty {
-                        TypeExpr::Named(n) => Some(n.clone()),
-                        TypeExpr::Ref(inner) | TypeExpr::Mref(inner) => match inner.as_ref() {
-                            TypeExpr::Named(n) => Some(n.clone()),
-                            _ => None,
-                        },
-                        _ => None,
-                    };
+                    let type_name = type_name_of(&recv_ty);
                     if let Some(type_name) = type_name {
                         // First: try the concrete-type path — look up the
                         // lifted `Type_method` free function.
@@ -1105,6 +1098,17 @@ impl Default for TypeChecker<'_> {
     }
 }
 
+/// Extract the type-name string used to look up methods. Recognizes named
+/// types and built-in primitives; strips one level of ref/mref.
+pub(crate) fn type_name_of(ty: &TypeExpr) -> Option<String> {
+    match ty {
+        TypeExpr::Named(n) => Some(n.clone()),
+        TypeExpr::Primitive(p) => Some(format!("{:?}", p).to_lowercase()),
+        TypeExpr::Ref(inner) | TypeExpr::Mref(inner) => type_name_of(inner),
+        _ => None,
+    }
+}
+
 /// Walk a (formal, actual) type pair and record any type parameter bindings.
 /// Used during generic call typecheck to infer `T = <concrete>` from the
 /// shape of the actual argument.
@@ -1472,6 +1476,40 @@ mod tests {
              fn shout[T: Greeter](x: T) -> i32 { return x.nope(); } \
              fn main() -> i32 { let p: P = P { x: 0, y: 0 }; return shout(p); }",
             "no method 'nope'",
+        );
+    }
+
+    // === Built-in trait tests (stage 1.0 slice 3) ===
+
+    #[test]
+    fn test_builtin_ord_on_i32() {
+        check_ok(
+            "fn max[T: Ord](a: T, b: T) -> T { \
+                if (a.less_than(addr(b))) { return b; } \
+                return a; \
+             } \
+             fn main() -> i32 { return max(7, 35); }",
+        );
+    }
+
+    #[test]
+    fn test_builtin_ord_on_f64() {
+        check_ok(
+            "fn max[T: Ord](a: T, b: T) -> T { \
+                if (a.less_than(addr(b))) { return b; } \
+                return a; \
+             } \
+             fn main() -> i32 { let f: f64 = max(1.5, 2.5); return 0; }",
+        );
+    }
+
+    #[test]
+    fn test_builtin_ord_on_bool_errors() {
+        // `bool` deliberately does not implement Ord — only Eq + Copy.
+        check_error(
+            "fn max[T: Ord](a: T, b: T) -> T { return a; } \
+             fn main() -> i32 { let x: bool = max(true, false); return 0; }",
+            "does not implement trait 'Ord'",
         );
     }
 }

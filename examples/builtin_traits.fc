@@ -1,0 +1,19 @@
+// Stage 1.0 slice 3: built-in traits (Eq/Ord/Copy) auto-implemented for
+// primitive types. `fn max[T: Ord]` works for i32, f64, and any other
+// numeric primitive with no extra code from the user.
+
+fn max[T: Ord](a: T, b: T) -> T {
+    if (a.less_than(addr(b))) {
+        return b;
+    }
+    return a;
+}
+
+fn main() -> i32 {
+    let mi: i32 = max(7, 35);
+    let mf: f64 = max(1.5, 2.5);
+    // Mix the float result into the i32 return so both specializations
+    // are exercised by the test.
+    let mfi: i32 = cast(i32, mf);
+    return (mi + mfi);
+}

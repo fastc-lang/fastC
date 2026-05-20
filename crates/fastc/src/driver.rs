@@ -12,6 +12,7 @@ use crate::lower::Lower;
 use crate::mono::monomorphize;
 use crate::p10::{P10Checker, P10Config};
 use crate::parser::Parser;
+use crate::prelude::prelude_items;
 use crate::resolve::Resolver;
 use crate::timing::time_pass;
 use crate::typecheck::TypeChecker;
@@ -72,8 +73,14 @@ pub fn check_with_p10(
         })?;
     }
 
-    // Lower inherent-impl blocks to top-level fns before name resolution.
-    // After this pass, no `Item::Impl` remains in the AST.
+    // Inject the built-in prelude (Eq/Ord/Copy traits + primitive impls)
+    // before any further pass — these declarations become part of the
+    // user's compilation unit. See `crate::prelude`.
+    let ast = time_pass("prelude", || prepend_prelude(ast));
+
+    // Lift impl blocks' methods to free `Type_method` functions. The
+    // original `Item::Impl` and `Item::Trait` items remain so resolve,
+    // typecheck, and mono can read the trait-impl table.
     let ast = time_pass("desugar", || desugar(&ast));
 
     let symbols = time_pass("resolve", || {
@@ -127,8 +134,14 @@ pub fn compile_with_p10(
         })?;
     }
 
-    // Lower inherent-impl blocks to top-level fns before name resolution.
-    // After this pass, no `Item::Impl` remains in the AST.
+    // Inject the built-in prelude (Eq/Ord/Copy traits + primitive impls)
+    // before any further pass — these declarations become part of the
+    // user's compilation unit. See `crate::prelude`.
+    let ast = time_pass("prelude", || prepend_prelude(ast));
+
+    // Lift impl blocks' methods to free `Type_method` functions. The
+    // original `Item::Impl` and `Item::Trait` items remain so resolve,
+    // typecheck, and mono can read the trait-impl table.
     let ast = time_pass("desugar", || desugar(&ast));
 
     let symbols = time_pass("resolve", || {
@@ -214,8 +227,14 @@ pub fn compile_project(
         })?;
     }
 
-    // Lower inherent-impl blocks to top-level fns before name resolution.
-    // After this pass, no `Item::Impl` remains in the AST.
+    // Inject the built-in prelude (Eq/Ord/Copy traits + primitive impls)
+    // before any further pass — these declarations become part of the
+    // user's compilation unit. See `crate::prelude`.
+    let ast = time_pass("prelude", || prepend_prelude(ast));
+
+    // Lift impl blocks' methods to free `Type_method` functions. The
+    // original `Item::Impl` and `Item::Trait` items remain so resolve,
+    // typecheck, and mono can read the trait-impl table.
     let ast = time_pass("desugar", || desugar(&ast));
 
     let symbols = time_pass("resolve", || {
@@ -267,4 +286,14 @@ fn find_project_root(source_path: &Path) -> Option<std::path::PathBuf> {
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| std::path::PathBuf::from("."))
     })
+}
+
+/// Prepend the built-in prelude items (traits + primitive impls) to a
+/// user file. The prelude provides `Eq`, `Ord`, `Copy` and the
+/// corresponding primitive impls so bounded generics like
+/// `fn max[T: Ord](...)` can be instantiated with primitive types.
+fn prepend_prelude(mut user: File) -> File {
+    let mut items = prelude_items();
+    items.append(&mut user.items);
+    File { items }
 }

@@ -56,10 +56,15 @@ impl Parser<'_> {
     fn parse_impl_block(&mut self) -> Result<ImplBlock, CompileError> {
         let start = self.current_span().start;
         self.consume(&Token::Impl, "expected 'impl'")?;
-        let first = self.expect_ident()?;
+        // The first name may be a trait (Ident) or, for inherent impls of
+        // a primitive type (`impl i32 { ... }`, although unusual), a
+        // primitive keyword. Accept both.
+        let first = self.expect_type_name()?;
         let (trait_name, target) = if self.check(&Token::For) {
             self.advance();
-            let target = self.expect_ident()?;
+            // The target after `for` is a type — primitive keywords are
+            // valid here (`impl Eq for i32`).
+            let target = self.expect_type_name()?;
             (Some(first), target)
         } else {
             (None, first)

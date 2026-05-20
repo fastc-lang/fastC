@@ -18,6 +18,7 @@ pub mod lower;
 pub mod mono;
 pub mod p10;
 pub mod parser;
+pub mod prelude;
 pub mod resolve;
 pub mod scaffold;
 pub mod timing;

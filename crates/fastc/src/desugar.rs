@@ -64,10 +64,39 @@ fn lift_method(block: &ImplBlock, method: &FnDecl) -> FnDecl {
     }
 }
 
-/// Substitute every occurrence of the type `Self` with `Named(target)`.
+/// Resolve an impl target name to a concrete `TypeExpr`. Names matching a
+/// built-in primitive ("i32", "f64", "bool", …) become `TypeExpr::Primitive`;
+/// everything else stays a `Named(target)`.
+fn target_to_type(target: &str) -> TypeExpr {
+    use crate::ast::PrimitiveType;
+    let prim = match target {
+        "i8" => Some(PrimitiveType::I8),
+        "i16" => Some(PrimitiveType::I16),
+        "i32" => Some(PrimitiveType::I32),
+        "i64" => Some(PrimitiveType::I64),
+        "u8" => Some(PrimitiveType::U8),
+        "u16" => Some(PrimitiveType::U16),
+        "u32" => Some(PrimitiveType::U32),
+        "u64" => Some(PrimitiveType::U64),
+        "f32" => Some(PrimitiveType::F32),
+        "f64" => Some(PrimitiveType::F64),
+        "bool" => Some(PrimitiveType::Bool),
+        "usize" => Some(PrimitiveType::Usize),
+        "isize" => Some(PrimitiveType::Isize),
+        _ => None,
+    };
+    match prim {
+        Some(p) => TypeExpr::Primitive(p),
+        None => TypeExpr::Named(target.to_string()),
+    }
+}
+
+/// Substitute every occurrence of the type `Self` with `Named(target)`
+/// (or `Primitive(...)` when target names a built-in primitive type — see
+/// `target_to_type`).
 fn subst_self(ty: &TypeExpr, target: &str) -> TypeExpr {
     match ty {
-        TypeExpr::Named(n) if n == "Self" => TypeExpr::Named(target.to_string()),
+        TypeExpr::Named(n) if n == "Self" => target_to_type(target),
         TypeExpr::NamedGeneric(n, args) => {
             let new_name = if n == "Self" {
                 target.to_string()

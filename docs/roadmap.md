@@ -315,19 +315,19 @@ This stage lands before stdlib (1.1) so stdlib growth cannot blow the budget unn
 
 - **Slice 1 ✅:** Inherent `impl Type { fn ... }` blocks; `x.method(args)` call syntax; pre-resolve desugar lifts methods to free `Type_method` functions; mono rewrites call sites with auto-addressed receivers.
 - **Slice 2 ✅:** `trait Foo { fn ... ; }` declarations, `impl Trait for Type { ... }`, trait-bounded generics `[T: Bound]`, method dispatch on generic-typed receivers via trait method lookup, mono-time bound satisfaction check with structured diagnostics. `examples/traits.fc` compiles and runs (exit 42 via specialized `shout_Point` calling `Point_greet(&x)`).
-- **Slice 3:** Built-in traits (`Eq`, `Ord`, `Copy`), built-in trait impls for primitive types.
+- **Slice 3 ✅:** Built-in traits `Eq`, `Ord`, `Copy` and per-primitive impls injected via a built-in prelude. Parser accepts primitive type keywords as impl targets; desugar substitutes `Self` to `TypeExpr::Primitive` when the target names a primitive; typecheck and mono recognize primitive receivers. `examples/builtin_traits.fc` compiles and runs `fn max[T: Ord]` for both `i32` and `f64` (exit 37 = max(7,35) + cast(i32, max(1.5,2.5))).
 - **Slice 4:** `Drop` trait + compiler-generated `Drop` calls at scope exit.
 
 - [x] Method call syntax: `x.method(args)` desugars to static dispatch. *Slice 1.*
 - [x] Trait declarations: `trait Eq { fn eq(self: ref(Self), other: ref(Self)) -> bool; }`. *Slice 2.*
 - [x] Trait implementations: `impl Eq for Point { ... }`. *Slice 2.*
 - [x] Trait bounds on generic parameters: `fn max[T: Ord](a: T, b: T) -> T`. *Slice 2 — multi-bound `T: A + B` syntax also supported.*
-- [ ] Built-in traits: `Eq`, `Ord`, `Copy`, `Drop`. *Slice 3.*
+- [x] Built-in traits: `Eq`, `Ord`, `Copy`. *Slice 3 — injected via prelude. `bool` gets `Eq + Copy` only (no total order). `Drop` deferred to slice 4 since it requires codegen integration, not just declaration.*
 - [ ] Compiler-generated `Drop` calls at scope exits for types implementing `Drop`. *Slice 4.*
 
 **Definition of Done**
 
-- [x] Trait-bounded generics compile to static dispatch C. *Slice 2: `shout[T: Greeter]` becomes `shout_Point` with `x.greet()` rewritten to `Point_greet(&x)`. Zero runtime dispatch overhead, no vtables.*
+- [x] Trait-bounded generics compile to static dispatch C. *Slice 2: `shout[T: Greeter]` becomes `shout_Point` with `x.greet()` rewritten to `Point_greet(&x)`. Zero runtime dispatch overhead, no vtables. Slice 3 extends this to primitive types: `max[T: Ord](i32, i32)` becomes `max_i32` calling `i32_less_than(&a, &b)`.*
 - [x] Method syntax works on inherent and trait impls. *Slice 1 + Slice 2.*
 - [ ] `Drop` trait enables deterministic resource cleanup. *Slice 4.*
 

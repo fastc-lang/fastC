@@ -100,4 +100,29 @@ impl<'a> Parser<'a> {
             _ => Err(self.error("expected identifier")),
         }
     }
+
+    /// Like `expect_ident` but also accepts primitive type keywords, useful
+    /// for positions where either a user-named type or a built-in primitive
+    /// is valid (e.g. the target of `impl Trait for ___`).
+    fn expect_type_name(&mut self) -> Result<String, CompileError> {
+        let name = match self.current() {
+            Token::Ident(name) => name.clone(),
+            Token::I8 => "i8".to_string(),
+            Token::I16 => "i16".to_string(),
+            Token::I32 => "i32".to_string(),
+            Token::I64 => "i64".to_string(),
+            Token::U8 => "u8".to_string(),
+            Token::U16 => "u16".to_string(),
+            Token::U32 => "u32".to_string(),
+            Token::U64 => "u64".to_string(),
+            Token::F32 => "f32".to_string(),
+            Token::F64 => "f64".to_string(),
+            Token::Bool => "bool".to_string(),
+            Token::Usize => "usize".to_string(),
+            Token::Isize => "isize".to_string(),
+            _ => return Err(self.error("expected type name")),
+        };
+        self.advance();
+        Ok(name)
+    }
 }

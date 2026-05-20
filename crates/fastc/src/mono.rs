@@ -479,17 +479,14 @@ fn approx_expr_type(
     }
 }
 
-/// Extract the underlying named type from a receiver type — strips one
-/// level of `ref`/`mref` so `Ref(Named("Point"))` and `Named("Point")`
-/// both resolve to `"Point"`. Returns `None` when the receiver is not a
-/// named type (built-in primitives, slices, etc).
+/// Extract the underlying type-name string from a receiver type — handles
+/// named types and built-in primitives, strips one level of `ref`/`mref`.
+/// Used to mangle method calls into `Type_method` invocations.
 fn struct_name_of(ty: &TypeExpr) -> Option<String> {
     match ty {
         TypeExpr::Named(n) => Some(n.clone()),
-        TypeExpr::Ref(inner) | TypeExpr::Mref(inner) => match inner.as_ref() {
-            TypeExpr::Named(n) => Some(n.clone()),
-            _ => None,
-        },
+        TypeExpr::Primitive(p) => Some(format!("{:?}", p).to_lowercase()),
+        TypeExpr::Ref(inner) | TypeExpr::Mref(inner) => struct_name_of(inner),
         _ => None,
     }
 }
