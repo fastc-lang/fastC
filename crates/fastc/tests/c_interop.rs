@@ -102,6 +102,14 @@ fn test_overflow_example_compiles() {
 }
 
 #[test]
+fn test_generic_id_compiles() {
+    // Stage 0.9: verify the monomorphization pass produces compilable C
+    // for a program with two single-param and one multi-param generic
+    // instantiation.
+    compile_and_verify("examples/generic_id.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

@@ -7,8 +7,17 @@ use super::Span;
 pub enum TypeExpr {
     /// Primitive types: i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool, usize, isize
     Primitive(PrimitiveType),
-    /// Named type (struct, enum, or alias)
+    /// Named type (struct, enum, alias, or type parameter).
+    ///
+    /// Plain `Foo` parses to `Named("Foo")` with `type_args = []`. A generic
+    /// instantiation `Foo[i32, bool]` carries the type arguments in
+    /// `type_args`. Type parameters in scope (the `T` inside a generic fn
+    /// body) also use this variant; the resolver distinguishes them.
     Named(String),
+    /// Named type with explicit type arguments, e.g. `Pair[i32, f64]`.
+    /// Kept as a separate variant so existing `Named(String)` code paths
+    /// remain unchanged when generics are not in play.
+    NamedGeneric(String, Vec<TypeExpr>),
     /// ref(T) - non-null immutable reference
     Ref(Box<TypeExpr>),
     /// mref(T) - non-null mutable reference

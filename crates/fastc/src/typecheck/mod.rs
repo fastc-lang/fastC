@@ -542,6 +542,18 @@ impl<'a> TypeChecker<'a> {
             Expr::Paren { inner, .. } => self.infer_expr(inner),
 
             Expr::Call { callee, args, span } => {
+                // Detect generic callees: look the identifier up directly so
+                // we can read `generic_params`. Non-Ident callees (rare —
+                // e.g. function pointer values) fall through to the existing
+                // path which has no generics.
+                let generic_params: Vec<String> = match callee.as_ref() {
+                    Expr::Ident { name, .. } => match self.symbols.lookup(name).map(|s| &s.kind) {
+                        Some(SymbolKind::Function { generic_params, .. }) => generic_params.clone(),
+                        _ => Vec::new(),
+                    },
+                    _ => Vec::new(),
+                };
+
                 let callee_ty = self.infer_expr(callee);
 
                 match callee_ty {
@@ -565,6 +577,30 @@ impl<'a> TypeChecker<'a> {
                                 format!("expected {} arguments, got {}", params.len(), args.len()),
                                 span.clone(),
                             );
+                        }
+
+                        // Generic call: unify formal parameter types against
+                        // actual arg types to build a type-substitution
+                        // (`T -> i32`, …), then substitute in the return type.
+                        if !generic_params.is_empty() {
+                            let mut subst: HashMap<String, TypeExpr> = HashMap::new();
+                            for (arg, param_ty) in args.iter().zip(params.iter()) {
+                                let arg_ty = self.infer_expr(arg);
+                                unify_generic(param_ty, &arg_ty, &generic_params, &mut subst);
+                            }
+
+                            // After unification, verify each formal type (post-substitution)
+                            // is actually compatible with the actual arg type — catches
+                            // cases like passing different types for the same T.
+                            for (arg, param_ty) in args.iter().zip(params.iter()) {
+                                let arg_ty = self.infer_expr(arg);
+                                let expected = substitute(param_ty, &subst);
+                                if !self.types_compatible(&expected, &arg_ty) {
+                                    self.error_type_mismatch(&expected, &arg_ty, &arg.span());
+                                }
+                            }
+
+                            return substitute(&ret, &subst);
                         }
 
                         // Check argument types
@@ -883,6 +919,82 @@ impl Default for TypeChecker<'_> {
     }
 }
 
+/// Walk a (formal, actual) type pair and record any type parameter bindings.
+/// Used during generic call typecheck to infer `T = <concrete>` from the
+/// shape of the actual argument.
+///
+/// Recurses into compound types so `slice(T)` against `slice(i32)` binds
+/// `T -> i32`. Conflicting bindings silently take the first one; the
+/// subsequent `types_compatible` check surfaces the mismatch as a regular
+/// type error.
+pub(crate) fn unify_generic(
+    formal: &TypeExpr,
+    actual: &TypeExpr,
+    type_params: &[String],
+    subst: &mut HashMap<String, TypeExpr>,
+) {
+    match (formal, actual) {
+        // Type parameter at the leaf: record the binding.
+        (TypeExpr::Named(name), concrete) if type_params.iter().any(|p| p == name) => {
+            subst
+                .entry(name.clone())
+                .or_insert_with(|| concrete.clone());
+        }
+        // Recurse into matching compound shapes.
+        (TypeExpr::Ref(f), TypeExpr::Ref(a))
+        | (TypeExpr::Mref(f), TypeExpr::Mref(a))
+        | (TypeExpr::Raw(f), TypeExpr::Raw(a))
+        | (TypeExpr::Rawm(f), TypeExpr::Rawm(a))
+        | (TypeExpr::Own(f), TypeExpr::Own(a))
+        | (TypeExpr::Slice(f), TypeExpr::Slice(a))
+        | (TypeExpr::Opt(f), TypeExpr::Opt(a)) => unify_generic(f, a, type_params, subst),
+        (TypeExpr::Res(ft, fe), TypeExpr::Res(at, ae)) => {
+            unify_generic(ft, at, type_params, subst);
+            unify_generic(fe, ae, type_params, subst);
+        }
+        // No deeper structure to bind through; non-matching shapes will be
+        // caught by the substituted compatibility check at the call site.
+        _ => {}
+    }
+}
+
+/// Replace every `Named(T)` whose name is in `subst` with the bound type.
+/// Used to produce the concrete return type at a generic call site.
+pub(crate) fn substitute(ty: &TypeExpr, subst: &HashMap<String, TypeExpr>) -> TypeExpr {
+    match ty {
+        TypeExpr::Named(name) => subst
+            .get(name)
+            .cloned()
+            .unwrap_or(TypeExpr::Named(name.clone())),
+        TypeExpr::NamedGeneric(name, args) => TypeExpr::NamedGeneric(
+            name.clone(),
+            args.iter().map(|a| substitute(a, subst)).collect(),
+        ),
+        TypeExpr::Ref(inner) => TypeExpr::Ref(Box::new(substitute(inner, subst))),
+        TypeExpr::Mref(inner) => TypeExpr::Mref(Box::new(substitute(inner, subst))),
+        TypeExpr::Raw(inner) => TypeExpr::Raw(Box::new(substitute(inner, subst))),
+        TypeExpr::Rawm(inner) => TypeExpr::Rawm(Box::new(substitute(inner, subst))),
+        TypeExpr::Own(inner) => TypeExpr::Own(Box::new(substitute(inner, subst))),
+        TypeExpr::Slice(inner) => TypeExpr::Slice(Box::new(substitute(inner, subst))),
+        TypeExpr::Arr(inner, n) => TypeExpr::Arr(Box::new(substitute(inner, subst)), n.clone()),
+        TypeExpr::Opt(inner) => TypeExpr::Opt(Box::new(substitute(inner, subst))),
+        TypeExpr::Res(t, e) => TypeExpr::Res(
+            Box::new(substitute(t, subst)),
+            Box::new(substitute(e, subst)),
+        ),
+        TypeExpr::Fn {
+            is_unsafe,
+            params,
+            ret,
+        } => TypeExpr::Fn {
+            is_unsafe: *is_unsafe,
+            params: params.iter().map(|p| substitute(p, subst)).collect(),
+            ret: Box::new(substitute(ret, subst)),
+        },
+        TypeExpr::Primitive(_) | TypeExpr::Void => ty.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::driver::compile;
@@ -1060,6 +1172,42 @@ mod tests {
     fn test_nested_calls() {
         check_ok(
             "fn a(x: i32) -> i32 { return x; } fn b(x: i32) -> i32 { return a(x); } fn foo() -> i32 { return b(1); }",
+        );
+    }
+
+    // === Generic fn tests (stage 0.9) ===
+
+    #[test]
+    fn test_generic_identity_inferred() {
+        check_ok(
+            "fn id[T](x: T) -> T { return x; } \
+             fn main() -> i32 { return id(7); }",
+        );
+    }
+
+    #[test]
+    fn test_generic_two_instantiations() {
+        check_ok(
+            "fn id[T](x: T) -> T { return x; } \
+             fn main() -> i32 { let a: i32 = id(1); let b: bool = id(true); return a; }",
+        );
+    }
+
+    #[test]
+    fn test_generic_two_params() {
+        check_ok(
+            "fn pick[A, B](a: A, b: B) -> A { return a; } \
+             fn main() -> i32 { return pick(5, true); }",
+        );
+    }
+
+    #[test]
+    fn test_generic_return_type_mismatch_errors() {
+        // `id(42)` infers T=i32 but the let binding expects bool.
+        check_error(
+            "fn id[T](x: T) -> T { return x; } \
+             fn main() -> i32 { let b: bool = id(42); return 0; }",
+            "type mismatch",
         );
     }
 }

@@ -114,6 +114,7 @@ impl<'a> Resolver<'a> {
             name: fn_decl.name.clone(),
             kind: SymbolKind::Function {
                 is_unsafe: fn_decl.is_unsafe,
+                generic_params: fn_decl.generics.iter().map(|p| p.name.clone()).collect(),
             },
             ty: fn_type,
             span: fn_decl.span.clone(),
@@ -207,6 +208,11 @@ impl<'a> Resolver<'a> {
                         name: fn_proto.name.clone(),
                         kind: SymbolKind::Function {
                             is_unsafe: true, // All extern functions are unsafe to call
+                            generic_params: fn_proto
+                                .generics
+                                .iter()
+                                .map(|p| p.name.clone())
+                                .collect(),
                         },
                         ty: fn_ty,
                         span: fn_proto.span.clone(),
@@ -381,6 +387,22 @@ impl<'a> Resolver<'a> {
     fn resolve_fn(&mut self, fn_decl: &FnDecl) {
         // Enter function scope
         self.symbols.enter_scope();
+
+        // Declare type parameters first so parameter types and the return
+        // type can reference them (`fn id[T](x: T) -> T`).
+        for tp in &fn_decl.generics {
+            let symbol = Symbol {
+                name: tp.name.clone(),
+                kind: SymbolKind::TypeParam,
+                // Use TypeExpr::Named with the param's own name as the type;
+                // monomorphization substitutes this for the concrete type.
+                ty: TypeExpr::Named(tp.name.clone()),
+                span: tp.span.clone(),
+            };
+            if let Err(sym) = self.symbols.define(symbol) {
+                self.error_redefinition(&sym.name, &sym.span);
+            }
+        }
 
         // Declare parameters
         for param in &fn_decl.params {
@@ -744,7 +766,10 @@ impl<'a> Resolver<'a> {
             TypeExpr::Named(name) => {
                 if let Some(sym) = self.symbols.lookup(name) {
                     match sym.kind {
-                        SymbolKind::Struct | SymbolKind::Enum | SymbolKind::Opaque => {}
+                        SymbolKind::Struct
+                        | SymbolKind::Enum
+                        | SymbolKind::Opaque
+                        | SymbolKind::TypeParam => {}
                         _ => {
                             self.errors.push(CompileError::resolve(
                                 format!("'{}' is not a type", name),
@@ -759,6 +784,37 @@ impl<'a> Resolver<'a> {
                         0..0,
                         self.source,
                     ));
+                }
+            }
+
+            // `Foo[i32, f64]` — recurse into each type arg. The generic-struct
+            // case is reserved for the next slice; for now, NamedGeneric only
+            // shows up in test fixtures and call-site type arguments (stage
+            // 0.9 slice 4 monomorphization).
+            TypeExpr::NamedGeneric(name, args) => {
+                if let Some(sym) = self.symbols.lookup(name) {
+                    match sym.kind {
+                        SymbolKind::Struct
+                        | SymbolKind::Enum
+                        | SymbolKind::Opaque
+                        | SymbolKind::TypeParam => {}
+                        _ => {
+                            self.errors.push(CompileError::resolve(
+                                format!("'{}' is not a type", name),
+                                0..0,
+                                self.source,
+                            ));
+                        }
+                    }
+                } else {
+                    self.errors.push(CompileError::resolve(
+                        format!("undefined type '{}'", name),
+                        0..0,
+                        self.source,
+                    ));
+                }
+                for arg in args {
+                    self.resolve_type(arg);
                 }
             }
 

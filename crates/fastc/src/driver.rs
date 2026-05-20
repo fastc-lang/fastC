@@ -8,6 +8,7 @@ use crate::diag::CompileError;
 use crate::emit::Emitter;
 use crate::lexer::{Lexer, strip_comments};
 use crate::lower::Lower;
+use crate::mono::monomorphize;
 use crate::p10::{P10Checker, P10Config};
 use crate::parser::Parser;
 use crate::resolve::Resolver;
@@ -128,7 +129,7 @@ pub fn compile_with_p10(
     })?;
 
     time_pass("typecheck", || {
-        let mut typechecker = TypeChecker::new(source, symbols);
+        let mut typechecker = TypeChecker::new(source, symbols.clone());
         typechecker.check(&ast)
     })?;
 
@@ -137,9 +138,13 @@ pub fn compile_with_p10(
         p10_checker.check_and_report(&ast, source)
     })?;
 
+    // Generic functions are erased here; every call site is rewritten to the
+    // mangled specialized name. Non-generic programs see no change.
+    let mono_ast = time_pass("mono", || monomorphize(&ast, &symbols));
+
     let c_ast = time_pass("lower", || {
         let mut lowerer = Lower::new();
-        lowerer.lower(&ast)
+        lowerer.lower(&mono_ast)
     });
 
     let (c_code, header) = time_pass("emit", || {
@@ -207,7 +212,7 @@ pub fn compile_project(
     })?;
 
     time_pass("typecheck", || {
-        let mut typechecker = TypeChecker::new(source, symbols);
+        let mut typechecker = TypeChecker::new(source, symbols.clone());
         typechecker.check(&ast)
     })?;
 
@@ -216,9 +221,11 @@ pub fn compile_project(
         p10_checker.check_and_report(&ast, source)
     })?;
 
+    let mono_ast = time_pass("mono", || monomorphize(&ast, &symbols));
+
     let c_ast = time_pass("lower", || {
         let mut lowerer = Lower::new();
-        lowerer.lower(&ast)
+        lowerer.lower(&mono_ast)
     });
 
     let (c_code, header) = time_pass("emit", || {

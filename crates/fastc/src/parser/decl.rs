@@ -2,7 +2,7 @@
 
 use crate::ast::{
     ConstDecl, EnumDecl, ExternBlock, ExternItem, Field, FnDecl, FnProto, Item, ModDecl,
-    OpaqueDecl, Param, Repr, StructDecl, UseDecl, UseItems, Variant,
+    OpaqueDecl, Param, Repr, StructDecl, TypeParam, UseDecl, UseItems, Variant,
 };
 use crate::diag::CompileError;
 use crate::lexer::Token;
@@ -102,6 +102,7 @@ impl Parser<'_> {
         let start = self.current_span().start;
         self.consume(&Token::Fn, "expected 'fn'")?;
         let name = self.expect_ident()?;
+        let generics = self.parse_optional_type_params()?;
         self.consume(&Token::LParen, "expected '('")?;
 
         let params = self.parse_param_list()?;
@@ -115,6 +116,7 @@ impl Parser<'_> {
         Ok(FnDecl {
             is_unsafe,
             name,
+            generics,
             params,
             return_type,
             body,
@@ -127,6 +129,7 @@ impl Parser<'_> {
         let start = self.current_span().start;
         self.consume(&Token::Fn, "expected 'fn'")?;
         let name = self.expect_ident()?;
+        let generics = self.parse_optional_type_params()?;
         self.consume(&Token::LParen, "expected '('")?;
 
         let params = self.parse_param_list()?;
@@ -140,10 +143,39 @@ impl Parser<'_> {
         Ok(FnProto {
             is_unsafe,
             name,
+            generics,
             params,
             return_type,
             span: start..end,
         })
+    }
+
+    /// Parse `[T, U, V]` after a function name, returning an empty vec if no
+    /// type parameter list is present.
+    fn parse_optional_type_params(&mut self) -> Result<Vec<TypeParam>, CompileError> {
+        if !self.check(&Token::LBracket) {
+            return Ok(Vec::new());
+        }
+        self.advance(); // consume '['
+
+        let mut params = Vec::new();
+        if !self.check(&Token::RBracket) {
+            loop {
+                let start = self.current_span().start;
+                let name = self.expect_ident()?;
+                let end = self.previous_span().end;
+                params.push(TypeParam {
+                    name,
+                    span: start..end,
+                });
+                if !self.check(&Token::Comma) {
+                    break;
+                }
+                self.advance();
+            }
+        }
+        self.consume(&Token::RBracket, "expected ']'")?;
+        Ok(params)
     }
 
     /// Parse parameter list

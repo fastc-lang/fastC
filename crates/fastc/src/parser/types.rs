@@ -170,10 +170,26 @@ impl Parser<'_> {
                 })
             }
 
-            // Named type
+            // Named type, optionally with type arguments: `Foo` or `Pair[i32, f64]`
             Token::Ident(name) => {
                 self.advance();
-                Ok(TypeExpr::Named(name))
+                if self.check(&Token::LBracket) {
+                    self.advance(); // consume '['
+                    let mut args = Vec::new();
+                    if !self.check(&Token::RBracket) {
+                        loop {
+                            args.push(self.parse_type()?);
+                            if !self.check(&Token::Comma) {
+                                break;
+                            }
+                            self.advance();
+                        }
+                    }
+                    self.consume(&Token::RBracket, "expected ']' in type arguments")?;
+                    Ok(TypeExpr::NamedGeneric(name, args))
+                } else {
+                    Ok(TypeExpr::Named(name))
+                }
             }
 
             _ => Err(self.error("expected type")),

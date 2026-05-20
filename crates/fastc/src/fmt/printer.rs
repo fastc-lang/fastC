@@ -348,6 +348,17 @@ impl Formatter {
         match ty {
             TypeExpr::Primitive(p) => self.write(primitive_name(*p)),
             TypeExpr::Named(name) => self.write(name),
+            TypeExpr::NamedGeneric(name, args) => {
+                self.write(name);
+                self.write("[");
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    self.format_type(arg);
+                }
+                self.write("]");
+            }
             TypeExpr::Ref(inner) => {
                 self.write("ref(");
                 self.format_type(inner);

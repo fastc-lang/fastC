@@ -19,8 +19,12 @@ pub struct Symbol {
 pub enum SymbolKind {
     /// Local or parameter variable
     Variable,
-    /// Function
-    Function { is_unsafe: bool },
+    /// Function. `generic_params` holds the declared type-parameter names
+    /// in declaration order; empty for non-generic functions.
+    Function {
+        is_unsafe: bool,
+        generic_params: Vec<String>,
+    },
     /// Struct type
     Struct,
     /// Enum type
@@ -29,12 +33,15 @@ pub enum SymbolKind {
     Constant,
     /// Opaque type
     Opaque,
+    /// Type parameter introduced by `fn foo[T](...)`. Scoped to the
+    /// function body during resolve/typecheck; erased during monomorphization.
+    TypeParam,
     /// Module with its own scope
     Module { scope_id: usize },
 }
 
 /// A scope containing symbols
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Scope {
     symbols: IndexMap<String, Symbol>,
     parent: Option<usize>,
@@ -67,7 +74,7 @@ impl Scope {
 }
 
 /// Symbol table with nested scopes
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SymbolTable {
     scopes: Vec<Scope>,
     current: usize,

@@ -410,6 +410,7 @@ mod tests {
                 Item::Fn(FnDecl {
                     is_unsafe: false,
                     name: name.to_string(),
+                    generics: vec![],
                     params: vec![],
                     return_type: TypeExpr::Void,
                     body: Block {

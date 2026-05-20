@@ -20,9 +20,22 @@ pub enum Item {
 pub struct FnDecl {
     pub is_unsafe: bool,
     pub name: String,
+    /// Type parameters declared with `fn name[T, U](...)`. Empty for
+    /// non-generic functions.
+    pub generics: Vec<TypeParam>,
     pub params: Vec<Param>,
     pub return_type: TypeExpr,
     pub body: Block,
+    pub span: Span,
+}
+
+/// A declared type parameter, e.g. the `T` in `fn id[T](x: T) -> T`.
+///
+/// Constraints (`T: Eq`, `T: Ord`) are reserved for stage 1.0 (traits) and
+/// are not modelled here yet.
+#[derive(Debug, Clone)]
+pub struct TypeParam {
+    pub name: String,
     pub span: Span,
 }
 
@@ -106,6 +119,9 @@ pub enum ExternItem {
 pub struct FnProto {
     pub is_unsafe: bool,
     pub name: String,
+    /// Type parameters; same shape as `FnDecl::generics`. Generic externs are
+    /// rejected by the typechecker — they have no body to monomorphize.
+    pub generics: Vec<TypeParam>,
     pub params: Vec<Param>,
     pub return_type: TypeExpr,
     pub span: Span,

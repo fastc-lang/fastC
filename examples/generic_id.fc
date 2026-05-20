@@ -1,0 +1,18 @@
+// Stage 0.9 generics: generic identity function with two instantiations.
+// Verifies monomorphization end-to-end: id[T] is emitted as id_i32 and
+// id_bool with call sites rewritten.
+
+fn id[T](x: T) -> T {
+    return x;
+}
+
+fn pick[A, B](a: A, b: B) -> A {
+    return a;
+}
+
+fn main() -> i32 {
+    let a: i32 = id(7);
+    let b: bool = id(true);
+    let c: i32 = pick(35, b);
+    return a + c;
+}

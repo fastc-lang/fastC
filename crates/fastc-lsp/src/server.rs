@@ -828,6 +828,10 @@ fn format_type(ty: &fastc::ast::TypeExpr) -> String {
         }
         .to_string(),
         fastc::ast::TypeExpr::Named(name) => name.clone(),
+        fastc::ast::TypeExpr::NamedGeneric(name, args) => {
+            let inner: Vec<String> = args.iter().map(format_type).collect();
+            format!("{}[{}]", name, inner.join(", "))
+        }
         fastc::ast::TypeExpr::Ref(inner) => format!("ref({})", format_type(inner)),
         fastc::ast::TypeExpr::Mref(inner) => format!("mref({})", format_type(inner)),
         fastc::ast::TypeExpr::Raw(inner) => format!("raw({})", format_type(inner)),
