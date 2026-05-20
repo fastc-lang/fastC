@@ -125,44 +125,79 @@ This means every stage in the roadmap must answer two questions:
 1. **What complexity does this stage manage?** (What problem becomes tractable that wasn't before?)
 2. **What complexity does this stage refuse to introduce?** (What simpler alternative did we choose over the "industry standard" approach?)
 
+### The Strategic Wedge
+
+FastC's earlier framing — "C, but safe and agent-friendly" — undersold the position. The real wedge in 2026 is not the flavor of the syntax. It is the combination of these structural properties, none of which Rust, Zig, or modern C can match together:
+
+1. **Capability-typed I/O.** Capabilities (`fs.read`, `net.connect`, `proc.spawn`, …) are typed function arguments, minted only in `main`. A function with no capability arguments cannot do I/O. This is the only language-level answer to prompt injection in agent-generated code that scales — runtime sandboxes do not help if the generated source contains a `system()` call.
+2. **No executable build scripts. Ever.** Declarative manifests only. No `build.rs`, no `build.zig`, no `proc_macro`, no postinstall hook. The dominant 2025/2026 supply-chain attack surface — arbitrary code at package install/build time — is removed by construction, not patched after the fact.
+3. **Mandatory contracts on public APIs.** `@requires`, `@ensures`, and `@invariant` on every public function. Lowered to runtime asserts in v1 (stage 1.5) and SMT-discharged in v2 (stage 2.1). The signature becomes a typed operating manual the compiler enforces.
+4. **Mandatory module-header annotations.** `@owns`, `@arch`, `@depends`, `@threading`, `@invariants` on every module. Every agent reading a fastC module gets the architectural context for free; the build fails if a module accidentally violates its declared layering.
+5. **Curated, vendor-first ecosystem with Sigstore + SLSA L3 provenance.** No central registry initially. Dependencies are git URL + commit + content hash, vendored into `vendor/`. ~30–50 audited `fastc-core` packages over the first two years. Capability-aware `fastc add` shows requested caps before installing.
+6. **Compile-time discipline measured from day one.** tcc backend for development builds (~100MB/s C compilation), gcc/clang for release. Salsa-style incremental queries. CI gate that fails on >20% budget regression. Targets: clean `examples/` < 2s, clean compiler < 10s, incremental edit < 200ms.
+7. **MCP server as the native agent interface.** `fastc-mcp` exposes the AST, types, capability graph, contract discharge results, and fix suggestions over Model Context Protocol. Claude Code, Cursor, Codex, and anything else MCP-speaking gets a real protocol instead of text-parsing `cargo check`.
+
+Each post-0.6 stage exists to land one of these properties. The "complexity managed / complexity refused" annotations on every stage tie back here.
+
+### 8-Week Execution Sequence
+
+The roadmap is long. The near-term commitment is concrete. This is what ships in the next 8 weeks:
+
+- **Weeks 1–2:** Land `docs/compile-time-budget.md`, the tcc dev backend, the Salsa query skeleton, and the `compile-time-budget.toml` CI gate. Publish first measured numbers.
+- **Weeks 3–4:** Ship 5 `fastc-core` packages (`fastc-http`, `fastc-json`, `fastc-toml`, `fastc-log`, `fastc-cli`) under the `Skelf-Research/fastc-core` org, all with Sigstore signing and full annotation coverage.
+- **Weeks 5–6:** Ship the capability-aware `fastc add` flow and the `fastc.dev` search frontend (search over GitHub repos matching the `fastc-<name>` convention; no registry to run).
+- **Weeks 7–8:** Land the cross-language benchmark (compile time + token count + first-compile success rate; Claude/GPT/Gemini × fastC/Rust/Zig/Go for an HTTP+TLS server). Publish `MANIFESTO.md`. Coordinated launch posts on HN (build-script angle), r/programming (capabilities angle), and r/rust (personal-essay angle).
+
+### Honest Gaps
+
+The roadmap surfaces these existential risks rather than hiding them:
+
+- **P10 default conflicts with agent workloads.** No recursion + no dynamic allocation are dealbreakers for agent runtimes, which are inherently allocator-heavy. `--safety-level=standard` (the default) explicitly relaxes these rules and is the right level for almost all fastC code. `--safety-level=critical` is opt-in for the embedded / safety-critical niche, where Rust is not competing hard.
+- **C interop trade.** fastC emits C; it does not ingest C. Zig is better at consuming arbitrary C source. The deliberate trade is that ingesting C would require trusting arbitrary C, undermining the supply-chain story. We expose C libraries via header declarations, not by parsing their source.
+- **Naming collision.** "fastC" competes for SEO with "fast C" and the LLVM `fastcc` calling convention. Flagged for a rename decision before the launch post. Does not block roadmap implementation work.
+- **Distribution.** Zero stars, one fork as of the writing of this section. The benchmark + `MANIFESTO.md` post in week 7–8 is the highest-leverage answer; the language itself does not get adopted on technical merit alone.
+- **"Why not opinionated Rust?"** Stock answer: capabilities in the type system, mandatory contracts on public APIs, smaller language surface, no `unsafe`-everywhere ecosystem to clean up. Long form lives in `MANIFESTO.md`.
+
 ### Dependency Chain
 
 Each stage builds on the previous. Nothing is standalone.
 
 ```
-0.7 Modules ─────────► Programs can span multiple files
-    │                   (requires: module resolution, #include generation)
-    ▼
-0.8 Generics ────────► Data structures can be type-safe without duplication
-    │                   (requires: modules for multi-file generic code)
-    ▼
-0.9 Traits ──────────► Abstraction without runtime overhead
-    │                   (requires: generics for bounded polymorphism)
-    ▼
-1.0 Closures + Stdlib ► Non-trivial programs without C escape hatch
-    │                   (requires: traits for iterators, Drop for cleanup)
-    ├──────────────────►
-    ▼                   ▼
-1.1 Benchmarks       1.2 Agent Features
-    │                   │
-    ▼                   ▼
-    Real programs exist to benchmark and to test agent workflows
+0.7 Modules ─────────────► Programs span multiple files
     │
     ▼
-1.5 Packages ────────► Ecosystem: code reuse across projects
-    │                   (requires: stable language from 1.0)
+0.8 Compile-time ────────► Budget gate + tcc dev backend + Salsa skeleton
+    │                       (caps the cost of every subsequent stage)
     ▼
-2.0 Hardening ───────► Compiler is trustworthy (fuzzing, debug info)
-    │                   (requires: real-world feedback from ecosystem)
+0.9 Generics ────────────► Type-safe data structures
     ▼
-2.1 Certification ───► Safety-critical deployment evidence
-    │                   (requires: hardened compiler)
+1.0 Traits ──────────────► Bounded polymorphism, static dispatch
     ▼
-2.2 Effects ─────────► Compile-time proof of purity, no-alloc, no-diverge
-    │                   (requires: traits for effect bounds, certification feedback)
+1.1 Stdlib + Closures ───► Non-trivial programs without C escape hatch
     ▼
-2.3 Async ───────────► Explicit coroutines via Future[T] trait
-                        (requires: closures, Drop, benefits from effect system)
+1.2 Benchmarks ──────────► Honest performance and token-efficiency numbers
+    ▼
+1.3 Annotation Mode ─────► @mem / @panics / @purity / @complexity
+    │                       module-header @owns / @arch / @depends mandatory
+    ▼
+1.4 Capabilities ────────► fs.* / net.* / proc.* as typed arguments
+    │                       (replaces ambient authority everywhere)
+    ▼
+1.5 Contracts (runtime) ─► @requires / @ensures → runtime asserts
+    ▼
+1.6 Agent + MCP ─────────► fastc-mcp server, --output-format=json, fastc fix
+    ▼
+1.7 Vendor + Sigstore ───► No registry. Git+hash deps. SLSA L3 provenance.
+    ▼
+1.8 fastc-core ──────────► Curated stdlib extensions, capability-typed APIs
+    ▼
+2.0 Hardening ───────────► Fuzzing, incremental, debug info
+    ▼
+2.1 SMT Discharge ───────► Z3-proved contracts; --no-prove for inner loops
+    ▼
+2.2 Certification ───────► DO-178C / IEC 62304 evidence (much stronger now)
+    ▼
+2.3 Async ───────────────► Future trait, async = caps(net|time)
 ```
 
 Each stage has a "Complexity managed" and "Complexity refused" annotation to keep us honest.
@@ -191,11 +226,12 @@ FastC's compiler enforces constraints that are not just safety features — they
 - `CliReportFormat::Json | Compact | Text` enum in the CLI
 - DO-178C / ISO 26262 certification metadata in compliance reports
 
-**What 1.2 extends:**
-- JSON output from `cert-report` only → all commands (`compile`, `check`, `fmt`)
+**What 1.6 extends (the agent-features stage):**
+- JSON output from `cert-report` only → all commands (`compile`, `check`, `fmt`, `explain`)
 - Fix-it hints from display-only → auto-applicable via `fastc fix`
-- Type surface from LSP-only → exportable via `fastc context`
+- Type surface from LSP-only → exportable via `fastc context` and over `fastc-mcp`
 - Diagnostics from single-file → project-wide with cross-module spans
+- Three new compiler artifacts emitted per build: `manifest.json` (function annotations), `caps.json` (capability graph), `discharge.json` (contract proof status). These become MCP resources for coding agents.
 
 This is the key insight: **the compiler's constraints are not limitations — they are the API surface for tooling.** Every rule the compiler enforces is a rule that tooling can report on, fix automatically, and verify programmatically.
 
@@ -221,11 +257,36 @@ This is the key insight: **the compiler's constraints are not limitations — th
 - [x] CI runs green on every push and PR.
 - [x] Dependencies from `fastc.toml` are fetched and compiled.
 
-## 0.8 — Generics via Monomorphization
+## 0.8 — Compile-Time Discipline + tcc Dev Backend
 
-> **Requires:** 0.7 (modules — generic code must work across files).
+> **Requires:** 0.7 (modules — incremental query system is keyed by module).
+> **Complexity managed:** Predictable, measured compile times before they regress. Slow compile times killed every "safer C" predecessor; fastC structurally avoids the things that made Rust slow (monomorphization fan-out, proc macros, LLVM-on-trait-elaborated-IR) but only if it stays disciplined from day one.
+> **Complexity refused:** No "we'll optimize the compiler later." No "we'll add incremental in v2." No "this feature only costs 50ms per file." All of those compound. The budget gate is the only thing that prevents drift.
+
+This stage lands before stdlib (1.1) so stdlib growth cannot blow the budget unnoticed. See [docs/compile-time-budget.md](compile-time-budget.md) for full methodology.
+
+- [ ] `compile-time-budget.toml` at the repo root with hard targets:
+  - Clean build of `examples/` < 2s.
+  - Clean build of `crates/fastc/` itself < 10s.
+  - Incremental edit (single file changed) < 200ms.
+- [ ] Salsa-style query system. Every compiler pass — parse, resolve, typecheck, lower, emit — is a pure function of its inputs, cached by input hash.
+- [ ] tcc (TinyCC) backend wired in for `fastc build --dev`. gcc/clang remains the `--release` backend.
+- [ ] Module-level parallelism in the build driver (work-stealing pool, dispatch by module DAG).
+- [ ] CI gate that fails when any budget target regresses by >20% from the previous green build.
+- [ ] `fastc build --timing` flag that emits per-pass timing into the build artifacts directory.
+
+**Definition of Done**
+
+- [ ] All three budget targets are measured in CI on every push.
+- [ ] tcc dev backend produces a runnable binary from `examples/01_hello_world` in under 100ms.
+- [ ] Salsa cache hits are visible in `--timing` output (cache hit count / miss count per pass).
+- [ ] A deliberate regression PR (adding a no-op O(n²) pass) is rejected by the budget gate.
+
+## 0.9 — Generics via Monomorphization
+
+> **Requires:** 0.8 (compile-time budget gate — generics are the single biggest compile-time risk, must land under measurement).
 > **Complexity managed:** Type-safe data structures without code duplication. `vec(i32)` and `vec(f64)` share one definition, generate separate C code.
-> **Complexity refused:** No type erasure, no vtables, no runtime generics. Monomorphization means every generic instantiation is fully resolved at compile time — the C output contains no `void*` casts, no indirection. This preserves local reasoning: you can read the generated C and understand exactly what runs.
+> **Complexity refused:** No type erasure, no vtables, no runtime generics. Monomorphization means every generic instantiation is fully resolved at compile time — the C output contains no `void*` casts, no indirection. This preserves local reasoning: you can read the generated C and understand exactly what runs. No higher-kinded types, no associated types — keep the surface narrow so monomorphization stays simple and fast.
 
 - [ ] Grammar extension: `fn find_min[T](s: slice(T), len: i32) -> T`.
 - [ ] Type parameter parsing and AST representation.
@@ -234,16 +295,18 @@ This is the key insight: **the compiler's constraints are not limitations — th
 - [ ] Generic function instantiation with concrete types.
 - [ ] Minimal constraint system (`T: Eq`, `T: Ord`) as a stepping stone to traits.
 - [ ] Error diagnostics for unsatisfied constraints.
+- [ ] Monomorphization cost is measured against the 0.8 budget: a project with 10 generic functions × 5 instantiations each must stay under the clean-build target.
 
 **Definition of Done**
 
 - [ ] Generic functions and structs work end-to-end.
 - [ ] Monomorphization generates specialized C functions (e.g., `find_min_i32`, `find_min_f64`).
 - [ ] Constraints are checked at call sites with clear error messages.
+- [ ] Compile-time budget targets remain green after generics land.
 
-## 0.9 — Traits and Method Syntax
+## 1.0 — Traits and Method Syntax
 
-> **Requires:** 0.8 (generics — traits bound generic type parameters).
+> **Requires:** 0.9 (generics — traits bound generic type parameters).
 > **Complexity managed:** Abstraction without runtime cost. A function constrained by `T: Ord` can compare values without knowing the concrete type at the call site, but the generated C is still a direct function call — no vtable lookup, no dynamic dispatch.
 > **Complexity refused:** No trait objects (`dyn Trait`). All dispatch is static. This is a deliberate trade-off: you cannot store heterogeneous types in a collection via traits. But you always know exactly which function is called, and the C output proves it. If dynamic dispatch is needed, use explicit function pointers in an `unsafe` block.
 
@@ -260,23 +323,26 @@ This is the key insight: **the compiler's constraints are not limitations — th
 - [ ] Method syntax works on types with trait implementations.
 - [ ] `Drop` trait enables deterministic resource cleanup.
 
-## 1.0 — Standard Library and Closures (MVP)
+## 1.1 — Standard Library and Closures (MVP)
 
-> **Requires:** 0.9 (traits for iterators and Drop, generics for containers).
-> **Complexity managed:** Self-sufficient programs. After 1.0, a user can write a non-trivial program without escaping to C. The standard library is written in FastC itself — proving the language is expressive enough.
+> **Requires:** 1.0 (traits for iterators and Drop, generics for containers).
+> **Complexity managed:** Self-sufficient programs. After 1.1, a user can write a non-trivial program without escaping to C. The standard library is written in FastC itself — proving the language is expressive enough.
 > **Complexity refused:** No implicit memory management. `vec` and `hashmap` allocate explicitly and clean up via `Drop`. No garbage collector, no reference counting by default. The programmer sees every allocation because the stdlib calls `fc_alloc` / `fc_free` through the `mem` module. Closures capture by explicit value copy, not by hidden reference — no closure lifetime puzzles.
+
+The stdlib is **born capability-aware in shape but not yet in checking.** I/O signatures take a capability-token parameter even before 1.4 enforces capability flow analysis. This means stage 1.4 does not require a stdlib rewrite — only a switch from "the parameter is decorative" to "the parameter is checked."
 
 - [ ] Closures: `|x: i32| -> i32 { return (x + 1); }` lowered to C structs with captured environment.
   - Captures are by value (copy). Mutable captures require `mref` in the closure signature.
   - No implicit heap allocation for closures — they are stack-allocated structs.
 - [ ] Standard library written in FastC:
-  - [ ] `io` — file I/O, stdin/stdout
+  - [ ] `io` — file I/O, stdin/stdout (signatures already take a `fs.read` / `fs.write` capability stub)
   - [ ] `string` — owned strings, slicing, formatting
-  - [ ] `vec` — growable array (generic, requires 0.8)
-  - [ ] `hashmap` — hash table (generic, requires 0.8 + `Eq` trait from 0.9)
+  - [ ] `vec` — growable array (generic, requires 0.9)
+  - [ ] `hashmap` — hash table (generic, requires 0.9 + `Eq` trait from 1.0)
   - [ ] `mem` — allocators, copy, move
   - [ ] `math` — numeric functions
-  - [ ] `fs` — filesystem operations
+  - [ ] `fs` — filesystem operations (capability stub)
+  - [ ] `net` — TCP/UDP sockets (capability stub)
 - [ ] Iterator protocol via traits + closures.
 - [ ] Doc comments (`///`) parsed and available to tooling.
 - [ ] Language specification document.
@@ -288,182 +354,238 @@ This is the key insight: **the compiler's constraints are not limitations — th
 - [ ] Standard library has test coverage and documentation.
 - [ ] Language specification is published.
 
-## 1.1 — Benchmarking Infrastructure
+## 1.2 — Benchmarking Infrastructure
 
-> **Requires:** 1.0 (real programs to benchmark — toy benchmarks are meaningless).
-> **Complexity managed:** Honest performance data. Without benchmarks, claims about "C-like performance" are hand-waving. With benchmarks, we know exactly where safety checks cost performance and by how much.
+> **Requires:** 1.1 (real programs to benchmark — toy benchmarks are meaningless).
+> **Complexity managed:** Honest performance data — for both runtime *and* the agent workflow. Without benchmarks, "C-like performance" and "agent-friendly" are hand-waving. With benchmarks, we know exactly where safety checks cost performance, and exactly how many tokens a Claude/GPT/Gemini prompt eats to produce a correct program in fastC vs Rust vs Zig vs Go.
 > **Complexity refused:** No benchmark-driven optimization. We do not add compiler special-cases to win benchmarks. If bounds checks cost 3% on n-body, we report 3% — and explain why that trade-off is worth it.
 
-Establish a rigorous, reproducible benchmarking framework. See [docs/benchmarking.md](benchmarking.md) for full methodology.
+Establish a rigorous, reproducible benchmarking framework. See [docs/benchmarking.md](benchmarking.md) for full methodology. **This stage is the launch artifact** — the numbers from 1.2 are what go on Hacker News.
 
 - [ ] `bench/` directory with cross-language benchmark suite.
 - [ ] 6 CLBG-style programs: n-body, binary-trees, spectral-norm, mandelbrot, fannkuch-redux, fasta.
 - [ ] Micro-benchmarks: array-sum, struct-access, bounds-check overhead, ffi-call.
 - [ ] Custom harness: shell/Python orchestrator using `hyperfine` + `perf`.
-- [ ] Agent usability benchmarks (error recovery rate, code gen accuracy, diagnostic parsability).
-- [ ] Compile-time benchmarks comparing `fastc+cc` vs `gcc` vs `clang` vs `zig` vs `rustc`.
+- [ ] **Token-efficiency benchmark.** Same task in fastC, Rust, Zig, Go: (a) input token count for the equivalent prompt; (b) output token count for a correct program; (c) first-compile success rate for Claude Sonnet 4.6, GPT-5, Gemini 3 Pro on N=50 trials per language.
+- [ ] **Agent usability benchmarks** (error recovery rate, code gen accuracy, diagnostic parsability).
+- [ ] **Compile-time benchmarks** comparing `fastc+cc` vs `gcc` vs `clang` vs `zig` vs `rustc` on the same HTTP+TLS server program.
+- [ ] **Dependency count benchmark.** Total transitive deps and total executable build-script invocations for the same HTTP+TLS server in fastC vs Rust vs Zig vs Go. (Expected: fastC 4, Go 12, Zig 8, Rust 87+.)
 
 **Definition of Done**
 
 - [ ] `./bench/run_all.sh` produces reproducible markdown comparison tables.
 - [ ] Benchmarks run in CI with historical tracking.
-- [ ] Results are published with hardware specifications and methodology notes.
+- [ ] Results are published with hardware specifications, prompt texts, model versions, and methodology notes.
+- [ ] One headline number is publishable: "Clean build of an HTTP server with TLS: fastC <X>s, Go <Y>s, Zig <Z>s, Rust <W>s."
 
-## 1.2 — Agent-First Features
+## 1.3 — Annotation Mode + Mandatory Module Headers
 
-> **Requires:** 1.0 (agents need a real language to work with — agent tooling for a toy language proves nothing).
-> **Complexity managed:** The gap between "compiler says there's an error" and "the error is fixed." Today, a human reads the error, understands it, and edits the code. Agent features close that loop automatically: `check → fix → check` converges to working code.
-> **Complexity refused:** No AI inside the compiler. `fastc fix` applies deterministic fix-it hints, not LLM suggestions. The compiler remains a pure function from source to output. Agent intelligence lives in the agent, not in the toolchain.
+> **Requires:** 1.1 (stdlib provides the surface to annotate), 1.2 (token-efficiency benchmark validates that annotations are net-positive for agents).
+> **Complexity managed:** Every fastC function signature becomes a typed operating manual. The agent never needs to read the body to know what a function does — the signature carries memory region, panic behaviour, purity level, complexity bound, and (later, via 1.4 / 1.5) capabilities and contracts.
+> **Complexity refused:** No optional/aspirational annotations. Mandatory on public functions and module headers — the compiler rejects code that omits them. No Java-verbosity tax on private helpers: annotations are inferred and `fastc fmt --annotate` writes the inferred values back into source on demand.
 
-Make FastC the best language for AI coding agents. See [docs/agent-features.md](agent-features.md) for full specification.
+See [docs/annotations.md](annotations.md) for the full grammar specification. This stage lands the **lint-checked** subset (`@mem`, `@panics`, `@purity`, `@complexity` + the module headers). The **proof-checked** subset (`@caps`, `@requires`, `@ensures`) follows in 1.4 and 1.5.
 
-This builds on existing infrastructure: `cert-report` already supports `--format json|compact|text`, miette diagnostics already carry spans and fix-it hints, and P10 violations already produce structured `ViolationDetail` records. The work here extends that foundation to all compiler commands.
+- [ ] First-class annotation grammar (not metadata in comments — parsed as part of the function/module declaration).
+- [ ] Function-level annotations: `@mem(arena=...)`, `@panics(never|on=...|always)`, `@purity(pure|effect|io)`, `@complexity(O(...))`.
+- [ ] Module-level annotations (mandatory on every module): `@module`, `@owns`, `@arch`, `@depends`, `@threading`, `@invariants`.
+- [ ] Module-graph build pass that validates `@owns` globally unique, `@depends` exhaustive, `@arch` layering DAG enforced.
+- [ ] `fastc fmt --annotate` infers and writes annotations back into source.
+- [ ] `fastc explain <symbol>` emits machine-readable JSON of a function's full annotation surface.
+- [ ] All compiler errors for missing/violated annotations carry miette spans + `.with_help()` fix-it hints.
 
-- [ ] Extend `--output-format=json` from `cert-report` to all CLI commands (`compile`, `check`, `fmt`).
+**Definition of Done**
+
+- [ ] A module without a `//! @module` header fails to build with a precise diagnostic.
+- [ ] A `pub` function without a complete annotation set fails to build.
+- [ ] A private function without annotations builds, and `fastc fmt --annotate` fills them in.
+- [ ] `fastc explain` output is sufficient for an agent to call a function correctly without reading its body (verified against the 1.2 token-efficiency benchmark).
+- [ ] All annotations in stage 1.1's stdlib are present and pass the new checker.
+
+## 1.4 — Capability System
+
+> **Requires:** 1.3 (annotation grammar landed). Replaces half of the deleted "Effect System" stage.
+> **Complexity managed:** Generated code cannot perform arbitrary I/O. Every function's `@caps` set is a typed argument list of capability tokens. Tokens are minted only in `main()` and passed downward. Calling a function that requires a capability you do not hold is a compile error, not a runtime check.
+> **Complexity refused:** No algebraic effects (hidden control flow via effect handlers). No monadic effects (Haskell-style, too abstract for a C-like language). No ambient authority — there is no global `fs.read()` you can call without holding a `fs.read` token. The capability lattice has a finite, named set of base capabilities; users do not define new ones in v1.
+
+See [docs/capabilities.md](capabilities.md) for the full design. This is the wedge feature — the property that lets an agent generate fastC code in 2026 with structural confidence that a compromised dep cannot phone home.
+
+- [ ] Capability types built-in: `fs.read(path)`, `fs.write(path)`, `net.connect(host)`, `net.listen(port)`, `proc.spawn`, `time.read`, `rand`, `env.read`.
+- [ ] `@caps(...)` annotation parses to a capability set on the function signature.
+- [ ] Capability values are first-class types: `cap.fs.read` is a type, instances are tokens.
+- [ ] `main()` is the only function that can mint capability tokens (via the runtime `fc_cap_root` interface).
+- [ ] Call-graph propagation: callee's `@caps` must be a subset of caller's `@caps`.
+- [ ] Token flow analysis: a function declares which of its parameters are capability tokens; the compiler checks that every I/O operation is reached through a token argument.
+- [ ] Capabilities erase to zero at runtime (no overhead — they are types, not values, post-codegen).
+- [ ] Stdlib (1.1) I/O signatures upgraded from "decorative capability stub" to "checked capability argument."
+- [ ] `fastc context` and `fastc explain` include capability sets in their output.
+- [ ] `caps.json` artifact emitted per build: the full capability graph of the program.
+
+**Definition of Done**
+
+- [ ] A `@caps()` (pure) function calling `fs_read` produces a compile-time error with a `caps.fs.read` fix-it hint.
+- [ ] An HTTP server example compiles where the request handler holds `net.read | net.write` but not `fs.*`, structurally proving it cannot read the filesystem.
+- [ ] `caps.json` for a "hello world" program contains exactly the capabilities `main()` minted.
+- [ ] No runtime capability check overhead in `--release` mode (verified via 1.2 micro-benchmark).
+
+## 1.5 — Contracts (Runtime Tier)
+
+> **Requires:** 1.3 (annotation grammar landed). Replaces half of the deleted "Effect System" stage.
+> **Complexity managed:** Pre- and postconditions on public APIs become first-class. The signature declares not just what a function takes and returns, but what must be true on entry and what is guaranteed on exit. Agents reason from the contract; the compiler enforces it.
+> **Complexity refused:** No SMT discharge in v1. That's stage 2.1. v1 lowers every contract obligation to a runtime `assert()` in debug builds and `__builtin_assume` in release. This is the cheap, reliable path — it ships the surface syntax and the diagnostic story without gambling the project on Z3 UX.
+
+See [docs/contracts.md](contracts.md) for the design. The v1 → v2 path is documented up front: every contract written against v1 will be proof-discharged automatically in v2 with no source change.
+
+- [ ] `@requires(<expr>)` and `@ensures(<expr>)` annotations on function signatures.
+- [ ] Special `result` keyword in `@ensures` for the return value.
+- [ ] Special `old(<expr>)` form in `@ensures` for pre-state references.
+- [ ] Contract lowering pass: `@requires` becomes an `assert()` at function entry, `@ensures` becomes an `assert()` at every return.
+- [ ] Release mode (`--release`) lowers contracts to `__builtin_assume` (compiler hint, no runtime check) — opt-out via `--check-contracts`.
+- [ ] `@invariant(<expr>)` at the module-header level; checked at module boundaries.
+- [ ] Per-build `discharge.json` artifact: "discharged via runtime assert: 412 obligations, 0 proven, 0 deferred." (Stage 2.1 will fill in the "proven" column.)
+- [ ] Integration with `cert-report`: contract compliance counted as evidence.
+
+**Definition of Done**
+
+- [ ] An `@ensures(result > 0)` function that returns 0 traps with a contract-violation diagnostic in debug builds.
+- [ ] Contract violations produce the same structured diagnostic quality as type errors (miette spans, fix-it hints).
+- [ ] `discharge.json` is consumed by the MCP server (stage 1.6).
+- [ ] Stdlib functions have complete `@requires` / `@ensures` coverage.
+
+## 1.6 — Agent-First Features + MCP Server
+
+> **Requires:** 1.1 (real language to work with), 1.3 (annotation surface), 1.4 (capability graph), 1.5 (contract discharge report). All three artifacts (`manifest.json`, `caps.json`, `discharge.json`) become MCP resources here.
+> **Complexity managed:** The gap between "compiler says there's an error" and "the error is fixed," extended to "the agent has full structural context without re-deriving it." Today, an agent runs `cargo check` and parses text. With `fastc-mcp`, the agent queries the AST, capability graph, contract discharge, and fix suggestions over a typed protocol.
+> **Complexity refused:** No AI inside the compiler. `fastc fix` applies deterministic fix-it hints, not LLM suggestions. The compiler remains a pure function from source to output. Agent intelligence lives in the agent, served fastC context by `fastc-mcp`.
+
+Make FastC the best language for AI coding agents. See [docs/agent-features.md](agent-features.md) and [docs/mcp.md](mcp.md) for full specifications.
+
+- [ ] Extend `--output-format=json` from `cert-report` to all CLI commands (`compile`, `check`, `fmt`, `explain`).
 - [ ] `fastc fix` command — auto-apply the existing `.with_help()` fix-it hints from diagnostics.
-- [ ] `fastc context` — dump project type surface for AI context windows (leverages the type checker's resolved symbol table).
+- [ ] `fastc context` — dump project type surface for AI context windows.
 - [ ] `fastc diff` — semantic code diff (AST-level, not text-level).
+- [ ] `fastc explain <symbol>` — full annotation surface as JSON.
 - [ ] Inline `test { }` blocks compiled only in test mode.
 - [ ] LSP enhancements: code actions (from fix-it hints), semantic tokens, workspace rename.
-- [ ] Unify `CompileError` diagnostics and `P10Violation` reports into a single JSON diagnostic stream.
+- [ ] Unify `CompileError` diagnostics, `P10Violation` reports, capability errors, and contract violations into a single JSON diagnostic stream.
+- [ ] **`fastc-mcp` server** (new `crates/fastc-mcp/`) exposing AST, types, capabilities, contracts, and fix suggestions as MCP resources. Reads `manifest.json` / `caps.json` / `discharge.json` from the build cache.
+- [ ] Scaffold an `AGENTS.md` file by default from `fastc new` with project conventions.
 
 **Definition of Done**
 
 - [ ] An agent can iterate `check → fix → check` to reach working code without human intervention.
-- [ ] `fastc context` output fits in a typical LLM context window and captures all public API surfaces.
+- [ ] `fastc-mcp` is callable from Claude Code, Cursor, and any other MCP-speaking client.
 - [ ] All CLI output is machine-parseable when `--output-format=json` is passed.
-- [ ] JSON diagnostic format includes compiler errors, safety violations, and P10 compliance in one stream.
+- [ ] JSON diagnostic format covers compiler errors, safety violations, P10 compliance, capability violations, and contract violations in one stream.
 
-## 1.5 — Package Registry and Ecosystem
+## 1.7 — Vendor-First Package System with Sigstore + SLSA L3
 
-> **Requires:** 1.0 (stable language — packages need a stable API surface to depend on).
-> **Complexity managed:** Code reuse without copy-paste. A JSON parser should be written once, tested once, and used by everyone.
-> **Complexity refused:** No complex dependency resolution (no SAT solvers). Semver with a simple "newest compatible" resolver. No build scripts that execute arbitrary code during `fastc add`. Packages are FastC source, compiled by the same `fastc` pipeline — no binary distribution, no pre-built artifacts, no platform-specific package variants.
+> **Requires:** 1.1 (stable language — packages need a stable API surface), 1.4 (capabilities — the `fastc add` flow displays caps before install), 1.6 (`fastc-mcp` — package metadata flows through the same channel).
+> **Complexity managed:** Code reuse without the supply-chain attack surface that has dominated Rust, npm, and PyPI in 2025/2026. Dependencies are git URL + commit hash + content hash, vendored into the user's repo. No central registry to phish, no account to compromise, no typosquatting (the URL is part of the import).
+> **Complexity refused:** No HTTP package registry (initially). No semver SAT solver. No build scripts during install. No binary distribution. No platform-specific package variants. The package manager is a glorified `git clone` with content-hash verification.
 
-- [ ] HTTP-based package registry with JSON index.
-- [ ] `fastc publish` — publish packages to the registry.
-- [ ] `fastc add <package>` — add a dependency and update `fastc.toml`.
-- [ ] Semver resolution for dependency versions.
-- [ ] 10–20 seed packages: `json`, `http`, `csv`, `cli`, `log`, `test`, `regex`, `crypto`, `toml`, `yaml`.
-- [ ] Package documentation generation from doc comments.
+See [docs/supply-chain.md](supply-chain.md) for the full story.
+
+- [ ] `fastc.toml` dependency entries: `name = { git = "<url>", rev = "<commit>", sha256 = "<hash>" }`.
+- [ ] `fastc fetch` — clone deps into `vendor/`, verify content hashes.
+- [ ] `fastc add <github-url>` — capability-aware add flow. Before fetching, parses the dep's `fastc.toml`, computes its capability closure, and prompts: "this package requires `fs.read("~/.config/")`, `net.connect("api.example.com")`. Approve?"
+- [ ] Build-system constraint: dependency builds use the same `fastc` pipeline. No `build.rs`-equivalent. No proc macros. No postinstall.
+- [ ] Reproducible-build verification: hash the C output of a dep build; same source + same `fastc` version produces identical bytes.
+- [ ] Global build cache keyed by `(fastc_version, dep_content_hash, target_triple)`.
+- [ ] Sigstore signing on `fastc` compiler binary releases.
+- [ ] SLSA Level 3 provenance for the compiler binary and stdlib build artifacts.
 
 **Definition of Done**
 
-- [ ] `fastc add json` works end-to-end: resolves version, downloads, adds to `fastc.toml`, compiles.
-- [ ] Registry serves package metadata and tarballs over HTTPS.
-- [ ] Seed packages have documentation and tests.
+- [ ] `fastc add github.com/Skelf-Research/fastc-http` works end-to-end: fetches, displays capabilities, verifies hash, vendors, compiles.
+- [ ] A user replays a clean build of any fastC project on a fresh machine and gets a build-cache hit, not a rebuild.
+- [ ] The compiler binary has verifiable SLSA L3 provenance on the GitHub release page.
+- [ ] A canary "malicious package" test confirms that hash mismatch fails the build before any code is compiled.
 
-## 2.0 — Compiler Hardening
+## 1.8 — fastc-core Curated Stdlib Extensions
 
-> **Requires:** 1.5 (ecosystem feedback reveals real-world compiler bugs and pain points).
-> **Complexity managed:** Trust. Users cannot adopt FastC for serious work until the compiler itself is proven reliable. This stage makes the compiler trustworthy, not the language more powerful.
+> **Requires:** 1.7 (vendor-first package system live so the curated packages have somewhere to live).
+> **Complexity managed:** Users get one canonical, audited answer for HTTP, JSON, TOML, logging, CLI parsing, crypto primitives, regex, async runtime, and common data structures. No "Axum vs. Actix vs. Rocket" agent confusion. Every `fastc-core` package is reviewed, signed, capability-typed, and contract-annotated.
+> **Complexity refused:** No community-blessing for the first two years. The answer to "is there a fastC library for X" is "yes, in fastc-core" or "no, write it locally." We resist the urge to bless community packages until they have been around for a year and audited.
+
+See [docs/ecosystem.md](ecosystem.md) for the full curation strategy and target package list.
+
+- [ ] **Launch set (week 3–4 of the 8-week plan):** `fastc-http`, `fastc-json`, `fastc-toml`, `fastc-log`, `fastc-cli`.
+- [ ] Each package: complete annotation coverage, capability-typed I/O, contract-annotated public functions, Sigstore-signed releases, `AGENTS.md` documenting the canonical idiom.
+- [ ] **Six-month set:** add `fastc-sqlite`, `fastc-crypto-primitives`, `fastc-regex`, `fastc-uuid`, `fastc-time`, `fastc-base64`.
+- [ ] **One-year set:** add async runtime, TLS, websocket, csv, gzip, ed25519, x509 parser, and the remaining ~15–25 packages to reach the 30–50 target.
+- [ ] `fastc.dev` search frontend over GitHub repos matching the `fastc-<name>` convention. No registry to operate.
+
+**Definition of Done**
+
+- [ ] The 5 launch packages exist on GitHub under `Skelf-Research/fastc-core`, signed, with `AGENTS.md` and full annotation coverage.
+- [ ] A new fastC project can implement an HTTP+JSON CRUD service using only `fastc-core` packages.
+- [ ] `fastc.dev` returns relevant results for "http", "json", "logging" within 1 second.
+
+## 2.0 — Compiler Hardening + Incremental
+
+> **Requires:** 1.7 (ecosystem feedback reveals real-world compiler bugs and pain points).
+> **Complexity managed:** Trust. Users cannot adopt fastC for serious work until the compiler itself is proven reliable. This stage makes the compiler trustworthy, not the language more powerful.
 > **Complexity refused:** No new language features in this stage. All effort goes into proving what already exists works correctly.
 
 - [ ] Compiler fuzzing with `cargo-fuzz` to find crash bugs and miscompilations.
-- [ ] Debug info / source maps (C line → FastC source) for debugger integration.
-- [ ] Incremental compilation (only recompile changed modules and their dependents).
+- [ ] Dedicated fuzz target for the annotation parser (1.3) and capability checker (1.4).
+- [ ] Debug info / source maps (C line → fastC source) for debugger integration.
+- [ ] Reproducible-build verification on the compiler itself (build the compiler with itself + gcc, hash the output, match across machines).
 - [ ] Cross-compilation support (target triples, sysroot configuration).
+- [ ] Incremental compilation hardening — extend the 0.8 Salsa skeleton to handle multi-package workspaces with cross-package change propagation.
 
 **Definition of Done**
 
 - [ ] Compiler passes 72-hour fuzzing run with no crashes or miscompilations.
-- [ ] Incremental compilation provides measurable speedup (>2x) on projects with 10+ modules.
-- [ ] `gdb` / `lldb` can step through FastC source using generated debug info.
+- [ ] Incremental compilation provides measurable speedup (>2×) on projects with 10+ modules.
+- [ ] `gdb` / `lldb` can step through fastC source using generated debug info.
+- [ ] A canary "rebuild the compiler from itself on three machines" test produces bit-identical binaries.
 
-## 2.1 — Safety-Critical Certification
+## 2.1 — SMT Contract Discharge
 
-> **Requires:** 2.0 (compiler hardening — certification bodies require evidence of compiler reliability).
-> **Complexity managed:** Regulatory compliance. FastC's transpilation model is a genuine advantage here: certify the C output with an already-qualified C compiler, rather than qualifying an entire new compiler backend.
-> **Complexity refused:** FastC does not become a "certification framework." It produces evidence (traceability reports, P10 compliance data, test coverage metrics) that feeds into existing DO-178C / IEC 62304 / ISO 26262 processes. The certification workflow is the user's responsibility — FastC provides the artifacts.
+> **Requires:** 1.5 (contracts as runtime asserts), 2.0 (compiler hardened — SMT is a new failure surface that needs the rest of the compiler stable).
+> **Complexity managed:** Contracts get *proved*, not just runtime-checked. A function with `@requires(x > 0)` calling a callee with `@requires(y >= 1)` is discharged at compile time when the call site has `if x > 0 { f(x) }`. The build emits a per-function report: proven N, runtime-checked M, deferred K.
+> **Complexity refused:** No mandatory SMT. The `--no-prove` flag skips Z3 entirely and falls back to runtime asserts (the 1.5 behaviour). This is critical for the agent inner loop: agents iterate fast, they want SMT on CI, not on every save.
+
+See [docs/contracts.md](contracts.md) for the three-tier discharge design.
+
+- [ ] Z3 (or comparable SMT solver) wired into a new `contract_discharge` compiler pass.
+- [ ] Three-tier pipeline per obligation: syntactic pattern-matching first, then SMT with a 500ms-per-obligation budget, then runtime fallback.
+- [ ] Discharge results cached in `.fastc/cache/` keyed by formula hash. Re-running the build does not re-prove.
+- [ ] `discharge.json` per build report populated with `proven` and `deferred` columns (1.5 only populated `runtime-checked`).
+- [ ] `--no-prove` flag: skip SMT entirely, fall back to 1.5 runtime behaviour. Default in `fastc check` for fast inner-loop development.
+- [ ] `--prove-budget=<ms>` flag: override the 500ms per-obligation budget.
+- [ ] Readable diagnostics: when SMT times out or returns `unknown`, the error message identifies the obligation and offers a fix-it hint ("strengthen `@requires` to include..." or "weaken `@ensures`...").
+
+**Definition of Done**
+
+- [ ] `discharge.json` for a typical 5000-line fastC program shows >80% of obligations proven syntactically or via SMT, with the rest documented as runtime-checked.
+- [ ] CI runs full SMT discharge; developer inner loop uses `--no-prove`.
+- [ ] An obligation that times out produces a structured diagnostic with a concrete hint, not a stack trace.
+
+## 2.2 — Safety-Critical Certification
+
+> **Requires:** 2.0 (compiler hardening — certification bodies require evidence of compiler reliability), 2.1 (SMT discharge — auditors get proven contracts, not just runtime asserts).
+> **Complexity managed:** Regulatory compliance. fastC's transpilation model is a genuine advantage here: certify the C output with an already-qualified C compiler, rather than qualifying an entire new compiler backend. Contracts + capabilities make the certification story materially stronger than the C-only baseline.
+> **Complexity refused:** fastC does not become a "certification framework." It produces evidence (traceability reports, P10 compliance data, contract discharge reports, capability graphs, test coverage metrics) that feeds into existing DO-178C / IEC 62304 / ISO 26262 processes. The certification workflow is the user's responsibility — fastC provides the artifacts.
 
 - [ ] DO-178C / IEC 62304 certification evidence package.
-- [ ] Traceability: FastC source line → C output line → binary instruction.
+- [ ] Traceability: fastC source line → C output line → binary instruction.
 - [ ] P10 compliance reports integrated into certification artifacts.
+- [ ] Contract discharge reports (`discharge.json`) integrated as verification evidence.
+- [ ] Capability graphs (`caps.json`) integrated as I/O isolation evidence.
 - [ ] Formal verification integration (CBMC / Frama-C on emitted C11).
 
 **Definition of Done**
 
-- [ ] A reference project (e.g., flight controller or medical device driver) passes certification review using FastC-generated evidence.
-- [ ] Formal verification can prove absence of runtime errors on a 500-line FastC program.
-
-## 2.2 — Effect System
-
-> **Requires:** 0.9 (traits for effect bounds), 2.1 (certification feedback reveals which effects matter in practice).
-> **Complexity managed:** Knowing what a function *does* — not just what it returns. Today, you can call any function from any context and only discover at runtime that it allocates, does I/O, or diverges. An effect system makes these properties checkable at compile time. This directly serves three goals:
-> - **Safety-critical certification:** "This function is verified `@noalloc` and `@nodiverg`" is exactly what DO-178C auditors want.
-> - **Agent usability:** `fastc context` can show effect annotations — an agent knows a `@pure` function has no side effects without reading the body.
-> - **Async foundation:** Async is an effect. If the effect system exists, `async` becomes a principled extension, not a bolted-on feature.
->
-> **Complexity refused:** No algebraic effects (hidden control flow via effect handlers), no monadic effects (Haskell-style, too abstract for a C-like language). FastC effects are *checked annotations*, not a computation model.
-
-FastC already partially tracks effects through P10 rules (P10-003 restricts dynamic allocation, P10-001 restricts recursion). The effect system generalizes these into the type system.
-
-**Design: effects as checked annotations, not a type-level computation.**
-
-```fastc
-// Declare effects on function signatures
-@pure
-fn add(a: i32, b: i32) -> i32 {
-    return (a + b);
-}
-
-@noalloc
-fn process(buf: slice(u8), len: i32) -> i32 {
-    // Error: vec_push allocates — violates @noalloc
-    // let v: vec(u8) = vec_new();
-    return cast(i32, at(buf, 0));
-}
-
-@nodiverg
-fn bounded_loop(n: i32) -> i32 {
-    let sum: i32 = 0;
-    for (let i: i32 = 0; (i < n); i = (i + 1)) {
-        sum = (sum + i);
-    }
-    return sum;
-}
-```
-
-**Effect hierarchy:**
-
-| Effect | Guarantees | Subsumes |
-|--------|-----------|----------|
-| `@pure` | No I/O, no allocation, no mutation of external state, no divergence | `@noalloc` + `@noio` + `@nodiverg` |
-| `@noalloc` | No heap allocation (`fc_alloc` / `fc_free` never called) | — |
-| `@noio` | No file/network/stdio operations | — |
-| `@nodiverg` | Always terminates (no unbounded loops, no recursion) | — |
-
-**Checking rules (local, per-function):**
-
-- A function marked `@noalloc` can only call functions that are also `@noalloc` (or `@pure`).
-- A function marked `@pure` can only call other `@pure` functions.
-- Violations are compile-time errors with fix-it hints: "remove `@noalloc` annotation" or "mark called function as `@noalloc`".
-- Effects are opt-in. Unannotated functions are unconstrained — they may do anything. This avoids the "annotation tax" problem where every function in the codebase needs markup.
-- `unsafe` blocks bypass effect checking (with a warning), because `unsafe` already means "programmer upholds invariants."
-
-**Relationship to existing infrastructure:**
-
-- P10-003 (`@noalloc` equivalent) already exists as a linting rule. The effect system promotes it to a type-checked guarantee.
-- P10-001 (no recursion) is a subset of `@nodiverg`.
-- `cert-report` already reports P10 violations with structured JSON. Effect violations use the same diagnostic infrastructure.
-
-- [ ] Effect annotation syntax: `@pure`, `@noalloc`, `@noio`, `@nodiverg`.
-- [ ] Effect checking pass in the compiler (after type checking, before lowering).
-- [ ] Effect annotations on standard library functions (1.0 stdlib).
-- [ ] Integration with `cert-report`: effect compliance as a certification artifact.
-- [ ] Integration with `fastc context`: effect annotations in API surface dumps.
-- [ ] Trait methods can declare effect bounds: `trait Iterator { @noalloc fn next(self: mref(Self)) -> opt(T); }`.
-
-**Definition of Done**
-
-- [ ] `@pure fn add(a: i32, b: i32) -> i32` that calls `printf` produces a compile-time error.
-- [ ] Effect violations produce structured diagnostics with the same quality as type errors.
-- [ ] `fastc cert-report` includes effect compliance alongside P10 compliance.
-- [ ] The standard library has effect annotations on all functions where they apply.
+- [ ] A reference project (e.g., flight controller or medical device driver) passes certification review using fastC-generated evidence.
+- [ ] Formal verification can prove absence of runtime errors on a 500-line fastC program.
+- [ ] An auditor can verify, from `caps.json` alone, that a "no network" subsystem never reaches `net.*` capabilities.
 
 ## 2.3 — Async/Await (Optional, Explicit)
 
-> **Requires:** 1.0 (closures for callbacks, traits for a `Future` trait, `Drop` for cancellation cleanup). Benefits from 2.2 (async is an effect — with the effect system, `async fn` can be annotated `@io` and the compiler verifies that non-`@io` code doesn't accidentally suspend).
+> **Requires:** 1.1 (closures for callbacks, traits for a `Future` trait, `Drop` for cancellation cleanup). Benefits from 1.4 (`async fn` is `caps(time.read | net.read | net.write | ...)` — capability typing makes the I/O surface of an async function visible in its signature).
 > **This is the hardest feature on the roadmap.** It directly tensions with FastC's core principles:
 >
 > - **"Explicit effects"** — async introduces hidden suspension points. Every `await` is an invisible `return` + resume.
@@ -513,6 +635,6 @@ These are deliberately vague. They will be specified when the prerequisites exis
 
 ## Competitive Context
 
-See [docs/competitive-analysis.md](competitive-analysis.md) for detailed positioning against C, Zig, Rust, and V.
+See [docs/competitive-analysis.md](competitive-analysis.md) for detailed positioning against C, Zig, Rust, and V, and [docs/MANIFESTO.md](MANIFESTO.md) for the launch thesis.
 
-FastC's core differentiator is **agent usability** — no other systems language explicitly optimizes for AI coding agents. Combined with source-level C interop, deterministic output, and a path to safety-critical certification, FastC occupies a unique position in the systems programming landscape.
+fastC's core differentiator is the **fusion of capability-typed I/O, mandatory contracts, zero-executable-build-scripts, and capability-aware dependency management** — measured against a strict compile-time budget and served to AI agents over a native MCP protocol. No other systems language combines these properties. Rust has cargo and the borrow checker but pays a permanent tax in compile time, `build.rs`, proc macros, and a 150K-crate supply-chain surface. Zig is small but has no provenance story and runs arbitrary code in `build.zig`. C has 50 years of ecosystem and no safety. fastC occupies the open quadrant: small surface, safe by construction, provable, and built for the age of agent-generated code.

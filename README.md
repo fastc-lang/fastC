@@ -5,9 +5,11 @@
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 [![Documentation](https://img.shields.io/badge/docs-online-green.svg)](https://docs.skelfresearch.com/fastc)
 
-**C, but safe and agent-friendly.**
+**A small systems language with capability-typed I/O, mandatory contracts, and zero executable build scripts — built for the age of agent-generated code.**
 
-FastC is a modern C-like language designed for the age of AI-assisted development. It compiles to readable C11, eliminates undefined behavior in safe code, and provides a predictable syntax that both humans and AI agents can reason about confidently.
+fastC is a modern C-like language designed for a world where 95% of code is written by an AI agent and reviewed by a human. It compiles to readable C11. It refuses to run arbitrary code at build time. Capabilities (`fs.read`, `net.connect`, …) are typed function arguments — a function with no capability arguments structurally cannot do I/O. Pre- and postconditions on public APIs are compile-time obligations, checked by the compiler.
+
+See [docs/MANIFESTO.md](docs/MANIFESTO.md) for the full thesis, [docs/roadmap.md](docs/roadmap.md) for the staged delivery plan.
 
 ```c
 fn main() -> i32 {
@@ -22,13 +24,25 @@ fn main() -> i32 {
 }
 ```
 
-## Why FastC?
+## Why fastC?
 
-### Agent-Friendly by Design
+### The wedge
 
-AI coding assistants struggle with C's ambiguous grammar, implicit conversions, and undefined behavior. FastC fixes this:
+| Problem | What fastC does about it |
+|---------|--------------------------|
+| Supply-chain attacks via `build.rs`, `build.zig`, npm postinstall, proc macros | **No executable build scripts. Ever.** Declarative manifests only. |
+| Generated code with hidden I/O / `system()` calls | **Capabilities are typed arguments**, minted only in `main`. A function with no caps cannot read a file, open a socket, or spawn a process — checked at compile time. |
+| Implicit contracts in comments | **`@requires` / `@ensures` are compile-time obligations**, lowered to runtime asserts in v1 and SMT-discharged in v2. |
+| Crates.io as a phishing/typosquat target | **Vendor-first.** Deps are git URL + commit hash + content hash. No central registry. No account to compromise. |
+| 200 transitive crates for an HTTP server | **Curated `fastc-core`** — ~30–50 audited packages with Sigstore signing and SLSA L3 provenance. |
+| `cargo check` text-parsing as the agent interface | **`fastc-mcp`** server — AST, capability graph, contract discharge served over Model Context Protocol. |
+| Rust compile times | **Compile-time budget in CI.** tcc backend for dev builds, gcc/clang for release. Targets: examples < 2s, compiler < 10s, incremental < 200ms. |
 
-| C Problem | FastC Solution |
+### Agent-friendly by design
+
+AI coding assistants also struggle with C's ambiguous grammar, implicit conversions, and undefined behavior. fastC fixes those too:
+
+| C problem | fastC solution |
 |-----------|----------------|
 | Ambiguous declarations | Explicit `let name: type` syntax |
 | Implicit type coercion | All conversions require `cast()` |
@@ -37,7 +51,7 @@ AI coding assistants struggle with C's ambiguous grammar, implicit conversions, 
 | Hidden evaluation order | Guaranteed left-to-right evaluation |
 | Scattered unsafe code | Explicit `unsafe` blocks |
 
-When an AI agent writes FastC, it knows exactly what the code will do. No surprises.
+When an AI agent writes fastC, it knows exactly what the code will do, what it can reach, and what must be true on entry and exit. No surprises.
 
 ### Zero-Cost C Interop
 
@@ -213,6 +227,27 @@ fastc p10-rules --safety-level=critical
 
 See the [Power of 10 Guide](https://docs.skelfresearch.com/fastc/reference/power-of-10/) for detailed documentation.
 
+## FAQ
+
+### Why not opinionated Rust with cargo-vet, no proc macros, no `build.rs`, no async?
+
+The honest answer is that opinionated Rust is a moving target negotiated with a 150K-crate ecosystem that already chose differently. Even with strict project policy, you still inherit Rust's compile times, monomorphization fan-out, lifetime-annotation tax, and a stdlib that grew up around `Box<dyn>` and async. fastC is not "Rust minus features." It is a smaller language designed *from the start* around four properties Rust cannot retrofit without breaking its ecosystem:
+
+1. Capabilities as typed function arguments, not ambient authority.
+2. Mandatory contracts on public APIs, lowered to runtime asserts and (later) SMT-proven.
+3. A package system with no executable build steps and no central registry, only content-hashed vendored deps.
+4. A compile-time budget that is *enforced in CI*, not aspirational.
+
+If your team can credibly enforce all of the above on top of Rust, you should — Rust is a fine language. fastC is for the case where you cannot.
+
+### Does fastC ingest C source?
+
+No. fastC emits C; it does not parse C. The deliberate trade is that ingesting arbitrary C would require trusting arbitrary C, undermining the capability and provenance story. fastC integrates with C libraries via explicit header declarations (`extern "C"`), not by reading their source. Zig is better than fastC at consuming arbitrary C; we accept that loss on purpose.
+
+### Is "no recursion / no dynamic allocation" really the default?
+
+No. Those are NASA/JPL Power of 10 rules for `--safety-level=critical`. The default is `--safety-level=standard`, which permits recursion and `fc_alloc` — appropriate for almost all fastC code, including agent runtimes that are inherently allocator-heavy. Critical mode is opt-in for the embedded / safety-critical niche where Rust is not competing hard.
+
 ## Contributing
 
 We welcome contributions! Please:
@@ -229,7 +264,7 @@ This project is licensed under the [MIT License](LICENSE).
 ---
 
 <p align="center">
-  <b>FastC</b> — Making C safe for humans and agents alike.<br>
+  <b>fastC</b> — A small systems language with capability-typed I/O, mandatory contracts, and zero executable build scripts.<br>
   <a href="https://github.com/Skelf-Research/fastc">GitHub</a> ·
   <a href="https://docs.skelfresearch.com/fastc">Documentation</a> ·
   <a href="https://github.com/Skelf-Research/fastc/issues">Issues</a>

@@ -1,12 +1,19 @@
 # Agent-First Features Specification
 
-FastC is designed to be the best systems language for AI coding agents. This document specifies what "agent-friendly" means, the features that support it, and how we measure success.
+fastC is designed to be the best systems language for AI coding agents. This document specifies what "agent-friendly" means, the features that support it, and how we measure success.
 
-Agent-first features are planned for the [1.2 milestone](roadmap.md).
+Agent-first features are not a single milestone. They span four stages of the [roadmap](roadmap.md):
+
+- **Stage 1.3** — Annotation grammar. Every function signature becomes a typed operating manual (`@mem`, `@panics`, `@purity`, `@complexity` + mandatory module headers). See [docs/annotations.md](annotations.md).
+- **Stage 1.4** — Capability system. I/O permissions become typed function arguments; an agent reading a fastC signature sees the full I/O surface without reading the body. See [docs/capabilities.md](capabilities.md).
+- **Stage 1.5** — Contracts (runtime tier). `@requires` / `@ensures` become compile-time obligations, lowered to runtime asserts. See [docs/contracts.md](contracts.md).
+- **Stage 1.6** — The features in this document: `--output-format=json` everywhere, `fastc fix`, `fastc context`, `fastc diff`, `fastc explain`, the unified diagnostic stream, and the **`fastc-mcp` server** (see [docs/mcp.md](mcp.md)) that exposes everything above to Claude Code / Cursor / Codex over Model Context Protocol.
+
+Together these stages turn the compiler from "produces text errors" into "exposes a typed protocol surface that an agent reasons against."
 
 ## Compiler Constraints as Tooling Feedback
 
-Agent-first features are not bolted on — they are a direct consequence of FastC's compiler constraints. Every rule the compiler enforces is a rule that tooling can report on, auto-fix, and verify.
+Agent-first features are not bolted on — they are a direct consequence of fastC's compiler constraints. Every rule the compiler enforces is a rule that tooling can report on, auto-fix, and verify.
 
 | Compiler Constraint | Feedback It Enables | Existing Infrastructure |
 |---------------------|---------------------|------------------------|
@@ -17,6 +24,9 @@ Agent-first features are not bolted on — they are a direct consequence of Fast
 | P10 rules (001–010) | Structured violations with codes + help | `ViolationDetail { code, message, location, help, note }` |
 | Deterministic C output | Diff-verifiable changes | Stable ordering in C emission |
 | Bounds/null/overflow checks | Runtime traps at known locations | `fc_trap()` with source context |
+| Mandatory annotations on `pub` functions (stage 1.3) | Signature is the operating manual | `manifest.json` build artifact |
+| Capability-typed I/O (stage 1.4) | I/O surface visible in signatures | `caps.json` build artifact |
+| Contract discharge (stage 1.5 / 2.1) | Proven pre/postconditions | `discharge.json` build artifact |
 
 **What already ships (v0.6):**
 - `fastc cert-report --format json` — structured P10 compliance output with `ComplianceReport`, `ViolationDetail`, and `SourceLocation`
@@ -25,7 +35,7 @@ Agent-first features are not bolted on — they are a direct consequence of Fast
 - All `CompileError` variants carry `hint: Option<String>` for fix-it suggestions
 - DO-178C / ISO 26262 certification metadata in compliance reports
 
-The 1.2 milestone extends this from `cert-report` to all commands, and from display-only hints to auto-applicable fixes.
+The stage 1.6 work extends this from `cert-report` to all commands, from display-only hints to auto-applicable fixes via `fastc fix`, and — most importantly — from a CLI surface to a **native MCP protocol surface** via `fastc-mcp`. Agents no longer text-parse `fastc check` output; they query typed resources (see [docs/mcp.md](mcp.md)).
 
 ## Problem Statement
 
@@ -80,7 +90,7 @@ FastC requires explicit types on function signatures, explicit error handling (n
 
 All CLI commands support `--output-format=json` to produce machine-readable output.
 
-> **Existing foundation:** `fastc cert-report` already supports `--format json|compact|text` using the `CliReportFormat` enum. The `ViolationDetail` struct already serializes `code`, `message`, `SourceLocation { line, column, offset, length }`, `help`, and `note` fields. The 1.2 work extends this pattern to `compile`, `check`, and `fmt` commands, and unifies `CompileError` diagnostics with P10 violations into a single JSON stream.
+> **Existing foundation:** `fastc cert-report` already supports `--format json|compact|text` using the `CliReportFormat` enum. The `ViolationDetail` struct already serializes `code`, `message`, `SourceLocation { line, column, offset, length }`, `help`, and `note` fields. The 1.6 work extends this pattern to `compile`, `check`, `fmt`, and `explain` commands, and unifies `CompileError` diagnostics with P10 violations, capability errors (stage 1.4), and contract violations (stage 1.5) into a single JSON stream — served over MCP via `fastc-mcp`.
 
 **Diagnostics format:**
 
