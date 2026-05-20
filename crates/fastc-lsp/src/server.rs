@@ -760,11 +760,32 @@ impl LanguageServer for FastcLanguageServer {
                         crate::diagnostics::byte_to_position(&content, block.span.start),
                         crate::diagnostics::byte_to_position(&content, block.span.end),
                     );
+                    let label = match &block.trait_name {
+                        Some(t) => format!("impl {} for {}", t, block.target),
+                        None => format!("impl {}", block.target),
+                    };
                     #[allow(deprecated)]
                     symbols.push(DocumentSymbol {
-                        name: format!("impl {}", block.target),
+                        name: label,
                         detail: Some(format!("{} method(s)", block.methods.len())),
                         kind: SymbolKind::CLASS,
+                        tags: None,
+                        deprecated: None,
+                        range,
+                        selection_range: range,
+                        children: None,
+                    });
+                }
+                fastc::ast::Item::Trait(decl) => {
+                    let range = Range::new(
+                        crate::diagnostics::byte_to_position(&content, decl.span.start),
+                        crate::diagnostics::byte_to_position(&content, decl.span.end),
+                    );
+                    #[allow(deprecated)]
+                    symbols.push(DocumentSymbol {
+                        name: format!("trait {}", decl.name),
+                        detail: Some(format!("{} method(s)", decl.methods.len())),
+                        kind: SymbolKind::INTERFACE,
                         tags: None,
                         deprecated: None,
                         range,

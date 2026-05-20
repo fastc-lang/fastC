@@ -2,7 +2,7 @@
 
 use crate::ast::{
     ConstDecl, EnumDecl, ExternBlock, ExternItem, Field, FnDecl, FnProto, ImplBlock, Item, ModDecl,
-    OpaqueDecl, Param, Repr, StructDecl, TypeParam, UseDecl, UseItems, Variant,
+    OpaqueDecl, Param, Repr, StructDecl, TraitDecl, TypeParam, UseDecl, UseItems, Variant,
 };
 use crate::diag::CompileError;
 use crate::lexer::Token;
@@ -45,20 +45,29 @@ impl Parser<'_> {
             Token::Use => Ok(Item::Use(self.parse_use_decl()?)),
             Token::Mod => Ok(Item::Mod(self.parse_mod_decl(is_pub)?)),
             Token::Impl => Ok(Item::Impl(self.parse_impl_block()?)),
+            Token::Trait => Ok(Item::Trait(self.parse_trait_decl()?)),
             _ => Err(self.error("expected top-level item")),
         }
     }
 
-    /// Parse `impl Type { fn method(...) -> T { ... } ... }`.
+    /// Parse `impl Type { ... }` (inherent) or `impl Trait for Type { ... }`
+    /// (trait impl). The two are distinguished by the `for` keyword after
+    /// the first identifier.
     fn parse_impl_block(&mut self) -> Result<ImplBlock, CompileError> {
         let start = self.current_span().start;
         self.consume(&Token::Impl, "expected 'impl'")?;
-        let target = self.expect_ident()?;
+        let first = self.expect_ident()?;
+        let (trait_name, target) = if self.check(&Token::For) {
+            self.advance();
+            let target = self.expect_ident()?;
+            (Some(first), target)
+        } else {
+            (None, first)
+        };
         self.consume(&Token::LBrace, "expected '{' after impl target")?;
 
         let mut methods = Vec::new();
         while !self.check(&Token::RBrace) && !self.is_at_end() {
-            // Inside impl: a sequence of fn declarations, optionally `unsafe`.
             let is_unsafe = if self.check(&Token::Unsafe) {
                 self.advance();
                 true
@@ -75,6 +84,38 @@ impl Parser<'_> {
         let end = self.previous_span().end;
         Ok(ImplBlock {
             target,
+            trait_name,
+            methods,
+            span: start..end,
+        })
+    }
+
+    /// Parse `trait Foo { fn method(...) -> T; ... }`. Bodies are not
+    /// permitted on trait method prototypes in v1 (no default methods).
+    fn parse_trait_decl(&mut self) -> Result<TraitDecl, CompileError> {
+        let start = self.current_span().start;
+        self.consume(&Token::Trait, "expected 'trait'")?;
+        let name = self.expect_ident()?;
+        self.consume(&Token::LBrace, "expected '{' after trait name")?;
+
+        let mut methods = Vec::new();
+        while !self.check(&Token::RBrace) && !self.is_at_end() {
+            let is_unsafe = if self.check(&Token::Unsafe) {
+                self.advance();
+                true
+            } else {
+                false
+            };
+            if !self.check(&Token::Fn) {
+                return Err(self.error("expected 'fn' inside trait declaration"));
+            }
+            methods.push(self.parse_fn_proto(is_unsafe)?);
+        }
+
+        self.consume(&Token::RBrace, "expected '}' to close trait declaration")?;
+        let end = self.previous_span().end;
+        Ok(TraitDecl {
+            name,
             methods,
             span: start..end,
         })
@@ -183,7 +224,8 @@ impl Parser<'_> {
     }
 
     /// Parse `[T, U, V]` after a function name, returning an empty vec if no
-    /// type parameter list is present.
+    /// type parameter list is present. Each parameter may carry trait
+    /// bounds: `T: Bound1 + Bound2`.
     fn parse_optional_type_params(&mut self) -> Result<Vec<TypeParam>, CompileError> {
         if !self.check(&Token::LBracket) {
             return Ok(Vec::new());
@@ -195,9 +237,21 @@ impl Parser<'_> {
             loop {
                 let start = self.current_span().start;
                 let name = self.expect_ident()?;
+                let mut bounds = Vec::new();
+                if self.check(&Token::Colon) {
+                    self.advance();
+                    loop {
+                        bounds.push(self.expect_ident()?);
+                        if !self.check(&Token::Plus) {
+                            break;
+                        }
+                        self.advance();
+                    }
+                }
                 let end = self.previous_span().end;
                 params.push(TypeParam {
                     name,
+                    bounds,
                     span: start..end,
                 });
                 if !self.check(&Token::Comma) {

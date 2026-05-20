@@ -15,20 +15,29 @@
 //! - Type-argument inference only at call sites; no explicit `id[i32](x)`
 //!   call-site syntax in v1.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
     Block, Case, ElseBranch, Expr, FieldInit, File, FnDecl, ForInit, ForStep, Item, Param,
     PrimitiveType, Stmt, TypeExpr, TypeParam,
 };
+use crate::diag::CompileError;
 use crate::resolve::{SymbolKind, SymbolTable};
 use crate::typecheck::{substitute, unify_generic};
 
 /// Run the monomorphization pass. Returns a new `File` with generic fns
 /// replaced by their concrete instantiations and all generic call sites
 /// rewritten to the mangled names.
-pub fn monomorphize(file: &File, symbols: &SymbolTable) -> File {
-    let mut ctx = MonoCtx::new(file, symbols);
+///
+/// Errors when a generic instantiation does not satisfy its declared trait
+/// bounds — e.g. `fn max[T: Ord](...)` is called with `T = i32` but no
+/// `impl Ord for i32` exists.
+pub fn monomorphize(
+    file: &File,
+    symbols: &SymbolTable,
+    source: &str,
+) -> Result<File, CompileError> {
+    let mut ctx = MonoCtx::new(file, symbols, source);
 
     // Pass 1: collect every generic call reachable from non-generic code.
     for item in &file.items {
@@ -82,8 +91,11 @@ pub fn monomorphize(file: &File, symbols: &SymbolTable) -> File {
     let pseudo_ctx = MonoCtx {
         generic_fns: ctx.generic_fns.clone(),
         symbols,
+        source: ctx.source,
+        trait_impls: ctx.trait_impls.clone(),
         instantiations: ctx.instantiations.clone(),
         worklist: Vec::new(),
+        errors: Vec::new(),
     };
     for (mangled, (fn_name, type_args)) in entries {
         if let Some(generic_fn) = pseudo_ctx.generic_fns.get(&fn_name).cloned() {
@@ -97,7 +109,10 @@ pub fn monomorphize(file: &File, symbols: &SymbolTable) -> File {
         }
     }
 
-    File { items: new_items }
+    if !ctx.errors.is_empty() {
+        return Err(CompileError::multiple(ctx.errors));
+    }
+    Ok(File { items: new_items })
 }
 
 /// Walking context for monomorphization.
@@ -106,29 +121,79 @@ struct MonoCtx<'a> {
     generic_fns: HashMap<String, FnDecl>,
     /// Symbol table used to identify generic call sites by name lookup.
     symbols: &'a SymbolTable,
+    /// Source text — passed to error constructors so spans render properly.
+    source: &'a str,
+    /// `(type_name → set of traits implemented)`. Built by walking
+    /// `Item::Impl` entries that name a trait. Used to verify bound
+    /// satisfaction when specializing generic instantiations.
+    trait_impls: HashMap<String, HashSet<String>>,
     /// Known instantiations keyed by mangled name. The value records the
     /// original (fn_name, type_args) tuple so pass 2 can specialize the body.
     /// Mangled-name keying side-steps `Vec<TypeExpr>: !Hash`.
     instantiations: HashMap<String, (String, Vec<TypeExpr>)>,
     /// Worklist for transitive instantiation discovery.
     worklist: Vec<(String, Vec<TypeExpr>)>,
+    /// Bound-satisfaction errors accumulated during the collect pass.
+    errors: Vec<CompileError>,
 }
 
 impl<'a> MonoCtx<'a> {
-    fn new(file: &'a File, symbols: &'a SymbolTable) -> Self {
+    fn new(file: &'a File, symbols: &'a SymbolTable, source: &'a str) -> Self {
         let mut generic_fns = HashMap::new();
+        let mut trait_impls: HashMap<String, HashSet<String>> = HashMap::new();
         for item in &file.items {
-            if let Item::Fn(f) = item {
-                if !f.generics.is_empty() {
+            match item {
+                Item::Fn(f) if !f.generics.is_empty() => {
                     generic_fns.insert(f.name.clone(), f.clone());
                 }
+                Item::Impl(block) => {
+                    if let Some(trait_name) = &block.trait_name {
+                        trait_impls
+                            .entry(block.target.clone())
+                            .or_default()
+                            .insert(trait_name.clone());
+                    }
+                }
+                _ => {}
             }
         }
         Self {
             generic_fns,
             symbols,
+            source,
+            trait_impls,
             instantiations: HashMap::new(),
             worklist: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    /// For each declared type parameter, verify that the corresponding
+    /// concrete type argument satisfies every bound. Pushes a structured
+    /// `CompileError` per unsatisfied bound; does not short-circuit.
+    fn check_bounds(&mut self, generic_fn: &FnDecl, type_args: &[TypeExpr]) {
+        for (tp, arg) in generic_fn.generics.iter().zip(type_args.iter()) {
+            if tp.bounds.is_empty() {
+                continue;
+            }
+            let arg_name = match arg {
+                TypeExpr::Named(n) => n.clone(),
+                TypeExpr::Primitive(p) => format!("{:?}", p).to_lowercase(),
+                _ => format!("{:?}", arg),
+            };
+            let impls_for_arg = self.trait_impls.get(&arg_name).cloned().unwrap_or_default();
+            for bound in &tp.bounds {
+                if !impls_for_arg.contains(bound) {
+                    self.errors.push(CompileError::resolve(
+                        format!(
+                            "type '{}' does not implement trait '{}' (required by type parameter '{}' on '{}')",
+                            arg_name, bound, tp.name, generic_fn.name
+                        ),
+                        generic_fn.span.clone(),
+                        self.source,
+                    ));
+                }
+            }
         }
     }
 
@@ -309,6 +374,9 @@ impl<'a> MonoCtx<'a> {
                             if let Some(generic_fn) = self.generic_fns.get(name).cloned() {
                                 let type_args =
                                     infer_type_args(&generic_fn, args, &generic_params, subst, env);
+                                // Bound check: verify each (type_param, type_arg)
+                                // pair satisfies the declared trait bounds.
+                                self.check_bounds(&generic_fn, &type_args);
                                 let mangled = mangled_name(name, &type_args);
                                 if !self.instantiations.contains_key(&mangled) {
                                     self.instantiations

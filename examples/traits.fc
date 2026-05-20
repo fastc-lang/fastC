@@ -1,0 +1,30 @@
+// Stage 1.0 slice 2: traits + impl-for + bounded generics.
+//
+// `Greeter` is a trait; `Point` implements it; `shout[T: Greeter]` is a
+// bounded generic that calls a trait method on its type parameter.
+// Mono specializes `shout` to `shout_Point` and rewrites `x.greet()` to
+// `Point_greet(&x)` end-to-end with zero runtime dispatch overhead.
+
+trait Greeter {
+    fn greet(self: ref(Self)) -> i32;
+}
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+impl Greeter for Point {
+    fn greet(self: ref(Self)) -> i32 {
+        return 42;
+    }
+}
+
+fn shout[T: Greeter](x: T) -> i32 {
+    return x.greet();
+}
+
+fn main() -> i32 {
+    let p: Point = Point { x: 1, y: 2 };
+    return shout(p);
+}

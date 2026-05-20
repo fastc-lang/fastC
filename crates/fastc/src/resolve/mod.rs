@@ -74,9 +74,10 @@ impl<'a> Resolver<'a> {
             Item::Extern(extern_block) => self.declare_extern(extern_block),
             Item::Use(_) => {} // Use declarations handled later
             Item::Mod(mod_decl) => self.declare_mod(mod_decl),
-            // Impl blocks are desugared away before resolve; if one leaks
-            // through it's a driver bug, but skipping is forward-compatible.
-            Item::Impl(_) => {}
+            // Impl blocks and trait declarations are desugared away before
+            // resolve; if one leaks through it's a driver bug, but skipping
+            // is forward-compatible.
+            Item::Impl(_) | Item::Trait(_) => {}
         }
     }
 
@@ -369,7 +370,7 @@ impl<'a> Resolver<'a> {
             Item::Extern(extern_block) => self.resolve_extern(extern_block),
             Item::Use(_) => {} // Use declarations resolved in pass 1.5
             Item::Mod(mod_decl) => self.resolve_mod(mod_decl),
-            Item::Impl(_) => {} // Desugared away before resolve.
+            Item::Impl(_) | Item::Trait(_) => {} // Desugared away before resolve.
         }
     }
 
@@ -397,7 +398,9 @@ impl<'a> Resolver<'a> {
         for tp in &fn_decl.generics {
             let symbol = Symbol {
                 name: tp.name.clone(),
-                kind: SymbolKind::TypeParam,
+                kind: SymbolKind::TypeParam {
+                    bounds: tp.bounds.clone(),
+                },
                 // Use TypeExpr::Named with the param's own name as the type;
                 // monomorphization substitutes this for the concrete type.
                 ty: TypeExpr::Named(tp.name.clone()),
@@ -773,7 +776,7 @@ impl<'a> Resolver<'a> {
                         SymbolKind::Struct
                         | SymbolKind::Enum
                         | SymbolKind::Opaque
-                        | SymbolKind::TypeParam => {}
+                        | SymbolKind::TypeParam { .. } => {}
                         _ => {
                             self.errors.push(CompileError::resolve(
                                 format!("'{}' is not a type", name),
@@ -801,7 +804,7 @@ impl<'a> Resolver<'a> {
                         SymbolKind::Struct
                         | SymbolKind::Enum
                         | SymbolKind::Opaque
-                        | SymbolKind::TypeParam => {}
+                        | SymbolKind::TypeParam { .. } => {}
                         _ => {
                             self.errors.push(CompileError::resolve(
                                 format!("'{}' is not a type", name),

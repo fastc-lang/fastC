@@ -1,10 +1,14 @@
 //! Pre-resolve desugar pass.
 //!
-//! Currently lowers inherent-impl blocks (stage 1.0 slice 1) to free
-//! functions. After this pass, `Item::Impl` no longer appears in the AST;
-//! every method has been lifted to a top-level `Item::Fn` named
-//! `Target_method`, and every occurrence of `Self` in a method signature
-//! has been substituted with the impl'd target type.
+//! Lifts every `Item::Impl` method to a free function named
+//! `Target_method`, substituting `Self` for the impl'd target type in
+//! signatures and body type annotations. After this pass, every method is
+//! reachable as an ordinary `Type_method` function.
+//!
+//! `Item::Impl` and `Item::Trait` items remain in the AST so subsequent
+//! passes can read the trait-impl mapping (which type implements which
+//! trait) and trait method signatures. Resolve/typecheck/mono skip the
+//! bodies of these items but consult them for trait dispatch.
 //!
 //! Method-call *expressions* (`x.method(args)`) are not rewritten here —
 //! that needs type information and happens later, inside the
@@ -14,13 +18,16 @@ use crate::ast::{
     Block, Expr, FieldInit, File, FnDecl, ForInit, ForStep, ImplBlock, Item, Param, Stmt, TypeExpr,
 };
 
-/// Lift every `Item::Impl` into one `Item::Fn` per method. Returns a new
-/// `File` with impl blocks removed.
+/// Lift every `Item::Impl` method into a free `Item::Fn` named
+/// `Target_method`. The original `Item::Impl` and `Item::Trait` items are
+/// preserved so later passes can read the trait-impl table; the lifted
+/// methods follow them in the items list.
 pub fn desugar(file: &File) -> File {
-    let mut items: Vec<Item> = Vec::with_capacity(file.items.len());
+    let mut items: Vec<Item> = Vec::with_capacity(file.items.len() * 2);
     for item in &file.items {
         match item {
             Item::Impl(block) => {
+                items.push(item.clone());
                 for method in &block.methods {
                     items.push(Item::Fn(lift_method(block, method)));
                 }
@@ -363,6 +370,7 @@ mod tests {
     fn lifts_method_to_freestanding_fn() {
         let block = ImplBlock {
             target: "Point".to_string(),
+            trait_name: None,
             methods: vec![FnDecl {
                 is_unsafe: false,
                 name: "x_value".to_string(),
@@ -385,11 +393,12 @@ mod tests {
             items: vec![Item::Impl(block)],
         };
         let out = desugar(&file);
-        assert_eq!(out.items.len(), 1);
-        match &out.items[0] {
+        // Impl block survives + one lifted free fn.
+        assert_eq!(out.items.len(), 2);
+        // The lifted fn comes after the impl block.
+        match &out.items[1] {
             Item::Fn(f) => {
                 assert_eq!(f.name, "Point_x_value");
-                // The Self in the receiver type should be substituted.
                 match &f.params[0].ty {
                     TypeExpr::Ref(inner) => assert_eq!(**inner, TypeExpr::Named("Point".into())),
                     other => panic!("unexpected param type: {:?}", other),
@@ -397,6 +406,8 @@ mod tests {
             }
             other => panic!("expected Item::Fn, got {:?}", other),
         }
+        // Impl block itself preserved for the trait-impl table.
+        assert!(matches!(&out.items[0], Item::Impl(_)));
     }
 
     #[test]

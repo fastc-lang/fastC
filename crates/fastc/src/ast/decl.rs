@@ -13,23 +13,44 @@ pub enum Item {
     Extern(ExternBlock),
     Use(UseDecl),
     Mod(ModDecl),
-    /// `impl Type { fn method(self: ref(Self), ...) -> T { ... } ... }`.
-    ///
-    /// Stage 1.0 v1 surface: inherent impls only — no traits yet. Methods
+    /// `impl Type { ... }` (inherent) or `impl Trait for Type { ... }`
+    /// (trait impl). Stage 1.0 slice 1 and slice 2 respectively. Methods
     /// are desugared to free functions named `Type_method` between parse
-    /// and resolve so the rest of the pipeline does not need to know about
-    /// method dispatch.
+    /// and resolve so the rest of the pipeline sees only ordinary call
+    /// sites.
     Impl(ImplBlock),
+    /// `trait Foo { fn method(self: ref(Self), ...) -> T; ... }`. Stage
+    /// 1.0 slice 2.
+    Trait(TraitDecl),
 }
 
-/// An inherent impl block: methods attached to a concrete type.
+/// An inherent or trait impl block.
+///
+/// * Inherent: `impl Type { ... }` — `trait_name` is `None`.
+/// * Trait:    `impl Trait for Type { ... }` — `trait_name` is `Some("Trait")`.
 #[derive(Debug, Clone)]
 pub struct ImplBlock {
     /// Name of the type these methods are attached to.
     pub target: String,
+    /// Name of the trait being implemented (`None` for an inherent impl).
+    pub trait_name: Option<String>,
     /// Methods declared inside the block. Each method's body may reference
     /// `Self` (the type) and `self` (the receiver parameter).
     pub methods: Vec<FnDecl>,
+    pub span: Span,
+}
+
+/// `trait Foo { fn method(self: ref(Self), ...) -> T; ... }`.
+///
+/// A trait declares a set of method prototypes (no bodies). Types
+/// implement the trait via `impl Foo for Bar { ... }`, which is parsed as
+/// an `ImplBlock` with `trait_name: Some("Foo")`.
+#[derive(Debug, Clone)]
+pub struct TraitDecl {
+    pub name: String,
+    /// Method prototypes — same shape as `FnProto` but stored inline so the
+    /// signature includes `self` and may use `Self`.
+    pub methods: Vec<FnProto>,
     pub span: Span,
 }
 
@@ -49,11 +70,13 @@ pub struct FnDecl {
 
 /// A declared type parameter, e.g. the `T` in `fn id[T](x: T) -> T`.
 ///
-/// Constraints (`T: Eq`, `T: Ord`) are reserved for stage 1.0 (traits) and
-/// are not modelled here yet.
+/// Constraints take the form `[T: Bound1 + Bound2]`. Each bound is the name
+/// of a trait the concrete type-argument must implement.
 #[derive(Debug, Clone)]
 pub struct TypeParam {
     pub name: String,
+    /// Trait names this type parameter is bound by. Empty when unbounded.
+    pub bounds: Vec<String>,
     pub span: Span,
 }
 

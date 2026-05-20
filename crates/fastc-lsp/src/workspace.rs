@@ -34,6 +34,7 @@ pub enum SymbolKind {
     Const,
     Opaque,
     Module,
+    Interface,
 }
 
 /// Workspace index for cross-file features
@@ -215,6 +216,17 @@ impl Workspace {
                     // Methods are surfaced via the desugared free fns; the
                     // workspace index does not currently expose `impl Type`
                     // as its own symbol.
+                }
+                fastc::ast::Item::Trait(decl) => {
+                    self.add_symbol(SymbolInfo {
+                        name: decl.name.clone(),
+                        kind: SymbolKind::Interface,
+                        uri: uri.clone(),
+                        range: Range::new(
+                            byte_to_position(content, decl.span.start),
+                            byte_to_position(content, decl.span.end),
+                        ),
+                    });
                 }
             }
         }

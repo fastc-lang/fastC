@@ -149,7 +149,7 @@ pub fn compile_with_p10(
 
     // Generic functions are erased here; every call site is rewritten to the
     // mangled specialized name. Non-generic programs see no change.
-    let mono_ast = time_pass("mono", || monomorphize(&ast, &symbols));
+    let mono_ast = time_pass("mono", || monomorphize(&ast, &symbols, source))?;
 
     let c_ast = time_pass("lower", || {
         let mut lowerer = Lower::new();
@@ -234,7 +234,7 @@ pub fn compile_project(
         p10_checker.check_and_report(&ast, source)
     })?;
 
-    let mono_ast = time_pass("mono", || monomorphize(&ast, &symbols));
+    let mono_ast = time_pass("mono", || monomorphize(&ast, &symbols, source))?;
 
     let c_ast = time_pass("lower", || {
         let mut lowerer = Lower::new();

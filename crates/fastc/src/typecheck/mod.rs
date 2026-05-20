@@ -13,8 +13,8 @@ pub use context::*;
 pub use safety::*;
 
 use crate::ast::{
-    BinOp, Block, ConstExpr, EnumDecl, Expr, ExternItem, File, FnDecl, Item, PrimitiveType, Repr,
-    Stmt, StructDecl, TypeExpr, UnaryOp,
+    BinOp, Block, ConstExpr, EnumDecl, Expr, ExternItem, File, FnDecl, ImplBlock, Item,
+    PrimitiveType, Repr, Stmt, StructDecl, TraitDecl, TypeExpr, UnaryOp,
 };
 use crate::diag::CompileError;
 use crate::lexer::Span;
@@ -30,6 +30,15 @@ pub struct TypeChecker<'a> {
     errors: Vec<CompileError>,
     enum_decls: HashMap<String, EnumDecl>,
     struct_decls: HashMap<String, StructDecl>,
+    /// Trait declarations indexed by name. Populated from `Item::Trait`
+    /// entries during the first pass; consulted by the method-call
+    /// dispatch path when the receiver's type is a bounded type parameter.
+    traits: HashMap<String, TraitDecl>,
+    /// `(type_name → set of trait names it implements)`. Populated from
+    /// `Item::Impl` entries with a `trait_name`. Mono uses this to verify
+    /// bound satisfaction; typecheck uses it to confirm calls on
+    /// concrete-typed receivers resolve to a real impl.
+    trait_impls: HashMap<String, std::collections::HashSet<String>>,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -42,6 +51,8 @@ impl<'a> TypeChecker<'a> {
             errors: Vec::new(),
             enum_decls: HashMap::new(),
             struct_decls: HashMap::new(),
+            traits: HashMap::new(),
+            trait_impls: HashMap::new(),
         }
     }
 
@@ -62,7 +73,8 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    /// Recursively collect enum/struct declarations from items (including modules)
+    /// Recursively collect enum/struct/trait declarations and trait-impl
+    /// table entries from items (including modules).
     fn collect_type_decls(&mut self, items: &[Item]) {
         for item in items {
             match item {
@@ -73,6 +85,18 @@ impl<'a> TypeChecker<'a> {
                 Item::Struct(struct_decl) => {
                     self.struct_decls
                         .insert(struct_decl.name.clone(), struct_decl.clone());
+                }
+                Item::Trait(trait_decl) => {
+                    self.traits
+                        .insert(trait_decl.name.clone(), trait_decl.clone());
+                }
+                Item::Impl(impl_block) => {
+                    if let Some(trait_name) = &impl_block.trait_name {
+                        self.trait_impls
+                            .entry(impl_block.target.clone())
+                            .or_default()
+                            .insert(trait_name.clone());
+                    }
                 }
                 Item::Mod(mod_decl) => {
                     if let Some(body) = &mod_decl.body {
@@ -106,8 +130,70 @@ impl<'a> TypeChecker<'a> {
             }
             Item::Use(_) => {} // Module imports resolved during name resolution
             Item::Mod(mod_decl) => self.check_mod(mod_decl),
-            Item::Impl(_) => {} // Desugared away before typecheck.
+            Item::Impl(_) | Item::Trait(_) => {} // Desugared away before typecheck.
         }
+    }
+
+    /// Verify a method-call invocation against the method's function type.
+    /// Returns the method's return type. Reports diagnostics for arity,
+    /// receiver-compatibility, and argument-type mismatches.
+    fn check_method_call(
+        &mut self,
+        field: &str,
+        method_ty: &TypeExpr,
+        recv_ty: &TypeExpr,
+        base: &Expr,
+        args: &[Expr],
+        span: &Span,
+    ) -> TypeExpr {
+        if let TypeExpr::Fn {
+            is_unsafe,
+            params,
+            ret,
+        } = method_ty
+        {
+            if *is_unsafe && !self.safety.is_unsafe() {
+                self.error_with_hint(
+                    "call to unsafe method requires unsafe block".to_string(),
+                    span.clone(),
+                    "wrap the call in an unsafe block: unsafe { ... }",
+                );
+            }
+            if args.len() + 1 != params.len() {
+                self.error(
+                    format!(
+                        "method '{}' expected {} argument(s) (after receiver), got {}",
+                        field,
+                        params.len().saturating_sub(1),
+                        args.len()
+                    ),
+                    span.clone(),
+                );
+                return (**ret).clone();
+            }
+            let self_formal = &params[0];
+            // Auto-address value receivers; pass references through.
+            let recv_compat = self
+                .types_compatible(self_formal, &TypeExpr::Ref(Box::new(recv_ty.clone())))
+                || self.types_compatible(self_formal, recv_ty);
+            if !recv_compat {
+                self.error_type_mismatch(self_formal, recv_ty, &base.span());
+            }
+            for (arg, param_ty) in args.iter().zip(params.iter().skip(1)) {
+                let arg_ty = self.infer_expr(arg);
+                if !self.types_compatible(param_ty, &arg_ty) {
+                    self.error_type_mismatch(param_ty, &arg_ty, &arg.span());
+                }
+            }
+            return (**ret).clone();
+        }
+        // Method symbol exists but its type isn't a function — programmer
+        // error somewhere upstream. Report and continue.
+        self.error(
+            format!("'{}' is not callable as a method", field),
+            span.clone(),
+        );
+        TypeExpr::Void
     }
 
     fn check_fn(&mut self, fn_decl: &FnDecl) {
@@ -121,6 +207,20 @@ impl<'a> TypeChecker<'a> {
 
         // Set current return type
         self.current_fn_return_type = Some(fn_decl.return_type.clone());
+
+        // Define type parameters in scope so the method-dispatch path can
+        // recover their bounds (`T: Trait`) at call sites inside the body.
+        for tp in &fn_decl.generics {
+            let symbol = Symbol {
+                name: tp.name.clone(),
+                kind: SymbolKind::TypeParam {
+                    bounds: tp.bounds.clone(),
+                },
+                ty: TypeExpr::Named(tp.name.clone()),
+                span: tp.span.clone(),
+            };
+            let _ = self.symbols.define(symbol);
+        }
 
         // Define parameters in scope
         for param in &fn_decl.params {
@@ -558,72 +658,74 @@ impl<'a> TypeChecker<'a> {
                         _ => None,
                     };
                     if let Some(type_name) = type_name {
+                        // First: try the concrete-type path — look up the
+                        // lifted `Type_method` free function.
                         let method_fn = format!("{}_{}", type_name, field);
                         if let Some(sym) = self.symbols.lookup(&method_fn).cloned() {
-                            if let TypeExpr::Fn {
-                                is_unsafe,
-                                params,
-                                ret,
-                            } = sym.ty.clone()
-                            {
-                                if is_unsafe && !self.safety.is_unsafe() {
-                                    self.error_with_hint(
-                                        "call to unsafe method requires unsafe block".to_string(),
-                                        span.clone(),
-                                        "wrap the call in an unsafe block: unsafe { ... }",
-                                    );
-                                }
-                                if args.len() + 1 != params.len() {
-                                    self.error(
-                                        format!(
-                                            "method '{}' expected {} argument(s) (after receiver), got {}",
-                                            field,
-                                            params.len().saturating_sub(1),
-                                            args.len()
-                                        ),
-                                        span.clone(),
-                                    );
-                                } else {
-                                    // First formal is the receiver; subsequent
-                                    // formals are matched against `args`.
-                                    let self_formal = &params[0];
-                                    // Auto-address value receivers; require
-                                    // exact match for already-reference receivers.
-                                    let recv_compat = self.types_compatible(
-                                        self_formal,
-                                        &TypeExpr::Ref(Box::new(recv_ty.clone())),
-                                    ) || self
-                                        .types_compatible(self_formal, &recv_ty);
-                                    if !recv_compat {
-                                        self.error_type_mismatch(
-                                            self_formal,
-                                            &recv_ty,
-                                            &base.span(),
-                                        );
-                                    }
-                                    for (arg, param_ty) in args.iter().zip(params.iter().skip(1)) {
-                                        let arg_ty = self.infer_expr(arg);
-                                        if !self.types_compatible(param_ty, &arg_ty) {
-                                            self.error_type_mismatch(
-                                                param_ty,
-                                                &arg_ty,
-                                                &arg.span(),
-                                            );
-                                        }
+                            return self
+                                .check_method_call(field, &sym.ty, &recv_ty, base, args, span);
+                        }
+
+                        // Second: if the receiver type names a bounded type
+                        // parameter, look up the method in each bound trait
+                        // and use the trait's prototype signature for
+                        // typecheck. Mono later rewrites the call to the
+                        // concrete `Type_method` after specialization.
+                        if let Some(SymbolKind::TypeParam { bounds }) =
+                            self.symbols.lookup(&type_name).map(|s| s.kind.clone())
+                        {
+                            let mut found: Option<(String, crate::ast::FnProto)> = None;
+                            for bound in &bounds {
+                                if let Some(tr) = self.traits.get(bound) {
+                                    if let Some(proto) =
+                                        tr.methods.iter().find(|p| p.name == *field)
+                                    {
+                                        found = Some((bound.clone(), proto.clone()));
+                                        break;
                                     }
                                 }
-                                return *ret;
                             }
-                        } else {
+                            if let Some((_bound_name, proto)) = found {
+                                // Build the trait method's effective fn type
+                                // with `Self` substituted to the type-param's
+                                // own name. We *do not* sub to a concrete
+                                // type here — that's mono's job.
+                                let mut subst: HashMap<String, TypeExpr> = HashMap::new();
+                                subst
+                                    .insert("Self".to_string(), TypeExpr::Named(type_name.clone()));
+                                let method_ty = TypeExpr::Fn {
+                                    is_unsafe: proto.is_unsafe,
+                                    params: proto
+                                        .params
+                                        .iter()
+                                        .map(|p| substitute(&p.ty, &subst))
+                                        .collect(),
+                                    ret: Box::new(substitute(&proto.return_type, &subst)),
+                                };
+                                return self.check_method_call(
+                                    field, &method_ty, &recv_ty, base, args, span,
+                                );
+                            }
+                            // Bounded type param but no matching trait method.
                             self.error(
-                                format!("no method '{}' on type '{}'", field, type_name),
+                                format!(
+                                    "no method '{}' on type parameter '{}': bounds = {:?}",
+                                    field, type_name, bounds
+                                ),
                                 span.clone(),
                             );
                             return TypeExpr::Void;
                         }
+
+                        // Concrete type with no matching method.
+                        self.error(
+                            format!("no method '{}' on type '{}'", field, type_name),
+                            span.clone(),
+                        );
+                        return TypeExpr::Void;
                     }
                     // Fall through to the regular Field error path if the
-                    // receiver type is not a struct.
+                    // receiver type is not a struct or bounded type-param.
                 }
 
                 // Detect generic callees: look the identifier up directly so
@@ -1331,6 +1433,45 @@ mod tests {
              impl P { fn add(self: ref(Self), dx: i32) -> i32 { return dx; } } \
              fn main() -> i32 { let p: P = P { x: 1, y: 2 }; return p.add(true); }",
             "type mismatch",
+        );
+    }
+
+    // === Trait + bounded generic tests (stage 1.0 slice 2) ===
+
+    #[test]
+    fn test_trait_bounded_call_ok() {
+        check_ok(
+            "trait Greeter { fn greet(self: ref(Self)) -> i32; } \
+             struct P { x: i32, y: i32 } \
+             impl Greeter for P { fn greet(self: ref(Self)) -> i32 { return 7; } } \
+             fn shout[T: Greeter](x: T) -> i32 { return x.greet(); } \
+             fn main() -> i32 { let p: P = P { x: 0, y: 0 }; return shout(p); }",
+        );
+    }
+
+    #[test]
+    fn test_trait_unsatisfied_bound_errors() {
+        check_error(
+            "trait Greeter { fn greet(self: ref(Self)) -> i32; } \
+             struct P { x: i32, y: i32 } \
+             struct Q { v: i32 } \
+             impl Greeter for P { fn greet(self: ref(Self)) -> i32 { return 7; } } \
+             fn shout[T: Greeter](x: T) -> i32 { return 0; } \
+             fn main() -> i32 { let q: Q = Q { v: 1 }; return shout(q); }",
+            "does not implement trait",
+        );
+    }
+
+    #[test]
+    fn test_trait_method_on_bounded_type_param_unknown() {
+        // Calling a method that the bounded trait does not declare.
+        check_error(
+            "trait Greeter { fn greet(self: ref(Self)) -> i32; } \
+             struct P { x: i32, y: i32 } \
+             impl Greeter for P { fn greet(self: ref(Self)) -> i32 { return 7; } } \
+             fn shout[T: Greeter](x: T) -> i32 { return x.nope(); } \
+             fn main() -> i32 { let p: P = P { x: 0, y: 0 }; return shout(p); }",
+            "no method 'nope'",
         );
     }
 }

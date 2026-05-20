@@ -77,6 +77,8 @@ pub enum Token {
     Pub,
     #[token("impl")]
     Impl,
+    #[token("trait")]
+    Trait,
 
     // Type keywords
     #[token("void")]
@@ -363,6 +365,7 @@ impl fmt::Display for Token {
             Token::Unsafe => write!(f, "unsafe"),
             Token::Struct => write!(f, "struct"),
             Token::Impl => write!(f, "impl"),
+            Token::Trait => write!(f, "trait"),
             Token::Enum => write!(f, "enum"),
             Token::Opaque => write!(f, "opaque"),
             Token::Extern => write!(f, "extern"),

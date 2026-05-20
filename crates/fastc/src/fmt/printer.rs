@@ -80,7 +80,39 @@ impl Formatter {
             Item::Use(decl) => self.format_use(decl),
             Item::Mod(decl) => self.format_mod(decl),
             Item::Impl(block) => self.format_impl(block),
+            Item::Trait(decl) => self.format_trait(decl),
         }
+    }
+
+    /// Format a trait declaration.
+    fn format_trait(&mut self, decl: &crate::ast::TraitDecl) {
+        self.write_indent();
+        self.write("trait ");
+        self.write(&decl.name);
+        self.write(" {");
+        self.newline();
+        self.indent += 1;
+        for proto in &decl.methods {
+            self.write_indent();
+            if proto.is_unsafe {
+                self.write("unsafe ");
+            }
+            self.write("fn ");
+            self.write(&proto.name);
+            self.write("(");
+            self.format_params(&proto.params);
+            self.write(")");
+            if !matches!(proto.return_type, TypeExpr::Void) {
+                self.write(" -> ");
+                self.format_type(&proto.return_type);
+            }
+            self.write(";");
+            self.newline();
+        }
+        self.indent -= 1;
+        self.write_indent();
+        self.write("}");
+        self.newline();
     }
 
     /// Format an inherent impl block.

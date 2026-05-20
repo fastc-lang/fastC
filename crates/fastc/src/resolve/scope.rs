@@ -33,9 +33,11 @@ pub enum SymbolKind {
     Constant,
     /// Opaque type
     Opaque,
-    /// Type parameter introduced by `fn foo[T](...)`. Scoped to the
-    /// function body during resolve/typecheck; erased during monomorphization.
-    TypeParam,
+    /// Type parameter introduced by `fn foo[T: Bound1 + Bound2](...)`.
+    /// `bounds` lists the trait names this type parameter must satisfy.
+    /// Scoped to the function body during resolve/typecheck; erased during
+    /// monomorphization.
+    TypeParam { bounds: Vec<String> },
     /// Module with its own scope
     Module { scope_id: usize },
 }

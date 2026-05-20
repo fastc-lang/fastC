@@ -118,6 +118,14 @@ fn test_methods_compiles() {
 }
 
 #[test]
+fn test_traits_compiles() {
+    // Stage 1.0 slice 2: traits + impl-for + bounded generic with trait
+    // method dispatch. Verifies mono specializes shout[T: Greeter] to
+    // shout_Point and rewrites x.greet() to Point_greet(&x).
+    compile_and_verify("examples/traits.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }
