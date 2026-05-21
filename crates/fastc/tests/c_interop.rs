@@ -291,7 +291,19 @@ fn test_vec_any_all_compiles() {
     // Stage 1.1 slice 20: `vec::any` + `vec::all` predicate scans
     // with short-circuit. Covers the vacuously-true case for `all`
     // and the vacuously-false case for `any` on an empty vec.
+    // Slice 21 reverted the `evec` workaround back to `empty` after
+    // lower's resolve_ident became scope-aware.
     compile_and_verify("examples/vec_any_all_demo.fc");
+}
+
+#[test]
+fn test_vec_min_max_clone_compiles() {
+    // Stage 1.1 slice 22: `vec::min[T:Ord]`, `vec::max[T:Ord]`,
+    // `vec::clone[T]`, and `str::from_cstr`. Bounded-generic linear
+    // scans for min/max (returning `opt(T)` to encode the empty
+    // case); packed deep-copy for clone; first stdlib walk of an
+    // FFI null-terminated `raw(u8)` for from_cstr.
+    compile_and_verify("examples/vec_min_max_clone_demo.fc");
 }
 
 #[test]

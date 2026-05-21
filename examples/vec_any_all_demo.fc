@@ -4,7 +4,7 @@
 // match, `all` returns false at the first mismatch. Both reuse the
 // same fn-pointer machinery as `filter`. The demo verifies that
 // short-circuit behavior actually happens by also exercising the
-// vacuously-true case (`all` on an evec vec).
+// vacuously-true case (`all` on an empty vec).
 
 use vec::new;
 use vec::push;
@@ -31,20 +31,20 @@ fn main() -> i32 {
     let all_positive: bool = all(addr(v), is_positive);   // true
     let all_huge: bool = all(addr(v), is_huge);           // false
 
-    // Vacuously-true case: any on evec is false, all on evec is true.
-    let evec: Vec[i32] = new(0);
-    let any_on_evec: bool = any(addr(evec), is_positive);  // false
-    let all_on_evec: bool = all(addr(evec), is_positive);  // true
+    // Vacuously-true case: any on empty is false, all on empty is true.
+    let empty: Vec[i32] = new(0);
+    let any_on_empty: bool = any(addr(empty), is_positive);  // false
+    let all_on_empty: bool = all(addr(empty), is_positive);  // true
 
     release(addrm(v));
-    release(addrm(evec));
+    release(addrm(empty));
 
     let total: i32 = 0;
     if (any_positive) { total = (total + 1); }
     if (!any_huge) { total = (total + 2); }
     if (all_positive) { total = (total + 4); }
     if (!all_huge) { total = (total + 8); }
-    if (!any_on_evec) { total = (total + 16); }
-    if (all_on_evec) { total = (total + 32); }
+    if (!any_on_empty) { total = (total + 16); }
+    if (all_on_empty) { total = (total + 32); }
     return total;  // 1+2+4+8+16+32 = 63
 }

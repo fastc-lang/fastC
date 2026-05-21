@@ -1,0 +1,69 @@
+// Stage 1.1 slice 22: `vec::min` + `vec::max` + `vec::clone` +
+// `str::from_cstr`.
+//
+// `min` / `max` walk the vec keeping a running best via the `Ord`
+// trait. Both return `opt(T)` so the empty-vec case is encoded in the
+// type rather than a sentinel. `clone` deep-copies into a fresh
+// packed buffer (cap = len). `str::from_cstr` bridges a null-
+// terminated C string into the owned-byte world — the first time
+// the stdlib walks an FFI `raw(u8)` end-to-end.
+
+use vec::new;
+use vec::push;
+use vec::min_of;
+use vec::max_of;
+use vec::clone;
+use vec::get;
+use vec::len;
+use vec::release;
+use str::from_cstr;
+use str::byte_count;
+use str::byte_at;
+use str::dispose;
+
+fn or_zero(o: opt(i32)) -> i32 {
+    if let value = unwrap_checked(o) {
+        return value;
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    let v: Vec[i32] = new(0);
+    push(addrm(v), 7);
+    push(addrm(v), 2);
+    push(addrm(v), 9);
+    push(addrm(v), 4);
+    push(addrm(v), 5);
+
+    let m_min: i32 = or_zero(min_of(addr(v)));    // 2
+    let m_max: i32 = or_zero(max_of(addr(v)));    // 9
+
+    // Clone the vec; verify independence by checking the copy's
+    // content matches even after we touch nothing else.
+    let cv: Vec[i32] = clone(addr(v));
+    let cv_len: i32 = cast(i32, len(addr(cv)));    // 5
+    let cv_3: i32 = get(addr(cv), cast(usize, 3)); // 4
+
+    // Build a Str from "hi!" via from_cstr. The C-string literal
+    // includes a trailing nul that from_cstr stops at.
+    let s: Str = from_cstr(cstr("hi!"));
+    let sn: i32 = cast(i32, byte_count(addr(s)));   // 3
+    let s0: i32 = cast(i32, byte_at(addr(s), cast(usize, 0)));  // 'h' = 104
+    let s1: i32 = cast(i32, byte_at(addr(s), cast(usize, 1)));  // 'i' = 105
+    let s2: i32 = cast(i32, byte_at(addr(s), cast(usize, 2)));  // '!' = 33
+
+    release(addrm(v));
+    release(addrm(cv));
+    dispose(addrm(s));
+
+    // m_min=2 + m_max=9 + cv_len=5 + cv_3=4 + sn=3 = 23 (vec/str
+    // structural numbers). The ASCII trio is checked via equality
+    // rather than summed so the exit code stays under 256 — shells
+    // truncate exit codes to a byte.
+    let total: i32 = (((m_min + m_max) + cv_len) + cv_3) + sn;  // 23
+    if (s0 == 104) { total = (total + 10); }
+    if (s1 == 105) { total = (total + 20); }
+    if (s2 == 33) { total = (total + 40); }
+    return total;  // 23 + 10 + 20 + 40 = 93
+}

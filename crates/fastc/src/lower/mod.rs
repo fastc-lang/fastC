@@ -86,13 +86,27 @@ impl Lower {
         }
     }
 
-    /// Resolve an identifier: check import_map first, then return as-is
+    /// Resolve an identifier to its emitted C name.
+    ///
+    /// Order:
+    ///   1. Local bindings (parameters + `let`s recorded in `var_types`)
+    ///      take precedence. This is what stops a `let empty = ...`
+    ///      from being silently rewritten to a mod-imported function
+    ///      named `empty` — the import map registers every mod-nested
+    ///      fn under its bare name, which would otherwise shadow the
+    ///      local binding.
+    ///   2. `import_map`: explicit `use foo::bar;` imports and the
+    ///      mod-internal entries we add so that mod-internal calls
+    ///      reach their mangled C symbol.
+    ///   3. Otherwise the name passes through unchanged.
     fn resolve_ident(&self, name: &str) -> String {
-        if let Some(mangled) = self.import_map.get(name) {
-            mangled.clone()
-        } else {
-            name.to_string()
+        if self.var_types.contains_key(name) {
+            return name.to_string();
         }
+        if let Some(mangled) = self.import_map.get(name) {
+            return mangled.clone();
+        }
+        name.to_string()
     }
 
     /// Build the import map by walking the AST for `use` declarations

@@ -606,6 +606,79 @@ mod vec {
         }
     }
 
+    /// Return the smallest element by `Ord`, or `none(T)` on an empty
+    /// vec. Linear scan keeping a running best — same shape as the
+    /// idiomatic Rust `iter().min()`. Named `min_of` instead of `min`
+    /// to avoid colliding with `math::min` in mono's bare-name
+    /// generic-fn table; qualified-call resolution would let us drop
+    /// the suffix.
+    pub fn min_of[T: Ord](v: ref(Vec[T])) -> opt(T) {
+        let n: usize = (deref(v)).len;
+        if (n == cast(usize, 0)) {
+            return none(T);
+        }
+        let buf: rawm(T) = (deref(v)).data;
+        unsafe {
+            let best: T = at(buf, cast(usize, 0));
+            let i: usize = cast(usize, 1);
+            while (i < n) {
+                let cur: T = at(buf, i);
+                if (cur.less_than(addr(best))) {
+                    best = cur;
+                }
+                i = (i + cast(usize, 1));
+            }
+            return some(best);
+        }
+    }
+
+    /// Return the largest element by `Ord`, or `none(T)` on an empty
+    /// vec. Suffix matches `min_of` for the same naming-collision
+    /// reason.
+    pub fn max_of[T: Ord](v: ref(Vec[T])) -> opt(T) {
+        let n: usize = (deref(v)).len;
+        if (n == cast(usize, 0)) {
+            return none(T);
+        }
+        let buf: rawm(T) = (deref(v)).data;
+        unsafe {
+            let best: T = at(buf, cast(usize, 0));
+            let i: usize = cast(usize, 1);
+            while (i < n) {
+                let cur: T = at(buf, i);
+                if (best.less_than(addr(cur))) {
+                    best = cur;
+                }
+                i = (i + cast(usize, 1));
+            }
+            return some(best);
+        }
+    }
+
+    /// Allocate a fresh vec with the same contents and length. Capacity
+    /// is set to `len` (packed) rather than copied from the source so
+    /// the clone doesn't carry over any slack. The clone is fully
+    /// independent — `release`ing either does not affect the other.
+    pub fn clone[T](src: ref(Vec[T])) -> Vec[T] {
+        let n: usize = (deref(src)).len;
+        let nbytes: usize = (n * sizeof(T));
+        let raw_buf: rawm(u8) = alloc(nbytes);
+        let src_buf: rawm(T) = (deref(src)).data;
+        let dst_buf: rawm(T) = cast(rawm(T), raw_buf);
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                at(dst_buf, i) = at(src_buf, i);
+            }
+            i = (i + cast(usize, 1));
+        }
+        return Vec {
+            data: cast(rawm(T), raw_buf),
+            len: n,
+            cap: n,
+        };
+    }
+
     /// Sort the vec in place using the `Ord` trait. Insertion sort —
     /// O(n²), but simple, stable, and adequate for the small-vec
     /// workloads v1 stdlib targets. A quicksort / introsort path will
@@ -1171,6 +1244,30 @@ mod str {
     /// Release the backing heap allocation. Mirrors `vec::release`.
     pub fn dispose(s: mref(Str)) -> void {
         release(addrm((deref(s)).data));
+    }
+
+    /// Build a `Str` by walking a null-terminated C-style buffer and
+    /// pushing every byte until the terminator. Useful for bridging
+    /// `cstr("...")` literals (and FFI `const char*` returns) into the
+    /// owned-byte world. The terminating nul is *not* copied into the
+    /// `Str`. Caller-supplied length: walks until a zero byte, so a
+    /// non-null-terminated input is UB in v1.
+    pub fn from_cstr(c: raw(u8)) -> Str {
+        let s: Str = make();
+        let i: usize = cast(usize, 0);
+        let done: bool = false;
+        while (!done) {
+            unsafe {
+                let b: u8 = at(c, i);
+                if (b == cast(u8, 0)) {
+                    done = true;
+                } else {
+                    push_byte(addrm(s), b);
+                    i = (i + cast(usize, 1));
+                }
+            }
+        }
+        return s;
     }
 
     /// Write every byte of `s` to stdout followed by a newline. Uses
