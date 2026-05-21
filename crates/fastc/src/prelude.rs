@@ -422,6 +422,7 @@ mod io {
     extern "C" {
         unsafe fn fc_puts_u8(s: raw(u8)) -> i32;
         unsafe fn fc_putchar(c: i32) -> i32;
+        unsafe fn fc_print_i32(n: i32) -> i32;
     }
 
     /// Write a null-terminated C string to stdout followed by a newline.
@@ -437,6 +438,16 @@ mod io {
     pub fn put_char(c: i32) -> void {
         unsafe {
             discard(fc_putchar(c));
+        }
+    }
+
+    /// Write a signed 32-bit integer in base 10. No leading zero, sign
+    /// only on negatives. Does *not* append a newline — pair with
+    /// `put_char(10)` or follow with another `println` if you want
+    /// line-oriented output.
+    pub fn print_int(n: i32) -> void {
+        unsafe {
+            discard(fc_print_i32(n));
         }
     }
 }
@@ -1090,6 +1101,7 @@ mod str {
     use vec::len;
     use vec::is_empty;
     use vec::release;
+    use io::put_char;
 
     /// Construct an empty Str. Equivalent to `vec::new(0u8)` wrapped.
     pub fn make() -> Str {
@@ -1125,6 +1137,23 @@ mod str {
     /// Release the backing heap allocation. Mirrors `vec::release`.
     pub fn dispose(s: mref(Str)) -> void {
         release(addrm((deref(s)).data));
+    }
+
+    /// Write every byte of `s` to stdout followed by a newline. Uses
+    /// `io::put_char` rather than `puts` because `Str` is not null-
+    /// terminated — a future zero-copy `as_cstr` that appends a nul
+    /// before returning would let `puts` substitute back in.
+    pub fn write_line(s: ref(Str)) -> void {
+        let n: usize = len(addr((deref(s)).data));
+        let buf: rawm(u8) = (deref(s)).data.data;
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                put_char(cast(i32, at(buf, i)));
+            }
+            i = (i + cast(usize, 1));
+        }
+        put_char(cast(i32, 10));
     }
 
     /// Byte-wise equality. Two strings are equal when they have the

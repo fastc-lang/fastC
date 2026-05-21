@@ -34,6 +34,35 @@ static inline int fc_putchar(int c) {
     return putchar(c);
 }
 
+/* Format and write a signed 32-bit integer in base 10. Returns the
+ * number of bytes written, mirroring printf's return contract. Used
+ * by the prelude's `io::print_int` helper. Manual loop instead of
+ * snprintf because the latter pulls in a *lot* of libc surface; this
+ * keeps the runtime header free of <inttypes.h> and friends. */
+static inline int fc_print_i32(int32_t n) {
+    if (n == 0) {
+        putchar('0');
+        return 1;
+    }
+    int written = 0;
+    if (n < 0) {
+        putchar('-');
+        written++;
+        n = -n;
+    }
+    char buf[12]; /* INT32_MIN absolute value is 10 digits + sign */
+    int len = 0;
+    while (n > 0) {
+        buf[len++] = (char)('0' + (n % 10));
+        n /= 10;
+    }
+    while (len > 0) {
+        putchar(buf[--len]);
+        written++;
+    }
+    return written;
+}
+
 /* Memory copy */
 static inline void fc_memcpy(void* dst, const void* src, size_t n) {
     unsigned char* d = (unsigned char*)dst;

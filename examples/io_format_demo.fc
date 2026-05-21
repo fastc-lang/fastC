@@ -1,0 +1,38 @@
+// Stage 1.1 slice 19: `io::print_int` + `str::write_line`.
+//
+// First IO formatting in the stdlib. `print_int` calls a tiny
+// `fc_print_i32` runtime helper that writes digits via `putchar`
+// — manual base-10 loop, no snprintf, so the runtime header stays
+// minimal. `str::write_line` walks a `Str`'s bytes via `put_char`
+// and follows with a newline; uses byte-loop output rather than
+// `puts` because `Str` is not null-terminated.
+
+use io::print_int;
+use io::put_char;
+use str::make;
+use str::push_byte;
+use str::write_line;
+use str::dispose;
+
+fn main() -> i32 {
+    print_int(42);
+    put_char(cast(i32, 10));         // newline
+
+    print_int(0 - 100);
+    put_char(cast(i32, 10));
+
+    print_int(0);
+    put_char(cast(i32, 10));
+
+    let s: Str = make();
+    push_byte(addrm(s), cast(u8, 102));  // 'f'
+    push_byte(addrm(s), cast(u8, 97));   // 'a'
+    push_byte(addrm(s), cast(u8, 115));  // 's'
+    push_byte(addrm(s), cast(u8, 116));  // 't'
+    push_byte(addrm(s), cast(u8, 67));   // 'C'
+    write_line(addr(s));
+    dispose(addrm(s));
+
+    // Exit 0 = success; the stdout content is the real check.
+    return 0;
+}

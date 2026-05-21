@@ -277,6 +277,16 @@ fn test_hashmap_compiles() {
 }
 
 #[test]
+fn test_io_format_compiles() {
+    // Stage 1.1 slice 19: `io::print_int` + `str::write_line`. First
+    // IO formatting helpers — print_int uses a new runtime
+    // `fc_print_i32` that emits digits via putchar (no snprintf
+    // dependency); write_line walks a Str's bytes via put_char
+    // because Str isn't null-terminated.
+    compile_and_verify("examples/io_format_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }
