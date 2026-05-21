@@ -414,6 +414,16 @@ fn test_str_find_compiles() {
 }
 
 #[test]
+fn test_concat_lines_findidx_compiles() {
+    // Stage 1.1 slice 33: `str::concat_str`, `str::lines`,
+    // `vec::find_index[T: Eq]`. concat_str gets a suffix to avoid the
+    // mono naming collision with `vec::concat[T]`. lines is a thin
+    // wrapper around split with '\n'. find_index is contains with
+    // positional result.
+    compile_and_verify("examples/concat_lines_findidx_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

@@ -579,6 +579,26 @@ mod vec {
         (deref(v)).len = cast(usize, 0);
     }
 
+    /// Return the position of the first element equal to `target`
+    /// via the `Eq` trait, or `none(usize)` if absent. Sibling of
+    /// `contains` that surfaces the location for callers that need
+    /// it.
+    pub fn find_index[T: Eq](v: ref(Vec[T]), target: ref(T)) -> opt(usize) {
+        let i: usize = cast(usize, 0);
+        let n: usize = (deref(v)).len;
+        let buf: rawm(T) = (deref(v)).data;
+        while (i < n) {
+            unsafe {
+                let cur: T = at(buf, i);
+                if (cur.eq(target)) {
+                    return some(i);
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        return none(usize);
+    }
+
     /// Linear search: returns true when any element compares equal to
     /// `target` via the `Eq` trait. Bounded on `T: Eq` so the body can
     /// dispatch through `T_eq(&cur, target)` — same machinery that
@@ -1673,6 +1693,42 @@ mod str {
                 cap: n,
             },
         };
+    }
+
+    /// Concatenate `a` and `b` into a fresh `Str`. Allocates exactly
+    /// `a.len + b.len` bytes; the result is packed (no trailing
+    /// slack). Source strings are unchanged. Named `concat_str` to
+    /// avoid the same mono naming-collision the hashmap rename did:
+    /// `vec::concat[T]` already owns the bare name in `generic_fns`.
+    pub fn concat_str(a: ref(Str), b: ref(Str)) -> Str {
+        let out: Str = make();
+        let na: usize = len(addr((deref(a)).data));
+        let nb: usize = len(addr((deref(b)).data));
+        let ab: rawm(u8) = (deref(a)).data.data;
+        let bb: rawm(u8) = (deref(b)).data.data;
+        let i: usize = cast(usize, 0);
+        while (i < na) {
+            unsafe {
+                push_byte(addrm(out), at(ab, i));
+            }
+            i = (i + cast(usize, 1));
+        }
+        let j: usize = cast(usize, 0);
+        while (j < nb) {
+            unsafe {
+                push_byte(addrm(out), at(bb, j));
+            }
+            j = (j + cast(usize, 1));
+        }
+        return out;
+    }
+
+    /// Split a Str on newline (`\n` = 10) into a `Vec[Str]`. Thin
+    /// wrapper around `split` with the most common delimiter. CR
+    /// bytes are kept as part of the preceding line — a stricter
+    /// CRLF-aware variant arrives once locale handling lands.
+    pub fn lines(s: ref(Str)) -> Vec[Str] {
+        return split(s, cast(u8, 10));
     }
 
     /// Build a fresh `Str` that contains `s` repeated `count` times.

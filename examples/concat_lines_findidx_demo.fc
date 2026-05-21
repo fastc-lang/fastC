@@ -1,0 +1,66 @@
+// Stage 1.1 slice 33: `str::concat`, `str::lines`, `vec::find_index`.
+//
+// `concat(a, b) -> Str` is the string-side sibling of `vec::concat`.
+// `lines(s)` thin-wraps `split` with `\n` for the most common case.
+// `find_index[T: Eq](v, target)` is `contains` with the position.
+
+use str::from_cstr;
+use str::concat_str;
+use str::lines;
+use str::byte_count;
+use str::dispose;
+use vec::new;
+use vec::push;
+use vec::find_index;
+use vec::get;
+use vec::len;
+use vec::release;
+
+fn or_neg(o: opt(usize)) -> i32 {
+    if let pos = unwrap_checked(o) {
+        return cast(i32, pos);
+    }
+    return 0 - 1;
+}
+
+fn main() -> i32 {
+    // concat
+    let hi: Str = from_cstr(cstr("hi"));
+    let there: Str = from_cstr(cstr(" there"));
+    let joined: Str = concat_str(addr(hi), addr(there));
+    let n_joined: i32 = cast(i32, byte_count(addr(joined)));   // 8
+
+    // lines
+    let multi: Str = from_cstr(cstr("first\nsecond\nthird"));
+    let split_lines: Vec[Str] = lines(addr(multi));
+    let n_lines: i32 = cast(i32, len(addr(split_lines)));      // 3
+    let first: Str = get(addr(split_lines), cast(usize, 0));
+    let n_first: i32 = cast(i32, byte_count(addr(first)));     // 5 ("first")
+
+    // find_index
+    let v: Vec[i32] = new(0);
+    push(addrm(v), 10);
+    push(addrm(v), 20);
+    push(addrm(v), 30);
+    push(addrm(v), 40);
+    let target_20: i32 = 20;
+    let target_99: i32 = 99;
+    let idx_20: i32 = or_neg(find_index(addr(v), addr(target_20)));   // 1
+    let idx_99: i32 = or_neg(find_index(addr(v), addr(target_99)));   // -1
+
+    dispose(addrm(hi));
+    dispose(addrm(there));
+    dispose(addrm(joined));
+    dispose(addrm(multi));
+    release(addrm(split_lines));
+    discard(first);
+    release(addrm(v));
+
+    let total: i32 = 0;
+    if (n_joined == 8) { total = (total + 1); }
+    if (n_lines == 3) { total = (total + 2); }
+    if (n_first == 5) { total = (total + 4); }
+    if (idx_20 == 1) { total = (total + 8); }
+    if (idx_99 == (0 - 1)) { total = (total + 16); }
+    return total;   // 1+2+4+8+16 = 31
+}
