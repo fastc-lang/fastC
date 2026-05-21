@@ -894,6 +894,23 @@ impl Formatter {
                 }
                 self.write(" }");
             }
+            Expr::Closure {
+                params, ret, body, ..
+            } => {
+                self.write("|");
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    self.write(&p.name);
+                    self.write(": ");
+                    self.format_type(&p.ty);
+                }
+                self.write("| -> ");
+                self.format_type(ret);
+                self.write(" ");
+                self.format_block(body);
+            }
         }
     }
 

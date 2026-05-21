@@ -1205,6 +1205,10 @@ impl<'a> MonoCtx<'a> {
             | Expr::CStr { .. }
             | Expr::Bytes { .. }
             | Expr::None { .. } => {}
+            // Lifted away by desugar before mono runs.
+            Expr::Closure { .. } => {
+                unreachable!("Closure should have been lifted by desugar")
+            }
         }
     }
 }
@@ -1931,6 +1935,7 @@ fn rewrite_expr(
         | Expr::BoolLit { .. }
         | Expr::CStr { .. }
         | Expr::Bytes { .. } => expr.clone(),
+        Expr::Closure { .. } => unreachable!("Closure should have been lifted by desugar"),
     }
 }
 

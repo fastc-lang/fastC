@@ -242,6 +242,9 @@ impl ControlFlowRule {
             | Expr::CStr { .. }
             | Expr::Bytes { .. }
             | Expr::None { .. } => {}
+            // Closures are lifted to top-level fns by desugar; by the
+            // time p10 runs we never see one.
+            Expr::Closure { .. } => {}
         }
     }
 

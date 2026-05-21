@@ -1020,6 +1020,11 @@ impl<'a> TypeChecker<'a> {
                 }
                 TypeExpr::Named(name.clone())
             }
+
+            // Lifted by desugar before typecheck runs.
+            Expr::Closure { .. } => {
+                unreachable!("Closure should have been lifted by desugar before typecheck")
+            }
         }
     }
 

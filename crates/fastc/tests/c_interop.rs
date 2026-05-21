@@ -336,6 +336,18 @@ fn test_hashmap_iter_compiles() {
 }
 
 #[test]
+fn test_closures_compiles() {
+    // Stage 1.1 slice 26: capture-free closures `|x: T| -> R { ... }`.
+    // Parser handles `|...|` at primary position; desugar lifts every
+    // closure to a synthetic top-level `__lambda_N` fn and rewrites
+    // the expression into `Ident(name)`. From there everything
+    // downstream sees a plain fn pointer. Demo replaces every
+    // helper-fn from map/reduce/filter/for_each examples with an
+    // inline closure.
+    compile_and_verify("examples/closure_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

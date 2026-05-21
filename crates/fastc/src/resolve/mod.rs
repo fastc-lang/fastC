@@ -744,6 +744,10 @@ impl<'a> Resolver<'a> {
                     self.resolve_expr(&field.value);
                 }
             }
+            // Lifted by desugar before resolve runs.
+            Expr::Closure { .. } => {
+                unreachable!("Closure should have been lifted by desugar before resolve")
+            }
         }
     }
 

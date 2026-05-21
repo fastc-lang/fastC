@@ -1,6 +1,6 @@
 //! Expression parsing with single-binary-operator rule
 
-use crate::ast::{BinOp, Expr, FieldInit, UnaryOp};
+use crate::ast::{BinOp, Expr, FieldInit, Param, TypeExpr, UnaryOp};
 use crate::diag::CompileError;
 use crate::lexer::Token;
 
@@ -198,6 +198,10 @@ impl Parser<'_> {
                     span: start..end,
                 })
             }
+            // Closure: `|name: Type, ...| -> Ret { body }`. `|` at
+            // primary position can only mean closure-start — bit-or
+            // is an infix operator and never appears at primary.
+            Token::Or | Token::OrOr => self.parse_closure(start),
             Token::False => {
                 self.advance();
                 let end = self.previous_span().end;
@@ -423,5 +427,80 @@ impl Parser<'_> {
 
             _ => Err(self.error("expected expression")),
         }
+    }
+
+    /// Parse a closure expression:
+    ///   - zero args:   `|| -> Ret { body }`     (start tok: OrOr)
+    ///   - non-zero:    `|x: T, y: U| -> Ret { body }`  (start tok: Or)
+    ///
+    /// `start` is the byte offset of the leading `|` (or `||`) — the
+    /// caller has just consumed nothing yet; this method advances past
+    /// the introducer itself. Return type is mandatory in v1 because
+    /// type inference is too restricted to recover it from the body.
+    fn parse_closure(&mut self, start: usize) -> Result<Expr, CompileError> {
+        // Empty-param shortcut: `||` is the single-token form.
+        if matches!(self.current(), crate::lexer::Token::OrOr) {
+            self.advance();
+            let ret = self.parse_closure_return()?;
+            let body = self.parse_block()?;
+            let end = self.previous_span().end;
+            return Ok(Expr::Closure {
+                params: Vec::new(),
+                ret,
+                body,
+                span: start..end,
+            });
+        }
+
+        // Otherwise `|` ... `|`.
+        self.consume(
+            &crate::lexer::Token::Or,
+            "expected '|' to start closure parameters",
+        )?;
+        let mut params: Vec<Param> = Vec::new();
+        if !self.check(&crate::lexer::Token::Or) {
+            loop {
+                let p_start = self.current_span().start;
+                let name = self.expect_ident()?;
+                self.consume(
+                    &crate::lexer::Token::Colon,
+                    "expected ':' after closure parameter name (type annotations are required in v1)",
+                )?;
+                let ty = self.parse_type()?;
+                let p_end = self.previous_span().end;
+                params.push(Param {
+                    name,
+                    ty,
+                    span: p_start..p_end,
+                });
+                if !self.check(&crate::lexer::Token::Comma) {
+                    break;
+                }
+                self.advance();
+            }
+        }
+        self.consume(
+            &crate::lexer::Token::Or,
+            "expected '|' to close closure parameters",
+        )?;
+        let ret = self.parse_closure_return()?;
+        let body = self.parse_block()?;
+        let end = self.previous_span().end;
+        Ok(Expr::Closure {
+            params,
+            ret,
+            body,
+            span: start..end,
+        })
+    }
+
+    /// Closure return type — `-> Type` is required in v1. `void` is
+    /// explicit; closures returning nothing must say `-> void`.
+    fn parse_closure_return(&mut self) -> Result<TypeExpr, CompileError> {
+        self.consume(
+            &crate::lexer::Token::Arrow,
+            "expected '->' before closure return type",
+        )?;
+        self.parse_type()
     }
 }

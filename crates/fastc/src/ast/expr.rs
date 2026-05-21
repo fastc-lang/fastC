@@ -113,6 +113,17 @@ pub enum Expr {
         fields: Vec<FieldInit>,
         span: Span,
     },
+    /// Closure: `|x: T, y: U| -> R { body }`. v1 has no captured state —
+    /// the desugar pass lifts every closure to a synthetic top-level
+    /// `Item::Fn` with a fresh name (`__lambda_N`) and rewrites the
+    /// occurrence into `Expr::Ident(name)`. After desugar, nothing
+    /// else in the pipeline ever sees `Expr::Closure`.
+    Closure {
+        params: Vec<super::Param>,
+        ret: TypeExpr,
+        body: super::Block,
+        span: Span,
+    },
 }
 
 /// A field initializer in a struct literal
@@ -172,7 +183,8 @@ impl Expr {
             | Expr::Some { span, .. }
             | Expr::Ok { span, .. }
             | Expr::Err { span, .. }
-            | Expr::StructLit { span, .. } => span.clone(),
+            | Expr::StructLit { span, .. }
+            | Expr::Closure { span, .. } => span.clone(),
         }
     }
 }

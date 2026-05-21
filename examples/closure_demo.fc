@@ -1,0 +1,63 @@
+// Stage 1.1 slice 26: capture-free closures.
+//
+// `|x: i32| -> i32 { ... }` parses as an anonymous fn expression. The
+// desugar pass lifts every closure to a synthetic top-level fn
+// (`__lambda_N`) and rewrites the expression into an `Expr::Ident`
+// referencing it. From there everything downstream — typecheck,
+// mono, lower — treats it as a plain fn pointer.
+//
+// v1 has no captured environment: the closure body can only see its
+// own parameters and top-level names. Captures arrive in a follow-up
+// slice once the environment-struct + dispatch machinery is in.
+//
+// This demo replaces the `double` / `add` / `mul` / `is_even`
+// helpers earlier examples needed with inline closures, drastically
+// shrinking the surface area to learn the higher-order stdlib.
+
+use vec::new;
+use vec::push;
+use vec::map;
+use vec::reduce;
+use vec::filter;
+use vec::for_each;
+use vec::get;
+use vec::len;
+use vec::release;
+use io::put_char;
+
+fn main() -> i32 {
+    let v: Vec[i32] = new(0);
+    push(addrm(v), 1);
+    push(addrm(v), 2);
+    push(addrm(v), 3);
+    push(addrm(v), 4);
+
+    // Inline closure replaces the `double` fn helper.
+    let doubled: Vec[i32] = map(addr(v), |x: i32| -> i32 { return (x + x); });
+    let d0: i32 = get(addr(doubled), cast(usize, 0));    // 2
+    let d3: i32 = get(addr(doubled), cast(usize, 3));    // 8
+
+    // Inline closure replaces a hand-written sum reducer.
+    let total: i32 = reduce(addr(v), 0, |acc: i32, x: i32| -> i32 { return (acc + x); });
+    // 1+2+3+4 = 10
+
+    // Filter via closure: keep odd numbers.
+    let odds: Vec[i32] = filter(addr(v), |x: i32| -> bool {
+        return ((x - ((x / 2) * 2)) != 0);
+    });
+    let nodds: i32 = cast(i32, len(addr(odds)));    // 2 (1 and 3)
+
+    // Side-effect closure: print each element followed by a space.
+    for_each(addr(v), |x: i32| -> void {
+        put_char(cast(i32, 48) + x);   // '0' + digit
+        put_char(cast(i32, 32));        // ' '
+    });
+    put_char(cast(i32, 10));            // '\n'
+
+    release(addrm(v));
+    release(addrm(doubled));
+    release(addrm(odds));
+
+    // d0=2 + d3=8 + total=10 + nodds=2 = 22
+    return (((d0 + d3) + total) + nodds);
+}
