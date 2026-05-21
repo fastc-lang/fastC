@@ -592,6 +592,7 @@ fn specialize_fn(
         is_unsafe: generic_fn.is_unsafe,
         name: mangled.to_string(),
         generics: Vec::new(),
+        doc_comments: generic_fn.doc_comments.clone(),
         params: generic_fn
             .params
             .iter()
@@ -618,6 +619,7 @@ fn rewrite_fn(f: &FnDecl, subst: &HashMap<String, TypeExpr>, ctx: &MonoCtx) -> F
         is_unsafe: f.is_unsafe,
         name: f.name.clone(),
         generics: f.generics.clone(),
+        doc_comments: f.doc_comments.clone(),
         params: f.params.clone(),
         return_type: f.return_type.clone(),
         body: rewrite_block(&f.body, subst, ctx, &mut env, &mut drop_stack),

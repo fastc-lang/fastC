@@ -68,6 +68,10 @@ impl Iterator for TriviaLexer<'_> {
             let spanned = self.inner.next()?;
 
             match &spanned.node {
+                // Doc comments (`///`) are *not* trivia — they're parsed
+                // into the AST as `doc_comments` on the next item. Skip
+                // them entirely here so the formatter doesn't double-emit.
+                Token::LineComment(text) if is_doc_comment(text) => continue,
                 Token::LineComment(text) | Token::BlockComment(text) => {
                     // Collect comment as trivia
                     self.pending_comments.push(Comment {
@@ -91,14 +95,34 @@ impl Iterator for TriviaLexer<'_> {
     }
 }
 
-/// Strip comment tokens from a list of spanned tokens
+/// Strip non-doc comment tokens from a list of spanned tokens.
 ///
-/// This is useful for the parser which doesn't need comments.
+/// Block comments and regular `//` line comments are dropped. Doc comments
+/// (lines beginning with `///`) are kept so the parser can attach them to
+/// the following item as `doc_comments`.
 pub fn strip_comments(tokens: Vec<Spanned<Token>>) -> Vec<Spanned<Token>> {
     tokens
         .into_iter()
-        .filter(|t| !matches!(t.node, Token::LineComment(_) | Token::BlockComment(_)))
+        .filter(|t| match &t.node {
+            Token::BlockComment(_) => false,
+            Token::LineComment(text) => is_doc_comment(text),
+            _ => true,
+        })
         .collect()
+}
+
+/// Does this `//`-style comment start with `///` (i.e. is it a doc comment)?
+/// Note that `////` (four or more slashes) is treated as a regular comment,
+/// matching the Rust convention.
+pub fn is_doc_comment(text: &str) -> bool {
+    text.starts_with("///") && !text.starts_with("////")
+}
+
+/// Strip the leading `///` (and an optional single space) from a doc-comment
+/// line, returning just the human-readable text. `/// foo bar` → `"foo bar"`.
+pub fn doc_comment_text(text: &str) -> String {
+    let after = text.strip_prefix("///").unwrap_or(text);
+    after.strip_prefix(' ').unwrap_or(after).to_string()
 }
 
 #[cfg(test)]
@@ -137,16 +161,39 @@ mod tests {
 
     #[test]
     fn test_strip_comments() {
-        let source = "// comment\nfn main() {}";
+        // `//` regular comments and block comments are stripped, but `///`
+        // doc comments are kept for the parser to attach to the next item.
+        let source = "// regular\n/// doc\n/* block */ fn main() {}";
         let tokens = Lexer::tokenize(source);
         let stripped = strip_comments(tokens);
 
-        // Should not contain any comment tokens
-        for token in &stripped {
-            assert!(!matches!(
-                token.node,
-                Token::LineComment(_) | Token::BlockComment(_)
-            ));
-        }
+        let line_comments: Vec<_> = stripped
+            .iter()
+            .filter_map(|t| match &t.node {
+                Token::LineComment(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(line_comments, vec!["/// doc".to_string()]);
+        // Block comments are still stripped.
+        assert!(
+            !stripped
+                .iter()
+                .any(|t| matches!(t.node, Token::BlockComment(_)))
+        );
+    }
+
+    #[test]
+    fn test_doc_comment_text_strips_prefix() {
+        assert_eq!(doc_comment_text("/// hello"), "hello");
+        assert_eq!(doc_comment_text("///hello"), "hello");
+        assert_eq!(doc_comment_text("///  hello"), " hello");
+    }
+
+    #[test]
+    fn test_is_doc_comment() {
+        assert!(is_doc_comment("/// doc"));
+        assert!(!is_doc_comment("// regular"));
+        assert!(!is_doc_comment("//// not a doc")); // four slashes — Rust convention
     }
 }

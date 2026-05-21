@@ -1560,4 +1560,35 @@ mod tests {
              fn main() -> i32 { return abs_i32(0 - 100); }",
         );
     }
+
+    // === Doc comment tests (stage 1.1 slice 2) ===
+
+    #[test]
+    fn test_doc_comments_on_fn() {
+        check_ok(
+            "/// First line.\n\
+             /// Second line.\n\
+             fn add(a: i32, b: i32) -> i32 { return (a + b); }\n\
+             fn main() -> i32 { return add(1, 2); }",
+        );
+    }
+
+    #[test]
+    fn test_doc_comments_on_struct() {
+        check_ok(
+            "/// Point doc.\n\
+             struct P { x: i32, y: i32 }\n\
+             fn main() -> i32 { let p: P = P { x: 1, y: 2 }; return 0; }",
+        );
+    }
+
+    #[test]
+    fn test_regular_comments_still_stripped() {
+        // `//` (single-slash) comments must not appear as doc comments — they
+        // continue to be stripped by `strip_comments` before parsing.
+        check_ok(
+            "// regular comment\n\
+             fn main() -> i32 { return 0; }",
+        );
+    }
 }

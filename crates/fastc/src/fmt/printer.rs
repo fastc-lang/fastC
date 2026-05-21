@@ -135,6 +135,12 @@ impl Formatter {
 
     /// Format a function declaration
     fn format_fn(&mut self, decl: &FnDecl) {
+        for line in &decl.doc_comments {
+            self.write_indent();
+            self.write("/// ");
+            self.write(line);
+            self.newline();
+        }
         self.write_indent();
         if decl.is_unsafe {
             self.write("unsafe ");
@@ -169,6 +175,12 @@ impl Formatter {
 
     /// Format a struct declaration
     fn format_struct(&mut self, decl: &StructDecl) {
+        for line in &decl.doc_comments {
+            self.write_indent();
+            self.write("/// ");
+            self.write(line);
+            self.newline();
+        }
         if let Some(repr) = &decl.repr {
             self.format_repr(repr);
         }

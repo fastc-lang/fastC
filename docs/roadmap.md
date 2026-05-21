@@ -342,6 +342,7 @@ The stdlib is **born capability-aware in shape but not yet in checking.** I/O si
 ### Slice progress
 
 - **Slice 1 ✅:** `math` module shipped via the built-in prelude as an inline `mod math { pub fn ... }`. Users opt in with `use math::min;` etc. Stdlib functions are written in fastC itself — `abs_i32` / `abs_i64` / `abs_isize` / `abs_f32` / `abs_f64` as non-generic helpers, plus bounded-generic `min[T: Ord]` / `max[T: Ord]` / `clamp[T: Ord]` that work across every numeric primitive via the stage-1.0 `Ord` impls. Required two mono fixes: (a) `MonoCtx::new` now recursively walks `Item::Mod` bodies to discover generic fns nested in modules; (b) pass 2 strips generic-fn declarations from mod bodies before emit so lower doesn't produce literal-`T` C code. `examples/math_demo.fc` compiles and runs (exit 177).
+- **Slice 2 ✅:** Doc comments. `///` lines are recognized by the parser and accumulated as `doc_comments: Vec<String>` on every declaration kind (FnDecl, StructDecl, EnumDecl, ConstDecl, TraitDecl, ImplBlock). Trivia lexer filters them out so the formatter doesn't double-print; `fmt` re-emits them canonically. `////` (four+) remains a regular comment per the Rust convention.
 
 - [ ] Closures: `|x: i32| -> i32 { return (x + 1); }` lowered to C structs with captured environment.
   - Captures are by value (copy). Mutable captures require `mref` in the closure signature.
@@ -356,7 +357,7 @@ The stdlib is **born capability-aware in shape but not yet in checking.** I/O si
   - [ ] `fs` — filesystem operations (capability stub)
   - [ ] `net` — TCP/UDP sockets (capability stub)
 - [ ] Iterator protocol via traits + closures.
-- [ ] Doc comments (`///`) parsed and available to tooling.
+- [x] Doc comments (`///`) parsed and available to tooling. *Slice 2 — `///` lines accumulate as `doc_comments: Vec<String>` on FnDecl/StructDecl/EnumDecl/ConstDecl/TraitDecl/ImplBlock. Trivia lexer skips them so the formatter doesn't double-emit; fmt prints them back canonically. `////` (four+) remains a regular comment per the Rust convention.*
 - [ ] Language specification document.
 - [ ] Stability commitment: no breaking changes without a migration path.
 

@@ -49,6 +49,7 @@ fn lift_method(block: &ImplBlock, method: &FnDecl) -> FnDecl {
         is_unsafe: method.is_unsafe,
         name: format!("{}_{}", block.target, method.name),
         generics: method.generics.clone(),
+        doc_comments: method.doc_comments.clone(),
         params: method
             .params
             .iter()
@@ -404,6 +405,7 @@ mod tests {
                 is_unsafe: false,
                 name: "x_value".to_string(),
                 generics: vec![],
+                doc_comments: vec![],
                 params: vec![Param {
                     name: "self".to_string(),
                     ty: TypeExpr::Ref(Box::new(TypeExpr::Named("Self".to_string()))),
@@ -417,6 +419,7 @@ mod tests {
                 span: mk_span(),
             }],
             span: mk_span(),
+            doc_comments: vec![],
         };
         let file = File {
             items: vec![Item::Impl(block)],
@@ -446,6 +449,7 @@ mod tests {
                 is_unsafe: false,
                 name: "untouched".to_string(),
                 generics: vec![],
+                doc_comments: vec![],
                 params: vec![],
                 return_type: TypeExpr::Void,
                 body: Block {

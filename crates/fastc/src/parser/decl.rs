@@ -12,6 +12,10 @@ use super::Parser;
 impl Parser<'_> {
     /// Parse a top-level item
     pub fn parse_item(&mut self) -> Result<Item, CompileError> {
+        // Doc comments (`///`) attach to the next item. Collected here at
+        // parse_item entry so every item kind benefits.
+        let docs = self.collect_doc_comments();
+
         // Check for attributes
         let repr = if self.check(&Token::AtRepr) {
             Some(self.parse_repr_attr()?)
@@ -27,27 +31,29 @@ impl Parser<'_> {
             false
         };
 
-        match self.current() {
-            Token::Fn => Ok(Item::Fn(self.parse_fn_decl(false)?)),
+        let item = match self.current() {
+            Token::Fn => Item::Fn(self.parse_fn_decl(false)?),
             Token::Unsafe => {
                 self.advance();
                 if self.check(&Token::Fn) {
-                    Ok(Item::Fn(self.parse_fn_decl(true)?))
+                    Item::Fn(self.parse_fn_decl(true)?)
                 } else {
-                    Err(self.error("expected 'fn' after 'unsafe'"))
+                    return Err(self.error("expected 'fn' after 'unsafe'"));
                 }
             }
-            Token::Struct => Ok(Item::Struct(self.parse_struct_decl(repr)?)),
-            Token::Enum => Ok(Item::Enum(self.parse_enum_decl(repr)?)),
-            Token::Const => Ok(Item::Const(self.parse_const_decl()?)),
-            Token::Opaque => Ok(Item::Opaque(self.parse_opaque_decl()?)),
-            Token::Extern => Ok(Item::Extern(self.parse_extern_block()?)),
-            Token::Use => Ok(Item::Use(self.parse_use_decl()?)),
-            Token::Mod => Ok(Item::Mod(self.parse_mod_decl(is_pub)?)),
-            Token::Impl => Ok(Item::Impl(self.parse_impl_block()?)),
-            Token::Trait => Ok(Item::Trait(self.parse_trait_decl()?)),
-            _ => Err(self.error("expected top-level item")),
-        }
+            Token::Struct => Item::Struct(self.parse_struct_decl(repr)?),
+            Token::Enum => Item::Enum(self.parse_enum_decl(repr)?),
+            Token::Const => Item::Const(self.parse_const_decl()?),
+            Token::Opaque => Item::Opaque(self.parse_opaque_decl()?),
+            Token::Extern => Item::Extern(self.parse_extern_block()?),
+            Token::Use => Item::Use(self.parse_use_decl()?),
+            Token::Mod => Item::Mod(self.parse_mod_decl(is_pub)?),
+            Token::Impl => Item::Impl(self.parse_impl_block()?),
+            Token::Trait => Item::Trait(self.parse_trait_decl()?),
+            _ => return Err(self.error("expected top-level item")),
+        };
+
+        Ok(attach_doc_comments(item, docs))
     }
 
     /// Parse `impl Type { ... }` (inherent) or `impl Trait for Type { ... }`
@@ -92,6 +98,7 @@ impl Parser<'_> {
             trait_name,
             methods,
             span: start..end,
+            doc_comments: Vec::new(),
         })
     }
 
@@ -123,6 +130,7 @@ impl Parser<'_> {
             name,
             methods,
             span: start..end,
+            doc_comments: Vec::new(),
         })
     }
 
@@ -199,6 +207,7 @@ impl Parser<'_> {
             return_type,
             body,
             span: start..end,
+            doc_comments: Vec::new(),
         })
     }
 
@@ -333,6 +342,7 @@ impl Parser<'_> {
             name,
             fields,
             span: start..end,
+            doc_comments: Vec::new(),
         })
     }
 
@@ -389,6 +399,7 @@ impl Parser<'_> {
             name,
             variants,
             span: start..end,
+            doc_comments: Vec::new(),
         })
     }
 
@@ -409,6 +420,7 @@ impl Parser<'_> {
             ty,
             value,
             span: start..end,
+            doc_comments: Vec::new(),
         })
     }
 
@@ -583,5 +595,43 @@ impl Parser<'_> {
             body,
             span: start..end,
         })
+    }
+}
+
+/// Attach a `Vec<String>` of doc-comment lines to whichever item variant
+/// supports them. Items that don't carry docs (Use, Opaque, Extern) drop
+/// the docs silently — they predate the doc-comment feature and have no
+/// natural home for them yet.
+fn attach_doc_comments(item: Item, docs: Vec<String>) -> Item {
+    if docs.is_empty() {
+        return item;
+    }
+    match item {
+        Item::Fn(mut d) => {
+            d.doc_comments = docs;
+            Item::Fn(d)
+        }
+        Item::Struct(mut d) => {
+            d.doc_comments = docs;
+            Item::Struct(d)
+        }
+        Item::Enum(mut d) => {
+            d.doc_comments = docs;
+            Item::Enum(d)
+        }
+        Item::Const(mut d) => {
+            d.doc_comments = docs;
+            Item::Const(d)
+        }
+        Item::Trait(mut d) => {
+            d.doc_comments = docs;
+            Item::Trait(d)
+        }
+        Item::Impl(mut d) => {
+            d.doc_comments = docs;
+            Item::Impl(d)
+        }
+        // Use/Opaque/Extern/Mod don't carry docs in v1.
+        other => other,
     }
 }

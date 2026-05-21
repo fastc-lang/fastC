@@ -38,6 +38,7 @@ pub struct ImplBlock {
     /// `Self` (the type) and `self` (the receiver parameter).
     pub methods: Vec<FnDecl>,
     pub span: Span,
+    pub doc_comments: Vec<String>,
 }
 
 /// `trait Foo { fn method(self: ref(Self), ...) -> T; ... }`.
@@ -52,6 +53,7 @@ pub struct TraitDecl {
     /// signature includes `self` and may use `Self`.
     pub methods: Vec<FnProto>,
     pub span: Span,
+    pub doc_comments: Vec<String>,
 }
 
 /// Function declaration
@@ -66,6 +68,9 @@ pub struct FnDecl {
     pub return_type: TypeExpr,
     pub body: Block,
     pub span: Span,
+    /// Doc comment lines (`///`) preceding this declaration, stripped of
+    /// the `///` prefix and a single optional leading space.
+    pub doc_comments: Vec<String>,
 }
 
 /// A declared type parameter, e.g. the `T` in `fn id[T](x: T) -> T`.
@@ -95,6 +100,7 @@ pub struct StructDecl {
     pub name: String,
     pub fields: Vec<Field>,
     pub span: Span,
+    pub doc_comments: Vec<String>,
 }
 
 /// Struct field
@@ -112,6 +118,7 @@ pub struct EnumDecl {
     pub name: String,
     pub variants: Vec<Variant>,
     pub span: Span,
+    pub doc_comments: Vec<String>,
 }
 
 /// Enum variant
@@ -129,6 +136,7 @@ pub struct ConstDecl {
     pub ty: TypeExpr,
     pub value: ConstExpr,
     pub span: Span,
+    pub doc_comments: Vec<String>,
 }
 
 /// Opaque type declaration

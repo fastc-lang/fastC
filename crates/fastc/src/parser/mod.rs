@@ -87,6 +87,24 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Consume any consecutive `///` doc-comment tokens at the current
+    /// position. Returns the doc text (with `///` and one optional leading
+    /// space stripped) for each line, in source order.
+    fn collect_doc_comments(&mut self) -> Vec<String> {
+        let mut out = Vec::new();
+        while let Token::LineComment(text) = self.current().clone() {
+            if crate::lexer::is_doc_comment(&text) {
+                out.push(crate::lexer::doc_comment_text(&text));
+                self.advance();
+            } else {
+                // Should not occur — non-doc line comments are filtered out
+                // before the parser sees them.
+                self.advance();
+            }
+        }
+        out
+    }
+
     fn error(&self, message: &str) -> CompileError {
         CompileError::parse(message, self.current_span(), self.source)
     }

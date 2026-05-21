@@ -94,6 +94,7 @@ mod tests {
             is_unsafe: false,
             name: name.to_string(),
             generics: vec![],
+            doc_comments: vec![],
             params: vec![],
             return_type: TypeExpr::Void,
             body: Block {
