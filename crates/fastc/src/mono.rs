@@ -539,6 +539,7 @@ fn specialize_fn(
     for p in &generic_fn.params {
         env.insert(p.name.clone(), substitute(&p.ty, subst));
     }
+    let mut drop_stack: Vec<Vec<DropEntry>> = Vec::new();
     FnDecl {
         is_unsafe: generic_fn.is_unsafe,
         name: mangled.to_string(),
@@ -553,7 +554,7 @@ fn specialize_fn(
             })
             .collect(),
         return_type: substitute(&generic_fn.return_type, subst),
-        body: rewrite_block(&generic_fn.body, subst, ctx, &mut env),
+        body: rewrite_block(&generic_fn.body, subst, ctx, &mut env, &mut drop_stack),
         span: generic_fn.span.clone(),
     }
 }
@@ -564,14 +565,92 @@ fn rewrite_fn(f: &FnDecl, subst: &HashMap<String, TypeExpr>, ctx: &MonoCtx) -> F
     for p in &f.params {
         env.insert(p.name.clone(), substitute(&p.ty, subst));
     }
+    let mut drop_stack: Vec<Vec<DropEntry>> = Vec::new();
     FnDecl {
         is_unsafe: f.is_unsafe,
         name: f.name.clone(),
         generics: f.generics.clone(),
         params: f.params.clone(),
         return_type: f.return_type.clone(),
-        body: rewrite_block(&f.body, subst, ctx, &mut env),
+        body: rewrite_block(&f.body, subst, ctx, &mut env, &mut drop_stack),
         span: f.span.clone(),
+    }
+}
+
+/// One variable in a scope that may need a Drop call on exit.
+#[derive(Debug, Clone)]
+struct DropEntry {
+    name: String,
+    ty: TypeExpr,
+}
+
+/// Construct a `Stmt::Expr` invoking `T_drop(addr(name))` for one variable.
+fn make_drop_call(entry: &DropEntry, span: &crate::ast::Span) -> Stmt {
+    let type_name = struct_name_of(&entry.ty).expect("DropEntry must carry a nameable type");
+    let drop_fn = format!("{}_drop", type_name);
+    let receiver = Expr::Addr {
+        operand: Box::new(Expr::Ident {
+            name: entry.name.clone(),
+            span: span.clone(),
+        }),
+        span: span.clone(),
+    };
+    Stmt::Expr {
+        expr: Expr::Call {
+            callee: Box::new(Expr::Ident {
+                name: drop_fn,
+                span: span.clone(),
+            }),
+            args: vec![receiver],
+            span: span.clone(),
+        },
+        span: span.clone(),
+    }
+}
+
+/// Filter a scope to only the entries whose types implement `Drop`, then
+/// emit calls in reverse declaration order (last-declared dropped first).
+fn drops_for_scope(scope: &[DropEntry], ctx: &MonoCtx, span: &crate::ast::Span) -> Vec<Stmt> {
+    scope
+        .iter()
+        .rev()
+        .filter(|e| {
+            struct_name_of(&e.ty)
+                .map(|n| {
+                    ctx.trait_impls
+                        .get(&n)
+                        .map(|s| s.contains("Drop"))
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        })
+        .map(|e| make_drop_call(e, span))
+        .collect()
+}
+
+/// Drops for every scope currently on the stack, innermost first. Used at
+/// `return` statements to clean up the entire active stack before exit.
+fn drops_for_all_scopes(
+    stack: &[Vec<DropEntry>],
+    ctx: &MonoCtx,
+    span: &crate::ast::Span,
+) -> Vec<Stmt> {
+    let mut out = Vec::new();
+    for scope in stack.iter().rev() {
+        out.extend(drops_for_scope(scope, ctx, span));
+    }
+    out
+}
+
+/// Does this statement end the current block — meaning the end-of-block
+/// drop pass should be skipped because control flow has transferred out?
+fn is_terminator(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } => true,
+        // A Block whose last statement is itself a terminator (because we
+        // wrapped `[drops..., return]` into one) also terminates.
+        Stmt::Block(b) => b.stmts.last().is_some_and(is_terminator),
+        _ => false,
     }
 }
 
@@ -580,18 +659,30 @@ fn rewrite_block(
     subst: &HashMap<String, TypeExpr>,
     ctx: &MonoCtx,
     env: &mut HashMap<String, TypeExpr>,
+    drop_stack: &mut Vec<Vec<DropEntry>>,
 ) -> Block {
     let saved = env.clone();
-    let block = Block {
-        stmts: block
-            .stmts
-            .iter()
-            .map(|s| rewrite_stmt(s, subst, ctx, env))
-            .collect(),
-        span: block.span.clone(),
-    };
+    drop_stack.push(Vec::new());
+
+    let mut stmts: Vec<Stmt> = block
+        .stmts
+        .iter()
+        .map(|s| rewrite_stmt(s, subst, ctx, env, drop_stack))
+        .collect();
+
+    // Append end-of-block drops only if control flow falls through.
+    if !stmts.last().is_some_and(is_terminator) {
+        let scope = drop_stack.last().expect("scope pushed");
+        let drops = drops_for_scope(scope, ctx, &block.span);
+        stmts.extend(drops);
+    }
+
+    drop_stack.pop();
     *env = saved;
-    block
+    Block {
+        stmts,
+        span: block.span.clone(),
+    }
 }
 
 fn rewrite_stmt(
@@ -599,6 +690,7 @@ fn rewrite_stmt(
     subst: &HashMap<String, TypeExpr>,
     ctx: &MonoCtx,
     env: &mut HashMap<String, TypeExpr>,
+    drop_stack: &mut Vec<Vec<DropEntry>>,
 ) -> Stmt {
     match stmt {
         Stmt::Let {
@@ -610,6 +702,13 @@ fn rewrite_stmt(
             let new_init = rewrite_expr(init, subst, ctx, env);
             let new_ty = substitute(ty, subst);
             env.insert(name.clone(), new_ty.clone());
+            // Track this binding for end-of-scope and return-path drops.
+            if let Some(scope) = drop_stack.last_mut() {
+                scope.push(DropEntry {
+                    name: name.clone(),
+                    ty: new_ty.clone(),
+                });
+            }
             Stmt::Let {
                 name: name.clone(),
                 ty: new_ty,
@@ -629,10 +728,10 @@ fn rewrite_stmt(
             span,
         } => Stmt::If {
             cond: rewrite_expr(cond, subst, ctx, env),
-            then_block: rewrite_block(then_block, subst, ctx, env),
+            then_block: rewrite_block(then_block, subst, ctx, env, drop_stack),
             else_block: else_block
                 .as_ref()
-                .map(|e| rewrite_else(e, subst, ctx, env)),
+                .map(|e| rewrite_else(e, subst, ctx, env, drop_stack)),
             span: span.clone(),
         },
         Stmt::IfLet {
@@ -644,15 +743,15 @@ fn rewrite_stmt(
         } => Stmt::IfLet {
             name: name.clone(),
             expr: rewrite_expr(expr, subst, ctx, env),
-            then_block: rewrite_block(then_block, subst, ctx, env),
+            then_block: rewrite_block(then_block, subst, ctx, env, drop_stack),
             else_block: else_block
                 .as_ref()
-                .map(|b| rewrite_block(b, subst, ctx, env)),
+                .map(|b| rewrite_block(b, subst, ctx, env, drop_stack)),
             span: span.clone(),
         },
         Stmt::While { cond, body, span } => Stmt::While {
             cond: rewrite_expr(cond, subst, ctx, env),
-            body: rewrite_block(body, subst, ctx, env),
+            body: rewrite_block(body, subst, ctx, env, drop_stack),
             span: span.clone(),
         },
         Stmt::For {
@@ -665,7 +764,7 @@ fn rewrite_stmt(
             init: init.as_ref().map(|i| rewrite_for_init(i, subst, ctx, env)),
             cond: cond.as_ref().map(|c| rewrite_expr(c, subst, ctx, env)),
             step: step.as_ref().map(|s| rewrite_for_step(s, subst, ctx, env)),
-            body: rewrite_block(body, subst, ctx, env),
+            body: rewrite_block(body, subst, ctx, env, drop_stack),
             span: span.clone(),
         },
         Stmt::Switch {
@@ -682,7 +781,7 @@ fn rewrite_stmt(
                     stmts: c
                         .stmts
                         .iter()
-                        .map(|s| rewrite_stmt(s, subst, ctx, env))
+                        .map(|s| rewrite_stmt(s, subst, ctx, env, drop_stack))
                         .collect(),
                     span: c.span.clone(),
                 })
@@ -690,24 +789,41 @@ fn rewrite_stmt(
             default: default.as_ref().map(|stmts| {
                 stmts
                     .iter()
-                    .map(|s| rewrite_stmt(s, subst, ctx, env))
+                    .map(|s| rewrite_stmt(s, subst, ctx, env, drop_stack))
                     .collect()
             }),
             span: span.clone(),
         },
-        Stmt::Return { value, span } => Stmt::Return {
-            value: value.as_ref().map(|e| rewrite_expr(e, subst, ctx, env)),
-            span: span.clone(),
-        },
+        Stmt::Return { value, span } => {
+            // Drop every variable in every currently-active scope before
+            // returning. Wrap the result in `Stmt::Block` only when at
+            // least one drop is actually emitted so we don't introduce a
+            // gratuitous C-level scope for the no-drops case.
+            let new_return = Stmt::Return {
+                value: value.as_ref().map(|e| rewrite_expr(e, subst, ctx, env)),
+                span: span.clone(),
+            };
+            let drops = drops_for_all_scopes(drop_stack, ctx, span);
+            if drops.is_empty() {
+                new_return
+            } else {
+                let mut stmts = drops;
+                stmts.push(new_return);
+                Stmt::Block(Block {
+                    stmts,
+                    span: span.clone(),
+                })
+            }
+        }
         Stmt::Defer { body, span } => Stmt::Defer {
-            body: rewrite_block(body, subst, ctx, env),
+            body: rewrite_block(body, subst, ctx, env, drop_stack),
             span: span.clone(),
         },
         Stmt::Unsafe { body, span } => Stmt::Unsafe {
-            body: rewrite_block(body, subst, ctx, env),
+            body: rewrite_block(body, subst, ctx, env, drop_stack),
             span: span.clone(),
         },
-        Stmt::Block(b) => Stmt::Block(rewrite_block(b, subst, ctx, env)),
+        Stmt::Block(b) => Stmt::Block(rewrite_block(b, subst, ctx, env, drop_stack)),
         Stmt::Expr { expr, span } => Stmt::Expr {
             expr: rewrite_expr(expr, subst, ctx, env),
             span: span.clone(),
@@ -725,10 +841,13 @@ fn rewrite_else(
     subst: &HashMap<String, TypeExpr>,
     ctx: &MonoCtx,
     env: &mut HashMap<String, TypeExpr>,
+    drop_stack: &mut Vec<Vec<DropEntry>>,
 ) -> ElseBranch {
     match br {
-        ElseBranch::ElseIf(s) => ElseBranch::ElseIf(Box::new(rewrite_stmt(s, subst, ctx, env))),
-        ElseBranch::Else(b) => ElseBranch::Else(rewrite_block(b, subst, ctx, env)),
+        ElseBranch::ElseIf(s) => {
+            ElseBranch::ElseIf(Box::new(rewrite_stmt(s, subst, ctx, env, drop_stack)))
+        }
+        ElseBranch::Else(b) => ElseBranch::Else(rewrite_block(b, subst, ctx, env, drop_stack)),
     }
 }
 

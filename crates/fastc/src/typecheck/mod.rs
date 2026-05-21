@@ -1512,4 +1512,25 @@ mod tests {
             "does not implement trait 'Ord'",
         );
     }
+
+    // === Drop trait tests (stage 1.0 slice 4) ===
+
+    #[test]
+    fn test_drop_impl_ok() {
+        check_ok(
+            "struct R { v: i32 } \
+             impl Drop for R { fn drop(self: mref(Self)) -> void {} } \
+             fn main() -> i32 { let r: R = R { v: 1 }; return 0; }",
+        );
+    }
+
+    #[test]
+    fn test_drop_without_impl_no_op() {
+        // A struct without `impl Drop` simply has no drop call inserted —
+        // it still typechecks fine.
+        check_ok(
+            "struct R { v: i32 } \
+             fn main() -> i32 { let r: R = R { v: 1 }; return 0; }",
+        );
+    }
 }

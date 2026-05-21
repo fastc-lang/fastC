@@ -305,7 +305,7 @@ This stage lands before stdlib (1.1) so stdlib growth cannot blow the budget unn
 - [ ] Constraints are checked at call sites with clear error messages. *Moved to stage 1.0 slice 2 (bound checking happens at mono time).*
 - [x] Compile-time budget targets remain green after generics land.
 
-## 1.0 — Traits and Method Syntax *(in progress)*
+## 1.0 — Traits and Method Syntax ✅
 
 > **Requires:** 0.9 (generics — traits bound generic type parameters).
 > **Complexity managed:** Abstraction without runtime cost. A function constrained by `T: Ord` can compare values without knowing the concrete type at the call site, but the generated C is still a direct function call — no vtable lookup, no dynamic dispatch.
@@ -316,20 +316,20 @@ This stage lands before stdlib (1.1) so stdlib growth cannot blow the budget unn
 - **Slice 1 ✅:** Inherent `impl Type { fn ... }` blocks; `x.method(args)` call syntax; pre-resolve desugar lifts methods to free `Type_method` functions; mono rewrites call sites with auto-addressed receivers.
 - **Slice 2 ✅:** `trait Foo { fn ... ; }` declarations, `impl Trait for Type { ... }`, trait-bounded generics `[T: Bound]`, method dispatch on generic-typed receivers via trait method lookup, mono-time bound satisfaction check with structured diagnostics. `examples/traits.fc` compiles and runs (exit 42 via specialized `shout_Point` calling `Point_greet(&x)`).
 - **Slice 3 ✅:** Built-in traits `Eq`, `Ord`, `Copy` and per-primitive impls injected via a built-in prelude. Parser accepts primitive type keywords as impl targets; desugar substitutes `Self` to `TypeExpr::Primitive` when the target names a primitive; typecheck and mono recognize primitive receivers. `examples/builtin_traits.fc` compiles and runs `fn max[T: Ord]` for both `i32` and `f64` (exit 37 = max(7,35) + cast(i32, max(1.5,2.5))).
-- **Slice 4:** `Drop` trait + compiler-generated `Drop` calls at scope exit.
+- **Slice 4 ✅:** `Drop` trait + compiler-generated drop calls at scope exit. Mono tracks a per-scope stack of (name, type) entries through `rewrite_block`; on a `return` it emits `Type_drop(addr(name))` calls for every enclosing scope (innermost first) before the return, and at block fallthrough it emits drops for the current scope only. Drops fire in reverse declaration order (LIFO). Types without `impl Drop` are silently skipped. `examples/drop.fc` compiles and runs; generated C shows `Resource_drop(&c); Resource_drop(&a);` immediately before `return 0;`.
 
 - [x] Method call syntax: `x.method(args)` desugars to static dispatch. *Slice 1.*
 - [x] Trait declarations: `trait Eq { fn eq(self: ref(Self), other: ref(Self)) -> bool; }`. *Slice 2.*
 - [x] Trait implementations: `impl Eq for Point { ... }`. *Slice 2.*
 - [x] Trait bounds on generic parameters: `fn max[T: Ord](a: T, b: T) -> T`. *Slice 2 — multi-bound `T: A + B` syntax also supported.*
-- [x] Built-in traits: `Eq`, `Ord`, `Copy`. *Slice 3 — injected via prelude. `bool` gets `Eq + Copy` only (no total order). `Drop` deferred to slice 4 since it requires codegen integration, not just declaration.*
-- [ ] Compiler-generated `Drop` calls at scope exits for types implementing `Drop`. *Slice 4.*
+- [x] Built-in traits: `Eq`, `Ord`, `Copy`, `Drop`. *Slice 3 + 4 — injected via prelude. `bool` gets `Eq + Copy` only (no total order). `Drop` has no primitive impls; user types opt in with `impl Drop for MyType`.*
+- [x] Compiler-generated `Drop` calls at scope exits for types implementing `Drop`. *Slice 4 — mono maintains a drop_stack per block; drops fire on block fallthrough and before every `return`. Known v1 limitations: `break`/`continue` don't trigger drops for loop-local variables; for-init `let`s are not tracked; ownership transfer on return is not analysed (drops may double-fire on returned values — for now users should keep return types non-`Drop`).*
 
 **Definition of Done**
 
 - [x] Trait-bounded generics compile to static dispatch C. *Slice 2: `shout[T: Greeter]` becomes `shout_Point` with `x.greet()` rewritten to `Point_greet(&x)`. Zero runtime dispatch overhead, no vtables. Slice 3 extends this to primitive types: `max[T: Ord](i32, i32)` becomes `max_i32` calling `i32_less_than(&a, &b)`.*
 - [x] Method syntax works on inherent and trait impls. *Slice 1 + Slice 2.*
-- [ ] `Drop` trait enables deterministic resource cleanup. *Slice 4.*
+- [x] `Drop` trait enables deterministic resource cleanup. *Slice 4. v1 covers the common "RAII at scope end" pattern; future slices (stage 1.1+) will add `break`/`continue` drop, for-init drops, and ownership-aware drop suppression on moves.*
 
 ## 1.1 — Standard Library and Closures (MVP)
 

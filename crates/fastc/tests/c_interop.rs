@@ -134,6 +134,15 @@ fn test_builtin_traits_compiles() {
 }
 
 #[test]
+fn test_drop_compiles() {
+    // Stage 1.0 slice 4: Drop trait + compiler-generated scope-exit calls.
+    // Verifies mono inserts Resource_drop(&a) and Resource_drop(&c) before
+    // the function's return, in reverse declaration order, while leaving
+    // Plain (no Drop impl) alone.
+    compile_and_verify("examples/drop.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

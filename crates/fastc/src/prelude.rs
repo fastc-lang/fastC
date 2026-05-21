@@ -1,16 +1,19 @@
 //! The built-in prelude: trait declarations and impls injected into every
 //! fastC compilation.
 //!
-//! Stage 1.0 slice 3 ships:
+//! Stage 1.0 slice 3 + 4 ships:
 //!
-//! - `trait Eq`  — equality (`fn eq(self, other) -> bool`).
-//! - `trait Ord` — ordering (`fn less_than(self, other) -> bool`).
+//! - `trait Eq`   — equality (`fn eq(self, other) -> bool`).
+//! - `trait Ord`  — ordering (`fn less_than(self, other) -> bool`).
 //! - `trait Copy` — marker trait (no methods).
+//! - `trait Drop` — destructor (`fn drop(self: mref(Self))`); user types
+//!   opt in by writing `impl Drop for MyType`. Primitives are not droppable.
 //!
 //! And implementations for every primitive type with sensible semantics:
 //!
 //! - Every primitive implements `Eq` and `Copy`.
 //! - Numeric primitives (everything except `bool`) implement `Ord`.
+//! - No primitive implements `Drop` (nothing to free).
 //!
 //! The prelude is delivered as a fastC source string that is parsed once at
 //! driver entry; the parsed items are prepended to the user's `File`
@@ -33,6 +36,10 @@ trait Ord {
 }
 
 trait Copy {
+}
+
+trait Drop {
+    fn drop(self: mref(Self)) -> void;
 }
 
 // --- Primitive impls ---
@@ -243,7 +250,7 @@ mod tests {
             })
             .collect();
         trait_names.sort();
-        assert_eq!(trait_names, vec!["Copy", "Eq", "Ord"]);
+        assert_eq!(trait_names, vec!["Copy", "Drop", "Eq", "Ord"]);
     }
 
     #[test]

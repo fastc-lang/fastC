@@ -1,0 +1,24 @@
+// Stage 1.0 slice 4: Drop trait with compiler-generated scope-exit calls.
+//
+// The compiler walks each function body, tracks every `let` declaration,
+// and inserts `Type_drop(addr(name))` calls automatically before scope
+// exit. Drops fire in reverse declaration order (LIFO). Types that do
+// not implement `Drop` are ignored.
+
+struct Resource {
+    handle: i32,
+}
+
+impl Drop for Resource {
+    fn drop(self: mref(Self)) -> void {
+        // Real bodies would release a handle, free memory, etc.
+    }
+}
+
+fn main() -> i32 {
+    let a: Resource = Resource { handle: 1 };
+    let c: Resource = Resource { handle: 3 };
+    // Generated C emits `Resource_drop(&c); Resource_drop(&a);` (LIFO)
+    // immediately before `return 0;`.
+    return 0;
+}
