@@ -606,6 +606,22 @@ mod vec {
         return dst;
     }
 
+    /// Visit each element in insertion order. `f` is called by-value
+    /// with each element; its return is discarded. First stdlib API to
+    /// take a `fn(T) -> void` pointer — exercises void-returning fn
+    /// types end-to-end through the typedef pre-pass.
+    pub fn for_each[T](src: ref(Vec[T]), f: fn(T) -> void) -> void {
+        let n: usize = (deref(src)).len;
+        let src_buf: rawm(T) = (deref(src)).data;
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                f(at(src_buf, i));
+            }
+            i = (i + cast(usize, 1));
+        }
+    }
+
     /// Map every element through `f` into a fresh vec. `dst` is sized
     /// exactly to `src.len`, so the result is fully packed (no extra
     /// capacity). The caller owns both vecs and must release each

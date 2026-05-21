@@ -1,0 +1,33 @@
+// Stage 1.1 slice 14: `vec::for_each[T](v, f: fn(T) -> void)`.
+//
+// First stdlib API to take a void-returning fn pointer end-to-end.
+// We pass `io::put_char` directly — it has the exact `fn(i32) -> void`
+// shape `for_each` wants, so this is the simplest "real" use of a void
+// fn pointer the stdlib can demonstrate. The demo prints a sequence
+// of ASCII codes; exit code is the count of elements visited so the
+// test catches a no-op for_each.
+
+use vec::new;
+use vec::push;
+use vec::for_each;
+use vec::len;
+use vec::release;
+use io::put_char;
+
+fn main() -> i32 {
+    let v: Vec[i32] = new(0);
+    push(addrm(v), 70);   // 'F'
+    push(addrm(v), 97);   // 'a'
+    push(addrm(v), 115);  // 's'
+    push(addrm(v), 116);  // 't'
+    push(addrm(v), 67);   // 'C'
+    push(addrm(v), 10);   // '\n'
+
+    for_each(addr(v), put_char);
+
+    let n: i32 = cast(i32, len(addr(v)));   // 6
+
+    release(addrm(v));
+
+    return n;
+}

@@ -238,6 +238,16 @@ fn test_vec_sort_compiles() {
 }
 
 #[test]
+fn test_vec_for_each_compiles() {
+    // Stage 1.1 slice 14: `vec::for_each[T](v, f: fn(T) -> void)`.
+    // First stdlib API to take a void-returning fn pointer end-to-end.
+    // Demo passes `io::put_char` directly, exercising both the
+    // typedef pre-pass on `fn(i32) -> void` and Fn-shape inference
+    // through a stdlib-provided receiver.
+    compile_and_verify("examples/vec_for_each_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }
