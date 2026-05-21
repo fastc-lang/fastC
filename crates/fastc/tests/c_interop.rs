@@ -374,6 +374,16 @@ fn test_vec_concat_compiles() {
 }
 
 #[test]
+fn test_str_repeat_hm_clone_compiles() {
+    // Stage 1.1 slice 29: `str::repeat` + `hashmap::clone_map`.
+    // repeat builds N copies of a Str; clone_map allocates fresh
+    // key/value/state buffers and copies every slot bit-by-bit. For
+    // primitive K/V the clone is fully independent (mutating one
+    // leaves the other untouched), which the demo verifies.
+    compile_and_verify("examples/str_repeat_hm_clone_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

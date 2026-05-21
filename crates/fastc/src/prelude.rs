@@ -1241,6 +1241,49 @@ mod hashmap {
         free_bytes(old_state);
     }
 
+    /// Allocate a fresh map with the same capacity and contents as
+    /// `src`. Slot allocations are bit-copies — for primitive keys
+    /// and values that means a fully independent map; for owned types
+    /// like `Str` the .data pointers are aliased, so releasing both
+    /// without per-entry deep-clone would double-free the inner
+    /// buffers. Document this aliasing in calling code; the v1 stdlib
+    /// has no `clone[K: Clone, V: Clone]` because there is no `Clone`
+    /// trait yet.
+    pub fn clone_map[K: Hash + Eq, V](src: ref(HashMap[K, V])) -> HashMap[K, V] {
+        let cap: usize = (deref(src)).cap;
+        let k_bytes: usize = (cap * sizeof(K));
+        let v_bytes: usize = (cap * sizeof(V));
+        let s_bytes: usize = (cap * sizeof(u8));
+        let kb_raw: rawm(u8) = alloc(k_bytes);
+        let vb_raw: rawm(u8) = alloc(v_bytes);
+        let sb: rawm(u8) = alloc(s_bytes);
+        let src_keys: rawm(K) = (deref(src)).keys;
+        let src_vals: rawm(V) = (deref(src)).values;
+        let src_state: rawm(u8) = (deref(src)).state;
+        let dst_keys: rawm(K) = cast(rawm(K), kb_raw);
+        let dst_vals: rawm(V) = cast(rawm(V), vb_raw);
+        let i: usize = cast(usize, 0);
+        while (i < cap) {
+            unsafe {
+                let st: u8 = at(src_state, i);
+                at(sb, i) = st;
+                if (st == hm_st_occupied()) {
+                    at(dst_keys, i) = at(src_keys, i);
+                    at(dst_vals, i) = at(src_vals, i);
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        return HashMap {
+            keys: cast(rawm(K), kb_raw),
+            values: cast(rawm(V), vb_raw),
+            state: sb,
+            len: (deref(src)).len,
+            tombstones: (deref(src)).tombstones,
+            cap: cap,
+        };
+    }
+
     /// Visit every `(key, value)` pair in occupancy order — i.e. the
     /// underlying bucket order, which is not insertion order. `f`
     /// receives copies of the key and value, so for owned-buffer
@@ -1533,6 +1576,27 @@ mod str {
         let mid: Str = trim_start(s);
         let out: Str = trim_end(addr(mid));
         dispose(addrm(mid));
+        return out;
+    }
+
+    /// Build a fresh `Str` that contains `s` repeated `count` times.
+    /// Count zero yields an empty Str. Useful for building separators,
+    /// padding, banners, etc.
+    pub fn repeat(s: ref(Str), count: usize) -> Str {
+        let out: Str = make();
+        let inner_n: usize = len(addr((deref(s)).data));
+        let buf: rawm(u8) = (deref(s)).data.data;
+        let i: usize = cast(usize, 0);
+        while (i < count) {
+            let j: usize = cast(usize, 0);
+            while (j < inner_n) {
+                unsafe {
+                    push_byte(addrm(out), at(buf, j));
+                }
+                j = (j + cast(usize, 1));
+            }
+            i = (i + cast(usize, 1));
+        }
         return out;
     }
 

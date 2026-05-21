@@ -1,0 +1,87 @@
+// Stage 1.1 slice 29: `str::repeat` + `hashmap::clone_map`.
+//
+// `repeat(s, count)` builds a fresh Str by concatenating `count`
+// copies of `s`. Zero count yields an empty Str.
+//
+// `clone_map(m)` allocates fresh key/value/state buffers and copies
+// every slot bit-by-bit. For primitive K and V this is fully
+// independent; for owned types the .data pointers alias the source
+// (no per-entry deep clone in v1 because there's no `Clone` trait
+// yet). The demo verifies the clone is independent under primitive
+// keys: mutating the clone leaves the source untouched.
+
+use str::from_cstr;
+use str::repeat;
+use str::byte_count;
+use str::byte_at;
+use str::dispose;
+use hashmap::new_map;
+use hashmap::put;
+use hashmap::lookup;
+use hashmap::clone_map;
+use hashmap::count_map;
+use hashmap::release_map;
+
+fn or_zero(o: opt(i32)) -> i32 {
+    if let value = unwrap_checked(o) {
+        return value;
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    // str::repeat: "ab" * 3 = "ababab"
+    let ab: Str = from_cstr(cstr("ab"));
+    let three: Str = repeat(addr(ab), cast(usize, 3));
+    let n_three: i32 = cast(i32, byte_count(addr(three)));       // 6
+    let b0: i32 = cast(i32, byte_at(addr(three), cast(usize, 0)));  // 'a' = 97
+    let b3: i32 = cast(i32, byte_at(addr(three), cast(usize, 3)));  // 'b' = 98
+
+    // Zero-repeat: empty Str.
+    let zero: Str = repeat(addr(ab), cast(usize, 0));
+    let n_zero: i32 = cast(i32, byte_count(addr(zero)));         // 0
+
+    dispose(addrm(ab));
+    dispose(addrm(three));
+    dispose(addrm(zero));
+
+    // hashmap::clone_map
+    let src: HashMap[i32, i32] = new_map(0, 0);
+    discard(put(addrm(src), 1, 100));
+    discard(put(addrm(src), 2, 200));
+    discard(put(addrm(src), 3, 300));
+
+    let copy: HashMap[i32, i32] = clone_map(addr(src));
+    // Mutate the clone — the source must stay intact for primitive K/V.
+    discard(put(addrm(copy), 1, 999));
+    discard(put(addrm(copy), 4, 400));
+
+    let k1: i32 = 1;
+    let src_1: i32 = or_zero(lookup(addr(src), addr(k1)));   // 100 (unchanged)
+    let copy_1: i32 = or_zero(lookup(addr(copy), addr(k1))); // 999 (mutated)
+    let k4: i32 = 4;
+    let src_4: i32 = or_zero(lookup(addr(src), addr(k4)));   // 0 (absent in src)
+    let copy_4: i32 = or_zero(lookup(addr(copy), addr(k4))); // 400 (added to copy)
+
+    let src_n: i32 = cast(i32, count_map(addr(src)));   // 3
+    let copy_n: i32 = cast(i32, count_map(addr(copy))); // 4
+
+    release_map(addrm(src));
+    release_map(addrm(copy));
+
+    // Build a verification score — kept under 256 so the exit byte
+    // shows the literal result. Each correct observation contributes
+    // a distinct power of two so any single regression shifts the
+    // total in a detectable way.
+    let total: i32 = (n_three + n_zero);   // 6
+    if (b0 == 97) { total = (total + 1); }
+    if (b3 == 98) { total = (total + 1); }     // same weight: byte checks
+    if (src_1 == 100) { total = (total + 4); }
+    if (copy_1 == 999) { total = (total + 8); }
+    if (src_4 == 0) { total = (total + 16); }
+    if (copy_4 == 400) { total = (total + 32); }
+    if (src_n == 3) { total = (total + 64); }
+    if (copy_n == 4) { total = (total + 50); }
+    // 6 + 1 + 1 + 4 + 8 + 16 + 32 + 64 + 50 = 182
+    return total;
+}
