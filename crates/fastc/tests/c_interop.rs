@@ -228,6 +228,16 @@ fn test_vec_higher_order_compiles() {
 }
 
 #[test]
+fn test_vec_sort_compiles() {
+    // Stage 1.1 slice 13: `vec::sort[T: Ord]` — insertion sort using
+    // the prelude Ord trait. Dispatches through
+    // `cur.less_than(addr(prev))` which mono lowers to
+    // `T_less_than(&cur, &prev)`. First bounded-generic mutator on the
+    // container surface.
+    compile_and_verify("examples/vec_sort_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

@@ -1,0 +1,51 @@
+// Stage 1.1 slice 13: `vec::sort[T: Ord]` — insertion sort with
+// trait-driven comparison.
+//
+// The body dispatches through `cur.less_than(addr(prev))`, which mono
+// lowers to `T_less_than(&cur, &prev)` — the same path `math::min`
+// already exercises but inside a generic container mutator. v1 is
+// O(n²); a quicksort/introsort upgrade will land once generic
+// recursion is solid.
+
+use vec::new;
+use vec::push;
+use vec::get;
+use vec::sort;
+use vec::release;
+
+fn main() -> i32 {
+    let v: Vec[i32] = new(0);
+    push(addrm(v), 5);
+    push(addrm(v), 2);
+    push(addrm(v), 8);
+    push(addrm(v), 1);
+    push(addrm(v), 9);
+    push(addrm(v), 3);
+
+    sort(addrm(v));
+
+    // Sorted: [1, 2, 3, 5, 8, 9]. Verify each slot.
+    let s0: i32 = get(addr(v), cast(usize, 0));  // 1
+    let s1: i32 = get(addr(v), cast(usize, 1));  // 2
+    let s2: i32 = get(addr(v), cast(usize, 2));  // 3
+    let s3: i32 = get(addr(v), cast(usize, 3));  // 5
+    let s4: i32 = get(addr(v), cast(usize, 4));  // 8
+    let s5: i32 = get(addr(v), cast(usize, 5));  // 9
+
+    release(addrm(v));
+
+    // Encode the order explicitly: each slot contributes only if it
+    // matches the expected sorted value. A reverse-sorted result or
+    // any permutation would change the exit code, so the test catches
+    // ordering bugs, not just element-set bugs.
+    //   (s0==1) * 1 + (s1==2) * 2 + (s2==3) * 3
+    // + (s3==5) * 5 + (s4==8) * 8 + (s5==9) * 9 = 28 when fully sorted.
+    let total: i32 = 0;
+    if (s0 == 1) { total = (total + 1); }
+    if (s1 == 2) { total = (total + 2); }
+    if (s2 == 3) { total = (total + 3); }
+    if (s3 == 5) { total = (total + 5); }
+    if (s4 == 8) { total = (total + 8); }
+    if (s5 == 9) { total = (total + 9); }
+    return total;
+}

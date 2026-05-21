@@ -516,6 +516,46 @@ mod vec {
         }
     }
 
+    /// Sort the vec in place using the `Ord` trait. Insertion sort —
+    /// O(n²), but simple, stable, and adequate for the small-vec
+    /// workloads v1 stdlib targets. A quicksort / introsort path will
+    /// replace this once generic recursion is well-exercised. Bounded
+    /// on `T: Ord` so the body can call `cur.less_than(addr(prev))`
+    /// which mono lowers to `T_less_than(&cur, &prev)`.
+    pub fn sort[T: Ord](v: mref(Vec[T])) -> void {
+        let n: usize = (deref(v)).len;
+        if (n < cast(usize, 2)) {
+            return;
+        }
+        let buf: rawm(T) = (deref(v)).data;
+        let i: usize = cast(usize, 1);
+        while (i < n) {
+            let j: usize = i;
+            while (j > cast(usize, 0)) {
+                let prev_idx: usize = (j - cast(usize, 1));
+                let did_swap: bool = false;
+                unsafe {
+                    let cur: T = at(buf, j);
+                    let prev: T = at(buf, prev_idx);
+                    if (cur.less_than(addr(prev))) {
+                        at(buf, j) = prev;
+                        at(buf, prev_idx) = cur;
+                        did_swap = true;
+                    }
+                }
+                if (did_swap) {
+                    j = prev_idx;
+                } else {
+                    // Reached the first slot that is <= cur — element is
+                    // in position. Exit the inner loop by clamping j to
+                    // zero so the `j > 0` guard fails on the next check.
+                    j = cast(usize, 0);
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+    }
+
     /// Reverse the vec in place. O(n/2). No allocation; reuses the
     /// existing buffer.
     pub fn reverse[T](v: mref(Vec[T])) -> void {
