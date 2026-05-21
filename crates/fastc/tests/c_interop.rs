@@ -150,6 +150,12 @@ fn test_math_module_compiles() {
 }
 
 #[test]
+fn test_mem_module_compiles() {
+    // Stage 1.1 slice 3: mem module wraps libc malloc/free via extern "C".
+    compile_and_verify("examples/mem_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

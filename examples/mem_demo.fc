@@ -1,0 +1,16 @@
+// Stage 1.1 slice 3: the `mem` module wraps libc `malloc` / `free`
+// via `extern "C"` and exposes safe-fastC wrappers `alloc(size)` and
+// `free_bytes(ptr)`. This is the foundation for any future stdlib
+// container (vec, hashmap, owned strings) that needs to heap-allocate.
+
+use mem::alloc;
+use mem::free_bytes;
+
+fn main() -> i32 {
+    let buf: rawm(u8) = alloc(cast(usize, 64));
+    // In real code we'd null-check `buf` here. For this smoke test we
+    // assume the OS hands us memory and just round-trip the allocation
+    // to verify the wrapper compiles end-to-end.
+    free_bytes(buf);
+    return 0;
+}

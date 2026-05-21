@@ -294,6 +294,33 @@ mod math {
         return x;
     }
 }
+
+mod mem {
+    /// Raw libc allocator. Always called through the safe wrappers below;
+    /// users should not invoke these directly outside of `unsafe`.
+    extern "C" {
+        unsafe fn malloc(size: usize) -> rawm(u8);
+        unsafe fn free(ptr: rawm(u8)) -> void;
+    }
+
+    /// Allocate `size` bytes of uninitialized memory. Returns a nullable
+    /// raw pointer — the caller is responsible for checking for null and
+    /// freeing the result via `mem::free_bytes`.
+    pub fn alloc(size: usize) -> rawm(u8) {
+        unsafe {
+            return malloc(size);
+        }
+    }
+
+    /// Release memory previously returned by `mem::alloc`. Renamed from
+    /// the libc `free` so the wrapper doesn't shadow the extern symbol
+    /// inside the same module scope.
+    pub fn free_bytes(ptr: rawm(u8)) -> void {
+        unsafe {
+            free(ptr);
+        }
+    }
+}
 "#;
 
 /// Parse the prelude into a `Vec<Item>` ready to be prepended to a user
@@ -345,5 +372,14 @@ mod tests {
             .iter()
             .any(|i| matches!(i, Item::Mod(m) if m.name == "math" && m.body.is_some()));
         assert!(found, "expected `mod math` (inline) in prelude");
+    }
+
+    #[test]
+    fn prelude_has_mem_module() {
+        let items = prelude_items();
+        let found = items
+            .iter()
+            .any(|i| matches!(i, Item::Mod(m) if m.name == "mem" && m.body.is_some()));
+        assert!(found, "expected `mod mem` (inline) in prelude");
     }
 }
