@@ -1,0 +1,90 @@
+// Stage 1.1 slice 18: `HashMap[K: Hash + Eq, V]`.
+//
+// First stdlib type with two bounds on the same type parameter
+// (`K: Hash + Eq`). Open-addressing with linear probing; tombstones
+// keep probe chains intact on remove. The implementation is real
+// fastC, not a runtime intrinsic — `put` / `lookup` / `drop_key` /
+// `has_key` all dispatch through the prelude `Hash` and `Eq`
+// traits, the same machinery `vec::contains` and `vec::sort` already
+// exercise.
+//
+// Function names use `_map` / `count_map` / `lookup` rather than
+// mirroring vec's API because mono's current `generic_fns` lookup
+// keys by bare name; the proper fix is qualified-call resolution but
+// the rename is a v1 pragmatic choice.
+//
+// Demo inserts ten entries (enough to force a rehash since initial
+// cap is 8 and the threshold is 75%), then verifies lookup, update,
+// removal, and absent-key behavior.
+
+use hashmap::new_map;
+use hashmap::put;
+use hashmap::lookup;
+use hashmap::drop_key;
+use hashmap::has_key;
+use hashmap::count_map;
+use hashmap::release_map;
+
+fn or_zero(o: opt(i32)) -> i32 {
+    if let value = unwrap_checked(o) {
+        return value;
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    // Seeds fix K=i32, V=i32. Initial cap is 8.
+    let m: HashMap[i32, i32] = new_map(0, 0);
+
+    // Insert ten distinct keys (1..=10). Rehash triggers around the
+    // sixth insert (6 occupied >= 0.75 * 8).
+    let i: i32 = 1;
+    while (i <= 10) {
+        discard(put(addrm(m), i, (i * 100)));
+        i = (i + 1);
+    }
+
+    // After ten inserts, len == 10 and every key looks up to its value.
+    let n: i32 = cast(i32, count_map(addr(m)));   // 10
+    let v3_key: i32 = 3;
+    let v_3: i32 = or_zero(lookup(addr(m), addr(v3_key)));   // 300
+    let v7_key: i32 = 7;
+    let v_7: i32 = or_zero(lookup(addr(m), addr(v7_key)));   // 700
+
+    // Overwrite an existing key. The previous value comes back as
+    // some(old_value).
+    let prev: i32 = or_zero(put(addrm(m), 5, 5555));
+    // Subsequent lookup returns the new value.
+    let v5_key: i32 = 5;
+    let v_5: i32 = or_zero(lookup(addr(m), addr(v5_key)));   // 5555
+
+    // Remove an existing key. Returns the value; subsequent lookup -> none.
+    let r_key: i32 = 4;
+    let removed: i32 = or_zero(drop_key(addrm(m), addr(r_key)));   // 400
+    let still: bool = has_key(addr(m), addr(r_key));               // false
+
+    // Absent key returns none.
+    let missing_key: i32 = 999;
+    let missing: i32 = or_zero(lookup(addr(m), addr(missing_key))); // 0
+
+    release_map(addrm(m));
+
+    // Build a score so any individual regression changes the result.
+    //   n == 10:                  10
+    //   v_3 == 300:                3   (counted divided by 100)
+    //   v_7 == 700:                7
+    //   prev == 500:               5   (the old value at key=5)
+    //   v_5 == 5555 -> +50         50  (overwrite worked)
+    //   removed == 400 -> +4       4   (delete returned old value)
+    //   !still -> +20              20  (deleted key no longer present)
+    //   missing == 0 -> +30        30  (none returned)
+    //                              = 129
+    let total: i32 = (n + (v_3 / 100));
+    total = (total + (v_7 / 100));
+    total = (total + (prev / 100));
+    if (v_5 == 5555) { total = (total + 50); }
+    if (removed == 400) { total = (total + 4); }
+    if (!still) { total = (total + 20); }
+    if (missing == 0) { total = (total + 30); }
+    return total;
+}

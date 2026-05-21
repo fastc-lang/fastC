@@ -1,0 +1,40 @@
+// Stage 1.1 slice 15: `vec::reduce[T, U]` — left fold.
+//
+// First stdlib API to take a two-argument fn pointer. Exercises the
+// emitter's typedef pre-pass on `fn(i32, i32) -> i32` (the typedef
+// name has to encode both param types) and `unify_generic`'s Fn
+// recursion across both parameter positions — `U` comes from `init`
+// and from the fn's first param and return; `T` from the receiver
+// and the fn's second param. Each leg must agree.
+
+use vec::new;
+use vec::push;
+use vec::reduce;
+use vec::release;
+
+fn add(acc: i32, x: i32) -> i32 {
+    return (acc + x);
+}
+
+fn mul(acc: i32, x: i32) -> i32 {
+    return (acc * x);
+}
+
+fn main() -> i32 {
+    let v: Vec[i32] = new(0);
+    push(addrm(v), 1);
+    push(addrm(v), 2);
+    push(addrm(v), 3);
+    push(addrm(v), 4);
+    push(addrm(v), 5);
+
+    // 0 + 1 + 2 + 3 + 4 + 5 = 15
+    let sum: i32 = reduce(addr(v), 0, add);
+    // 1 * 1 * 2 * 3 * 4 * 5 = 120
+    let product: i32 = reduce(addr(v), 1, mul);
+
+    release(addrm(v));
+
+    // 15 + 120 = 135
+    return (sum + product);
+}

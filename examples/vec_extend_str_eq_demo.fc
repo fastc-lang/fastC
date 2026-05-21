@@ -1,0 +1,81 @@
+// Stage 1.1 slice 16: `vec::extend` + `str::eq`.
+//
+// `extend(dst, src)` is the natural sibling of `push` — it walks
+// `src` and appends each element to `dst`, exercising mod-internal
+// generic-to-generic dispatch at one more remove (`extend` -> `push`).
+//
+// `str::eq` compares two `Str`s byte-by-byte. The body has to reach
+// through the wrapper to the underlying `Vec[u8]`'s `data` field
+// twice (`(deref(s)).data.data`) — first the embedded vec, then the
+// vec's own raw buffer — which validates the new struct-mono field
+// projection that slice 10 added on top of slice 6's generic structs.
+
+use vec::new;
+use vec::push;
+use vec::extend;
+use vec::get;
+use vec::len;
+use vec::release;
+use str::make;
+use str::push_byte;
+use str::eq;
+use str::dispose;
+
+fn main() -> i32 {
+    // Build a -> [1,2,3], b -> [4,5], then extend(a, b) -> [1,2,3,4,5].
+    let a: Vec[i32] = new(0);
+    push(addrm(a), 1);
+    push(addrm(a), 2);
+    push(addrm(a), 3);
+    let b: Vec[i32] = new(0);
+    push(addrm(b), 4);
+    push(addrm(b), 5);
+
+    extend(addrm(a), addr(b));
+    let n: i32 = cast(i32, len(addr(a)));    // 5
+    let last: i32 = get(addr(a), cast(usize, 4));   // 5
+
+    release(addrm(a));
+    release(addrm(b));
+
+    // Two Strs with the same bytes compare equal; differing length
+    // and differing content both compare unequal.
+    let s1: Str = make();
+    push_byte(addrm(s1), cast(u8, 65));
+    push_byte(addrm(s1), cast(u8, 66));
+    push_byte(addrm(s1), cast(u8, 67));
+
+    let s2: Str = make();
+    push_byte(addrm(s2), cast(u8, 65));
+    push_byte(addrm(s2), cast(u8, 66));
+    push_byte(addrm(s2), cast(u8, 67));
+
+    let s3: Str = make();
+    push_byte(addrm(s3), cast(u8, 65));
+    push_byte(addrm(s3), cast(u8, 66));
+    push_byte(addrm(s3), cast(u8, 68));  // different last byte
+
+    let s4: Str = make();
+    push_byte(addrm(s4), cast(u8, 65));
+    push_byte(addrm(s4), cast(u8, 66));   // shorter
+
+    let same: bool = eq(addr(s1), addr(s2));    // true
+    let diff_byte: bool = eq(addr(s1), addr(s3));  // false
+    let diff_len: bool = eq(addr(s1), addr(s4));   // false
+
+    dispose(addrm(s1));
+    dispose(addrm(s2));
+    dispose(addrm(s3));
+    dispose(addrm(s4));
+
+    // n (5) + last (5) = 10
+    // (same ? 100 : 0)        = 100
+    // (diff_byte ? 50 : 0)    = 0
+    // (diff_len  ? 25 : 0)    = 0
+    // total = 110
+    let total: i32 = (n + last);
+    if (same) { total = (total + 100); }
+    if (diff_byte) { total = (total + 50); }
+    if (diff_len) { total = (total + 25); }
+    return total;
+}

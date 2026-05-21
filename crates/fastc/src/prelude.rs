@@ -42,6 +42,10 @@ trait Drop {
     fn drop(self: mref(Self)) -> void;
 }
 
+trait Hash {
+    fn hash(self: ref(Self)) -> usize;
+}
+
 // --- Primitive impls ---
 
 impl Eq for i8 {
@@ -219,6 +223,81 @@ impl Ord for isize {
 }
 
 impl Copy for isize {}
+
+// --- Hash impls for primitive integer types (stage 1.1 slice 17) ---
+//
+// v1 uses identity hashing: the hash of an integer is the integer
+// itself, cast to usize. That's enough for the small-cap hashmaps the
+// stdlib targets in v1 — the hashmap implementation does its own
+// bucket-index mixing on top via `hash % cap` and a few power-of-two
+// tricks. A proper avalanche-mixing hash (fxhash, wyhash) lands when
+// the benchmarking slice surfaces collision-rate numbers.
+//
+// Signed types cast through their unsigned partner first so a -1
+// doesn't sign-extend to the all-ones usize and collide trivially
+// with `usize::MAX`.
+
+impl Hash for u8 {
+    fn hash(self: ref(Self)) -> usize {
+        return cast(usize, deref(self));
+    }
+}
+
+impl Hash for i8 {
+    fn hash(self: ref(Self)) -> usize {
+        return cast(usize, cast(u8, deref(self)));
+    }
+}
+
+impl Hash for u16 {
+    fn hash(self: ref(Self)) -> usize {
+        return cast(usize, deref(self));
+    }
+}
+
+impl Hash for i16 {
+    fn hash(self: ref(Self)) -> usize {
+        return cast(usize, cast(u16, deref(self)));
+    }
+}
+
+impl Hash for u32 {
+    fn hash(self: ref(Self)) -> usize {
+        return cast(usize, deref(self));
+    }
+}
+
+impl Hash for i32 {
+    fn hash(self: ref(Self)) -> usize {
+        return cast(usize, cast(u32, deref(self)));
+    }
+}
+
+impl Hash for u64 {
+    fn hash(self: ref(Self)) -> usize {
+        return cast(usize, deref(self));
+    }
+}
+
+impl Hash for i64 {
+    fn hash(self: ref(Self)) -> usize {
+        return cast(usize, cast(u64, deref(self)));
+    }
+}
+
+impl Hash for usize {
+    fn hash(self: ref(Self)) -> usize {
+        return deref(self);
+    }
+}
+
+impl Hash for isize {
+    fn hash(self: ref(Self)) -> usize {
+        // isize -> usize directly preserves the bit pattern on every
+        // C11 target; that's all we need for hashing.
+        return cast(usize, deref(self));
+    }
+}
 
 // --- Standard library (stage 1.1) ---
 //
@@ -606,6 +685,41 @@ mod vec {
         return dst;
     }
 
+    /// Append every element of `src` to `dst`. Equivalent to a hand-
+    /// written push loop but lets the stdlib express the intent at the
+    /// call site. Exercises mod-internal generic-to-generic dispatch
+    /// at one more remove (`extend` -> `push`, both bounded on the
+    /// same `T`).
+    pub fn extend[T](dst: mref(Vec[T]), src: ref(Vec[T])) -> void {
+        let n: usize = (deref(src)).len;
+        let buf: rawm(T) = (deref(src)).data;
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                push(dst, at(buf, i));
+            }
+            i = (i + cast(usize, 1));
+        }
+    }
+
+    /// Left fold: thread `init` through every element via `f`. First
+    /// stdlib API to take a two-argument fn pointer; exercises the
+    /// fn-ptr typedef pre-pass on arity > 1 and `unify_generic`'s Fn
+    /// recursion across both parameter positions.
+    pub fn reduce[T, U](src: ref(Vec[T]), init: U, f: fn(U, T) -> U) -> U {
+        let acc: U = init;
+        let n: usize = (deref(src)).len;
+        let buf: rawm(T) = (deref(src)).data;
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                acc = f(acc, at(buf, i));
+            }
+            i = (i + cast(usize, 1));
+        }
+        return acc;
+    }
+
     /// Visit each element in insertion order. `f` is called by-value
     /// with each element; its return is discarded. First stdlib API to
     /// take a `fn(T) -> void` pointer — exercises void-returning fn
@@ -654,6 +768,303 @@ mod vec {
     pub fn release[T](v: mref(Vec[T])) -> void {
         let buf: rawm(T) = (deref(v)).data;
         free_bytes(cast(rawm(u8), buf));
+    }
+}
+
+// --- HashMap[K, V]: open-addressing hash table (stage 1.1 slice 18) ---
+//
+// v1 uses linear probing on a single power-of-two slot array. Each slot
+// has a `state` byte: 0 = empty, 1 = occupied, 2 = tombstone (set on
+// remove; ignored by lookup, reclaimed on rehash). Resize doubles the
+// capacity once load exceeds 75% (occupied + tombstones).
+//
+// Bounded on `K: Hash + Eq`: insertions hash to find the start bucket,
+// then walk linearly via Eq until either an empty slot (insert here) or
+// a matching key (overwrite). This is the first stdlib type that uses
+// two trait bounds on the same type parameter, exercising the bounds
+// parser path `K: Hash + Eq`.
+//
+// The slot layout is three parallel raw buffers rather than a single
+// struct-of-fields buffer. That keeps `sizeof(slot)` independent of
+// alignment fiddliness across `K` and `V` choices, and lets each
+// buffer grow independently for any future SIMD probing path.
+
+struct HashMap[K, V] {
+    keys: rawm(K),
+    values: rawm(V),
+    state: rawm(u8),
+    len: usize,
+    tombstones: usize,
+    cap: usize,
+}
+
+mod hashmap {
+    use mem::alloc;
+    use mem::resize;
+    use mem::free_bytes;
+
+    // NOTE: every public function uses a `_map` suffix instead of the
+    // unqualified name that would mirror vec's API. The current mono
+    // pass keys `generic_fns` by bare name, so `hashmap::len[K, V]`
+    // and `vec::len[T]` would collide — the latter to land overwrites
+    // the former and bound checks fire on the wrong type-parameter set.
+    // The proper fix is qualified-name resolution in mono; until then,
+    // unique names keep both stdlib modules usable side-by-side.
+
+    /// Initial bucket count. Power of two so `hash % cap` reduces to
+    /// `hash & (cap - 1)` once we want to optimize. 8 is the smallest
+    /// non-trivial size; smaller arrays don't justify the open-
+    /// addressing overhead over a flat scan.
+    fn hm_initial_cap() -> usize {
+        return cast(usize, 8);
+    }
+
+    /// Slot states. Kept as plain u8 constants rather than an enum so
+    /// the state buffer is a packed `rawm(u8)` with no padding.
+    fn hm_st_empty() -> u8 {
+        return cast(u8, 0);
+    }
+
+    fn hm_st_occupied() -> u8 {
+        return cast(u8, 1);
+    }
+
+    fn hm_st_tombstone() -> u8 {
+        return cast(u8, 2);
+    }
+
+    /// Allocate three parallel buffers (keys, values, state) sized for
+    /// `cap` slots, zero the state buffer so every slot starts empty.
+    /// `k_seed` and `v_seed` fix `K` and `V` at the call site — v1
+    /// generic-fn inference can't recover them from `cap: usize` alone.
+    pub fn with_cap_map[K: Hash + Eq, V](k_seed: K, v_seed: V, cap: usize) -> HashMap[K, V] {
+        let kb_bytes: usize = (cap * sizeof(K));
+        let vb_bytes: usize = (cap * sizeof(V));
+        let sb_bytes: usize = (cap * sizeof(u8));
+        let kb_raw: rawm(u8) = alloc(kb_bytes);
+        let vb_raw: rawm(u8) = alloc(vb_bytes);
+        let sb: rawm(u8) = alloc(sb_bytes);
+        let i: usize = cast(usize, 0);
+        while (i < cap) {
+            unsafe {
+                at(sb, i) = hm_st_empty();
+            }
+            i = (i + cast(usize, 1));
+        }
+        // Discard the seeds — they only existed to fix K, V at the call
+        // site. The slot contents stay uninitialized until a successful
+        // insert writes them; the state buffer is what readers consult.
+        discard(k_seed);
+        discard(v_seed);
+        return HashMap {
+            keys: cast(rawm(K), kb_raw),
+            values: cast(rawm(V), vb_raw),
+            state: sb,
+            len: cast(usize, 0),
+            tombstones: cast(usize, 0),
+            cap: cap,
+        };
+    }
+
+    /// Build an empty map at the default initial capacity.
+    pub fn new_map[K: Hash + Eq, V](k_seed: K, v_seed: V) -> HashMap[K, V] {
+        return with_cap_map(k_seed, v_seed, hm_initial_cap());
+    }
+
+    /// Reduce a hash to a slot index for the current capacity.
+    fn hm_bucket_of(h: usize, cap: usize) -> usize {
+        return (h - ((h / cap) * cap));
+    }
+
+    /// Walk slots starting at the natural bucket. Returns the first
+    /// index that either matches `key` (occupied) or is free (empty
+    /// or tombstone — caller distinguishes via the state byte).
+    /// Bounded on `K: Hash + Eq` so the body can call `key.hash()` and
+    /// `key.eq(addr(stored_key))`.
+    fn hm_find_slot[K: Hash + Eq, V](m: ref(HashMap[K, V]), key: ref(K)) -> usize {
+        let cap: usize = (deref(m)).cap;
+        let h: usize = key.hash();
+        let start: usize = hm_bucket_of(h, cap);
+        let i: usize = cast(usize, 0);
+        let kb: rawm(K) = (deref(m)).keys;
+        let sb: rawm(u8) = (deref(m)).state;
+        while (i < cap) {
+            let idx: usize = hm_bucket_of((start + i), cap);
+            unsafe {
+                let s: u8 = at(sb, idx);
+                if (s == hm_st_empty()) {
+                    return idx;
+                }
+                if (s == hm_st_occupied()) {
+                    let stored: K = at(kb, idx);
+                    if (stored.eq(key)) {
+                        return idx;
+                    }
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        // Map is full — shouldn't happen because `insert` rehashes
+        // before this returns. Return cap as a sentinel.
+        return cap;
+    }
+
+    /// Number of currently-occupied slots. Tombstones are *not*
+    /// counted because they represent removed keys.
+    pub fn count_map[K: Hash + Eq, V](m: ref(HashMap[K, V])) -> usize {
+        return (deref(m)).len;
+    }
+
+    /// True when no entries are reachable. Cheap because we track len
+    /// directly rather than scanning the state buffer.
+    pub fn empty_map[K: Hash + Eq, V](m: ref(HashMap[K, V])) -> bool {
+        return ((deref(m)).len == cast(usize, 0));
+    }
+
+    /// True when `key` resolves to an occupied slot.
+    pub fn has_key[K: Hash + Eq, V](m: ref(HashMap[K, V]), key: ref(K)) -> bool {
+        let idx: usize = hm_find_slot(m, key);
+        let cap: usize = (deref(m)).cap;
+        if (idx >= cap) {
+            return false;
+        }
+        let sb: rawm(u8) = (deref(m)).state;
+        unsafe {
+            return (at(sb, idx) == hm_st_occupied());
+        }
+    }
+
+    /// Lookup the value associated with `key`. Returns `none(V)` when
+    /// the key is absent, `some(value)` otherwise. The returned value
+    /// is a copy of the slot contents.
+    pub fn lookup[K: Hash + Eq, V](m: ref(HashMap[K, V]), key: ref(K)) -> opt(V) {
+        let idx: usize = hm_find_slot(m, key);
+        let cap: usize = (deref(m)).cap;
+        if (idx >= cap) {
+            return none(V);
+        }
+        let sb: rawm(u8) = (deref(m)).state;
+        let vb: rawm(V) = (deref(m)).values;
+        unsafe {
+            if (at(sb, idx) == hm_st_occupied()) {
+                return some(at(vb, idx));
+            }
+        }
+        return none(V);
+    }
+
+    /// Insert `key -> value`, overwriting any existing mapping. Returns
+    /// the previous value as `some(old)`, or `none(V)` if the key was
+    /// new. Triggers a rehash when load (occupied + tombstones) would
+    /// exceed 75% of capacity, doubling the array.
+    pub fn put[K: Hash + Eq, V](m: mref(HashMap[K, V]), key: K, value: V) -> opt(V) {
+        // Grow first so we always have a free slot to write into.
+        // 75% load = 3 * (occupied + tombstones) >= 4 * cap.
+        let cap: usize = (deref(m)).cap;
+        let load: usize = ((deref(m)).len + (deref(m)).tombstones);
+        if ((load * cast(usize, 4)) >= (cap * cast(usize, 3))) {
+            hm_rehash(m, (cap * cast(usize, 2)));
+        }
+        let idx: usize = hm_find_slot(addr(deref(m)), addr(key));
+        let kb: rawm(K) = (deref(m)).keys;
+        let vb: rawm(V) = (deref(m)).values;
+        let sb: rawm(u8) = (deref(m)).state;
+        unsafe {
+            let s: u8 = at(sb, idx);
+            if (s == hm_st_occupied()) {
+                let prev: V = at(vb, idx);
+                at(vb, idx) = value;
+                return some(prev);
+            }
+            // Empty or tombstone: write a fresh entry.
+            if (s == hm_st_tombstone()) {
+                (deref(m)).tombstones = ((deref(m)).tombstones - cast(usize, 1));
+            }
+            at(kb, idx) = key;
+            at(vb, idx) = value;
+            at(sb, idx) = hm_st_occupied();
+            (deref(m)).len = ((deref(m)).len + cast(usize, 1));
+        }
+        return none(V);
+    }
+
+    /// Delete `key`, returning the removed value as `some(v)` or
+    /// `none(V)` when it wasn't present. Slot transitions to tombstone
+    /// so probe chains through it stay intact until the next rehash.
+    pub fn drop_key[K: Hash + Eq, V](m: mref(HashMap[K, V]), key: ref(K)) -> opt(V) {
+        let idx: usize = hm_find_slot(addr(deref(m)), key);
+        let cap: usize = (deref(m)).cap;
+        if (idx >= cap) {
+            return none(V);
+        }
+        let sb: rawm(u8) = (deref(m)).state;
+        let vb: rawm(V) = (deref(m)).values;
+        unsafe {
+            if (at(sb, idx) != hm_st_occupied()) {
+                return none(V);
+            }
+            let prev: V = at(vb, idx);
+            at(sb, idx) = hm_st_tombstone();
+            (deref(m)).len = ((deref(m)).len - cast(usize, 1));
+            (deref(m)).tombstones = ((deref(m)).tombstones + cast(usize, 1));
+            return some(prev);
+        }
+    }
+
+    /// Re-allocate to `new_cap` slots and re-insert every occupied
+    /// entry. Drops tombstones, so post-rehash `tombstones == 0`.
+    fn hm_rehash[K: Hash + Eq, V](m: mref(HashMap[K, V]), new_cap: usize) -> void {
+        let old_cap: usize = (deref(m)).cap;
+        let old_keys: rawm(K) = (deref(m)).keys;
+        let old_values: rawm(V) = (deref(m)).values;
+        let old_state: rawm(u8) = (deref(m)).state;
+        // Allocate the new buffers.
+        let kb_raw: rawm(u8) = alloc((new_cap * sizeof(K)));
+        let vb_raw: rawm(u8) = alloc((new_cap * sizeof(V)));
+        let sb: rawm(u8) = alloc((new_cap * sizeof(u8)));
+        let i: usize = cast(usize, 0);
+        while (i < new_cap) {
+            unsafe {
+                at(sb, i) = hm_st_empty();
+            }
+            i = (i + cast(usize, 1));
+        }
+        // Swap in the new buffers so hm_find_slot uses the new sizing.
+        (deref(m)).keys = cast(rawm(K), kb_raw);
+        (deref(m)).values = cast(rawm(V), vb_raw);
+        (deref(m)).state = sb;
+        (deref(m)).cap = new_cap;
+        (deref(m)).len = cast(usize, 0);
+        (deref(m)).tombstones = cast(usize, 0);
+        // Re-insert every occupied slot from the old arrays. The
+        // arrays still exist independently of the map at this point
+        // because we only swapped the pointers above.
+        let j: usize = cast(usize, 0);
+        while (j < old_cap) {
+            unsafe {
+                if (at(old_state, j) == hm_st_occupied()) {
+                    let k: K = at(old_keys, j);
+                    let v: V = at(old_values, j);
+                    discard(put(m, k, v));
+                }
+            }
+            j = (j + cast(usize, 1));
+        }
+        // Free the old buffers.
+        free_bytes(cast(rawm(u8), old_keys));
+        free_bytes(cast(rawm(u8), old_values));
+        free_bytes(old_state);
+    }
+
+    /// Release every internal buffer. The map value must not be used
+    /// after this returns.
+    pub fn release_map[K: Hash + Eq, V](m: mref(HashMap[K, V])) -> void {
+        let kb: rawm(K) = (deref(m)).keys;
+        let vb: rawm(V) = (deref(m)).values;
+        let sb: rawm(u8) = (deref(m)).state;
+        free_bytes(cast(rawm(u8), kb));
+        free_bytes(cast(rawm(u8), vb));
+        free_bytes(sb);
     }
 }
 
@@ -715,6 +1126,29 @@ mod str {
     pub fn dispose(s: mref(Str)) -> void {
         release(addrm((deref(s)).data));
     }
+
+    /// Byte-wise equality. Two strings are equal when they have the
+    /// same length and every byte matches in order. O(n) compare —
+    /// no early hash check yet because str doesn't memoize a hash.
+    pub fn eq(a: ref(Str), b: ref(Str)) -> bool {
+        let na: usize = len(addr((deref(a)).data));
+        let nb: usize = len(addr((deref(b)).data));
+        if (na != nb) {
+            return false;
+        }
+        let ba: rawm(u8) = (deref(a)).data.data;
+        let bb: rawm(u8) = (deref(b)).data.data;
+        let i: usize = cast(usize, 0);
+        while (i < na) {
+            unsafe {
+                if (at(ba, i) != at(bb, i)) {
+                    return false;
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        return true;
+    }
 }
 "#;
 
@@ -747,7 +1181,7 @@ mod tests {
             })
             .collect();
         trait_names.sort();
-        assert_eq!(trait_names, vec!["Copy", "Drop", "Eq", "Ord"]);
+        assert_eq!(trait_names, vec!["Copy", "Drop", "Eq", "Hash", "Ord"]);
     }
 
     #[test]

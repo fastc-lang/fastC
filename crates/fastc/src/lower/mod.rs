@@ -19,6 +19,11 @@ pub struct Lower {
     var_types: HashMap<String, CType>, // Track variable types for type inference
     module_path: Vec<String>, // Stack of module names for name mangling
     import_map: HashMap<String, String>, // Maps imported name → mangled C name
+    /// Mangled-name → return type for every emitted function. Built by
+    /// walking the post-mono AST before lowering bodies, so call-site
+    /// temp generation (`__tmp0 = some_fn(...)`) gets the right type
+    /// instead of falling back to `int32_t`.
+    fn_return_types: HashMap<String, CType>,
 }
 
 impl Lower {
@@ -32,7 +37,34 @@ impl Lower {
             var_types: HashMap::new(),
             module_path: Vec::new(),
             import_map: HashMap::new(),
+            fn_return_types: HashMap::new(),
         }
+    }
+
+    /// Walk all `Fn` items (top-level + mod-nested) and record each
+    /// function's mangled C name -> lowered return type. Mirrors the
+    /// mangling that `lower_items` would later apply.
+    fn build_fn_return_types(&mut self, items: &[ast::Item]) {
+        fn walk(this: &mut Lower, items: &[ast::Item]) {
+            for item in items {
+                match item {
+                    ast::Item::Fn(f) => {
+                        let mangled = this.mangle_name(&f.name);
+                        let ret = this.lower_type(&f.return_type);
+                        this.fn_return_types.insert(mangled, ret);
+                    }
+                    ast::Item::Mod(m) => {
+                        if let Some(body) = &m.body {
+                            this.module_path.push(m.name.clone());
+                            walk(this, body);
+                            this.module_path.pop();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        walk(self, items);
     }
 
     /// Get the current mangled prefix from the module path
@@ -231,16 +263,20 @@ impl Lower {
                 self.var_types.get(name).cloned().unwrap_or(CType::Void)
             }
             ast::Expr::Call { callee, .. } => {
-                // For function calls, we'd need to look up the return type
-                // For now, try to infer from callee name
+                // Look up the callee's return type from the pre-built
+                // map. The map is keyed by the *mangled* name, so we
+                // resolve through `import_map` first.
                 if let ast::Expr::Ident { name, .. } = callee.as_ref() {
-                    // Special case for common patterns
-                    if name == "get_some" || name == "get_none" {
-                        // These are opt-returning functions from our examples
-                        CType::Opt(Box::new(CType::Int32))
-                    } else {
-                        CType::Void
+                    let resolved = self.resolve_ident(name);
+                    if let Some(ty) = self.fn_return_types.get(&resolved) {
+                        return ty.clone();
                     }
+                    // Special case retained for the older opt-example
+                    // helpers — kept to avoid breaking existing tests.
+                    if name == "get_some" || name == "get_none" {
+                        return CType::Opt(Box::new(CType::Int32));
+                    }
+                    CType::Void
                 } else {
                     CType::Void
                 }
@@ -280,6 +316,12 @@ impl Lower {
 
         // Build import map before lowering
         self.build_import_map(&file.items);
+
+        // Pre-walk every function declaration to collect return types,
+        // keyed by the mangled C name. The call-site temp generator
+        // needs this so `let __tmp0 = some_fn(...);` declares __tmp0
+        // with the right type instead of falling back to int32_t.
+        self.build_fn_return_types(&file.items);
 
         self.lower_items(&file.items, &mut c_file);
 
@@ -1089,9 +1131,10 @@ impl Lower {
                         // Only create temporary if arg has side effects
                         if self.has_side_effects(arg) {
                             let tmp = self.fresh_temp();
+                            let ty = self.infer_expr_type(arg);
                             pre_stmts.push(CStmt::VarDecl {
                                 name: tmp.clone(),
-                                ty: CType::Int32, // Default type, actual type would need inference
+                                ty,
                                 init: Some(c_arg),
                             });
                             CExpr::Ident(tmp)

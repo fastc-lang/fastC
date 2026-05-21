@@ -248,6 +248,35 @@ fn test_vec_for_each_compiles() {
 }
 
 #[test]
+fn test_vec_reduce_compiles() {
+    // Stage 1.1 slice 15: `vec::reduce[T, U]` — left fold. First
+    // stdlib API to take a two-argument fn pointer. Exercises typedef
+    // synthesis on `fn(i32, i32) -> i32` and `unify_generic`'s Fn
+    // recursion across both parameter positions.
+    compile_and_verify("examples/vec_reduce_demo.fc");
+}
+
+#[test]
+fn test_vec_extend_str_eq_compiles() {
+    // Stage 1.1 slice 16: `vec::extend` (mod-internal generic-to-
+    // generic at one more remove) + `str::eq` (byte-wise compare
+    // reaching through `Str.data.data` to the embedded vec's raw
+    // buffer, exercising the nested-Field projection added in
+    // slice 10).
+    compile_and_verify("examples/vec_extend_str_eq_demo.fc");
+}
+
+#[test]
+fn test_hashmap_compiles() {
+    // Stage 1.1 slice 18: `HashMap[K: Hash + Eq, V]` — first stdlib
+    // type with two trait bounds on the same type parameter. Open-
+    // addressing with linear probing; tombstones; growable via
+    // rehash. Validates Hash trait dispatch alongside Eq dispatch in
+    // a non-trivial generic container.
+    compile_and_verify("examples/hashmap_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }
