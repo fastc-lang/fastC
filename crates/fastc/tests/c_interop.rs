@@ -394,6 +394,17 @@ fn test_word_count_compiles() {
 }
 
 #[test]
+fn test_str_clone_compiles() {
+    // Stage 1.1 slice 31: `str::clone_str` — first stdlib helper
+    // producing a fully-independent owned Str. Demo mutates the
+    // clone (`push_byte`) and verifies the source stays untouched,
+    // proving the inner buffer is genuinely separate. Clone trait
+    // declaration shipped alongside; the impl-for-Str arrives once
+    // mod-scoped impl blocks flow through desugar+mono.
+    compile_and_verify("examples/str_clone_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

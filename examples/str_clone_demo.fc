@@ -1,0 +1,55 @@
+// Stage 1.1 slice 31: `str::clone_str` — first stdlib helper that
+// produces a fully-independent owned `Str` from an existing one.
+//
+// `clone_str(s)` allocates a fresh byte buffer and bit-copies every
+// byte. Source and result share no inner buffers, so both can be
+// `dispose`d cleanly with no aliasing concerns.
+//
+// The `Clone` trait declaration is already in the prelude; an
+// `impl Clone for Str` that routes `s.clone()` to this same code
+// path arrives once mod-scoped `impl` blocks flow through the
+// desugar+mono pipeline (filed for a follow-up slice).
+
+use str::from_cstr;
+use str::clone_str;
+use str::byte_count;
+use str::byte_at;
+use str::push_byte;
+use str::dispose;
+
+fn main() -> i32 {
+    let original: Str = from_cstr(cstr("hello"));
+    let copy: Str = clone_str(addr(original));
+
+    // Confirm structural equality of original and copy.
+    let n_orig: i32 = cast(i32, byte_count(addr(original)));   // 5
+    let n_copy: i32 = cast(i32, byte_count(addr(copy)));        // 5
+    let h_orig: i32 = cast(i32, byte_at(addr(original), cast(usize, 0)));  // 104
+    let h_copy: i32 = cast(i32, byte_at(addr(copy), cast(usize, 0)));      // 104
+
+    // Mutate the copy: push '!' to it. The original must stay at
+    // length 5 — proves the clone is genuinely independent rather
+    // than aliasing the source's buffer.
+    push_byte(addrm(copy), cast(u8, 33));   // '!'
+    let n_orig_after: i32 = cast(i32, byte_count(addr(original)));  // still 5
+    let n_copy_after: i32 = cast(i32, byte_count(addr(copy)));      // now 6
+    let last_orig: i32 = cast(i32, byte_at(addr(original), cast(usize, 4)));  // 'o' = 111
+    let last_copy: i32 = cast(i32, byte_at(addr(copy), cast(usize, 5)));      // '!' = 33
+
+    // Now both can be safely disposed — no double-free.
+    dispose(addrm(original));
+    dispose(addrm(copy));
+
+    let total: i32 = 0;
+    if (n_orig == 5) { total = (total + 1); }
+    if (n_copy == 5) { total = (total + 2); }
+    if (h_orig == 104) { total = (total + 4); }
+    if (h_copy == 104) { total = (total + 8); }
+    if (n_orig_after == 5) { total = (total + 16); }
+    if (n_copy_after == 6) { total = (total + 32); }
+    if (last_orig == 111) { total = (total + 64); }
+    if (last_copy == 33) { total = (total + 128); }
+    // 1+2+4+8+16+32+64+128 = 255 — every bit lit means clone is correct
+    // and fully-independent across mutation.
+    return total;
+}

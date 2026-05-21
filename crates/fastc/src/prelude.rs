@@ -46,6 +46,10 @@ trait Hash {
     fn hash(self: ref(Self)) -> usize;
 }
 
+trait Clone {
+    fn clone(self: ref(Self)) -> Self;
+}
+
 // --- Primitive impls ---
 
 impl Eq for i8 {
@@ -1386,6 +1390,7 @@ mod str {
     use vec::len;
     use vec::is_empty;
     use vec::release;
+    use mem::alloc;
     use io::put_char;
 
     /// Construct an empty Str. Equivalent to `vec::new(0u8)` wrapped.
@@ -1579,6 +1584,32 @@ mod str {
         return out;
     }
 
+    /// Deep-copy a `Str`: allocate a fresh byte buffer and bit-copy
+    /// every byte. Source and result are fully independent — calling
+    /// `dispose` on either does not affect the other. A future
+    /// `impl Clone for Str` will route `s.clone()` through this same
+    /// code path once mod-scoped impl blocks are fully wired through
+    /// the desugar+mono pipeline.
+    pub fn clone_str(s: ref(Str)) -> Str {
+        let n: usize = len(addr((deref(s)).data));
+        let src_buf: rawm(u8) = (deref(s)).data.data;
+        let raw_buf: rawm(u8) = alloc(n);
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                at(raw_buf, i) = at(src_buf, i);
+            }
+            i = (i + cast(usize, 1));
+        }
+        return Str {
+            data: Vec {
+                data: cast(rawm(u8), raw_buf),
+                len: n,
+                cap: n,
+            },
+        };
+    }
+
     /// Build a fresh `Str` that contains `s` repeated `count` times.
     /// Count zero yields an empty Str. Useful for building separators,
     /// padding, banners, etc.
@@ -1762,7 +1793,10 @@ mod tests {
             })
             .collect();
         trait_names.sort();
-        assert_eq!(trait_names, vec!["Copy", "Drop", "Eq", "Hash", "Ord"]);
+        assert_eq!(
+            trait_names,
+            vec!["Clone", "Copy", "Drop", "Eq", "Hash", "Ord"]
+        );
     }
 
     #[test]
