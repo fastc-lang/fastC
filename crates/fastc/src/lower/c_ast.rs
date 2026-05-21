@@ -91,6 +91,13 @@ pub enum CType {
     Opt(Box<CType>),             // fc_opt_T struct { bool has_value; T value; }
     Res(Box<CType>, Box<CType>), // fc_res_T_E struct { bool is_ok; union { T ok; E err; } data; }
     Named(String),
+    /// Function pointer type: emitted via a synthesized typedef so the
+    /// emitter doesn't have to weave the variable name into the middle
+    /// of a C declaration (`int32_t (*name)(int32_t)`).
+    FnPtr {
+        params: Vec<CType>,
+        ret: Box<CType>,
+    },
 }
 
 /// C statements

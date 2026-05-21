@@ -163,6 +163,15 @@ fn test_io_module_compiles() {
 }
 
 #[test]
+fn test_fn_pointers_compile() {
+    // Stage 1.1 slice 5: `fn(T) -> R` types are now first-class. Pass
+    // named functions to higher-order helpers like `apply(f, x)`. The
+    // emitter synthesizes typedefs (`fc_fn_int32_t_to_int32_t`) so C
+    // declarations stay simple.
+    compile_and_verify("examples/fn_ptr.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

@@ -510,6 +510,18 @@ impl Lower {
                 Self::c_type_to_name(err)
             ),
             CType::Array(inner, size) => format!("arr{}_{}", size, Self::c_type_to_name(inner)),
+            CType::FnPtr { params, ret } => {
+                let arg_part = if params.is_empty() {
+                    "void".to_string()
+                } else {
+                    params
+                        .iter()
+                        .map(Self::c_type_to_name)
+                        .collect::<Vec<_>>()
+                        .join("_")
+                };
+                format!("fc_fn_{}_to_{}", arg_part, Self::c_type_to_name(ret))
+            }
         }
     }
 
@@ -1244,6 +1256,19 @@ impl Lower {
                 Box::new(self.lower_type(ok_ty)),
                 Box::new(self.lower_type(err_ty)),
             ),
+
+            // Function pointer: lowered to CType::FnPtr; the emitter
+            // synthesizes a typedef so this can be used wherever a
+            // regular named type works (variable decls, parameters,
+            // struct fields).
+            ast::TypeExpr::Fn {
+                is_unsafe: _,
+                params,
+                ret,
+            } => CType::FnPtr {
+                params: params.iter().map(|p| self.lower_type(p)).collect(),
+                ret: Box::new(self.lower_type(ret)),
+            },
 
             // TODO: Handle Fn types
             _ => CType::Void,

@@ -1591,4 +1591,26 @@ mod tests {
              fn main() -> i32 { return 0; }",
         );
     }
+
+    // === Function-pointer tests (stage 1.1 slice 5) ===
+
+    #[test]
+    fn test_fn_ptr_pass_and_call() {
+        check_ok(
+            "fn dbl(x: i32) -> i32 { return (x * 2); } \
+             fn apply(f: fn(i32) -> i32, x: i32) -> i32 { return f(x); } \
+             fn main() -> i32 { return apply(dbl, 5); }",
+        );
+    }
+
+    #[test]
+    fn test_fn_ptr_local_binding() {
+        check_ok(
+            "fn add_one(x: i32) -> i32 { return (x + 1); } \
+             fn main() -> i32 { \
+                let f: fn(i32) -> i32 = add_one; \
+                return f(41); \
+             }",
+        );
+    }
 }

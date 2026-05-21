@@ -72,6 +72,35 @@ impl Emitter {
         }
         self.blank();
 
+        // Function-pointer typedefs. Walk every CType in the file,
+        // collect each unique `FnPtr` variant, and emit a typedef so the
+        // rest of the emitter can treat fn-pointer types as ordinary
+        // named types (no `T (*name)(args)` weaving required).
+        let fn_ptrs = collect_fn_ptr_types(file);
+        if !fn_ptrs.is_empty() {
+            for ty in &fn_ptrs {
+                if let CType::FnPtr { params, ret } = ty {
+                    let name = self.type_to_c_name(ty);
+                    let params_str = if params.is_empty() {
+                        "void".to_string()
+                    } else {
+                        params
+                            .iter()
+                            .map(|p| self.type_to_string(p))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
+                    self.line(&format!(
+                        "typedef {} (*{})({});",
+                        self.type_to_string(ret),
+                        name,
+                        params_str
+                    ));
+                }
+            }
+            self.blank();
+        }
+
         // Forward declarations
         for decl in &file.forward_decls {
             self.emit_decl(decl);
@@ -498,6 +527,7 @@ impl Emitter {
                 )
             }
             CType::Named(name) => name.clone(),
+            CType::FnPtr { .. } => self.type_to_c_name(ty),
         }
     }
 
@@ -527,6 +557,18 @@ impl Emitter {
                 self.type_to_c_name(ok),
                 self.type_to_c_name(err)
             ),
+            CType::FnPtr { params, ret } => {
+                let arg_part = if params.is_empty() {
+                    "void".to_string()
+                } else {
+                    params
+                        .iter()
+                        .map(|p| self.type_to_c_name(p))
+                        .collect::<Vec<_>>()
+                        .join("_")
+                };
+                format!("fc_fn_{}_to_{}", arg_part, self.type_to_c_name(ret))
+            }
             _ => "void".to_string(),
         }
     }
@@ -597,4 +639,119 @@ impl Default for Emitter {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Walk every `CType` in the file and return the unique `FnPtr` variants
+/// in a deterministic order. Used by the emitter to synthesize typedefs
+/// at the top of the output.
+fn collect_fn_ptr_types(file: &CFile) -> Vec<CType> {
+    use std::collections::BTreeSet;
+
+    fn walk_type(ty: &CType, acc: &mut BTreeSet<String>, store: &mut Vec<CType>) {
+        match ty {
+            CType::FnPtr { params, ret } => {
+                // Recurse first so nested fn-ptr typedefs are collected
+                // before any that depend on them.
+                for p in params {
+                    walk_type(p, acc, store);
+                }
+                walk_type(ret, acc, store);
+                // Key by the debug representation; FnPtr doesn't impl Eq/Hash
+                // but Debug is sufficient for dedup.
+                let key = format!("{:?}", ty);
+                if acc.insert(key) {
+                    store.push(ty.clone());
+                }
+            }
+            CType::Ptr(inner)
+            | CType::ConstPtr(inner)
+            | CType::Slice(inner)
+            | CType::Opt(inner)
+            | CType::Array(inner, _) => walk_type(inner, acc, store),
+            CType::Res(a, b) => {
+                walk_type(a, acc, store);
+                walk_type(b, acc, store);
+            }
+            _ => {}
+        }
+    }
+
+    fn walk_stmt(stmt: &CStmt, acc: &mut BTreeSet<String>, store: &mut Vec<CType>) {
+        match stmt {
+            CStmt::VarDecl { ty, .. } => walk_type(ty, acc, store),
+            CStmt::If { then, else_, .. } => {
+                for s in then {
+                    walk_stmt(s, acc, store);
+                }
+                if let Some(b) = else_ {
+                    for s in b {
+                        walk_stmt(s, acc, store);
+                    }
+                }
+            }
+            CStmt::While { body, .. } => {
+                for s in body {
+                    walk_stmt(s, acc, store);
+                }
+            }
+            CStmt::For { init, body, .. } => {
+                if let Some(b) = init {
+                    walk_stmt(b, acc, store);
+                }
+                for s in body {
+                    walk_stmt(s, acc, store);
+                }
+            }
+            CStmt::Block(b) => {
+                for s in b {
+                    walk_stmt(s, acc, store);
+                }
+            }
+            CStmt::Switch { cases, default, .. } => {
+                for (_, body) in cases {
+                    for s in body {
+                        walk_stmt(s, acc, store);
+                    }
+                }
+                if let Some(b) = default {
+                    for s in b {
+                        walk_stmt(s, acc, store);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut acc = BTreeSet::new();
+    let mut store = Vec::new();
+
+    for decl in file.forward_decls.iter().chain(file.type_defs.iter()) {
+        match decl {
+            CDecl::Struct { fields, .. } => {
+                for f in fields {
+                    walk_type(&f.ty, &mut acc, &mut store);
+                }
+            }
+            CDecl::Typedef { ty, .. } => walk_type(ty, &mut acc, &mut store),
+            CDecl::Enum { .. } => {}
+        }
+    }
+    for proto in &file.fn_protos {
+        for p in &proto.params {
+            walk_type(&p.ty, &mut acc, &mut store);
+        }
+        walk_type(&proto.return_type, &mut acc, &mut store);
+    }
+    for def in &file.fn_defs {
+        for p in &def.params {
+            walk_type(&p.ty, &mut acc, &mut store);
+        }
+        walk_type(&def.return_type, &mut acc, &mut store);
+        for s in &def.body {
+            walk_stmt(s, &mut acc, &mut store);
+        }
+    }
+
+    store
 }

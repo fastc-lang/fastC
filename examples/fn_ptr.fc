@@ -1,0 +1,30 @@
+// Stage 1.1 slice 5: function-pointer types.
+//
+// `fn(T) -> R` is now a usable first-class type — pass named functions
+// as values, store them in variables, and call through them. The emitter
+// synthesizes a C typedef (`fc_fn_int32_t_to_int32_t` etc.) for each
+// unique signature so callers don't have to weave variable names into
+// the middle of a C declaration.
+//
+// Closures with captures still want their own slice; this is the
+// no-capture, no-anonymous-syntax slice that ships fn pointers as a
+// regular type.
+
+fn dbl(x: i32) -> i32 {
+    return (x * 2);
+}
+
+fn add_one(x: i32) -> i32 {
+    return (x + 1);
+}
+
+fn apply(f: fn(i32) -> i32, x: i32) -> i32 {
+    return f(x);
+}
+
+fn main() -> i32 {
+    // Pick a function dynamically and pass it.
+    let twenty: i32 = apply(dbl, 10);          // 20
+    let thirty: i32 = apply(add_one, 29);      // 30
+    return (twenty + thirty);                  // 50
+}
