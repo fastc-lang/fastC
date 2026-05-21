@@ -22,7 +22,7 @@ use crate::ast::{
     PrimitiveType, Stmt, StructDecl, TypeExpr, TypeParam,
 };
 use crate::diag::CompileError;
-use crate::resolve::{SymbolKind, SymbolTable};
+use crate::resolve::SymbolTable;
 use crate::typecheck::{substitute, unify_generic};
 
 /// Run the monomorphization pass. Returns a new `File` with generic fns
@@ -684,6 +684,10 @@ struct MonoCtx<'a> {
     /// All generic struct declarations, keyed by name.
     generic_structs: HashMap<String, StructDecl>,
     /// Symbol table used to identify generic call sites by name lookup.
+    /// Currently unused — callee resolution looks up `generic_fns`
+    /// directly so mod-internal calls work, but kept for future passes
+    /// that need scope-aware resolution (e.g. capability checks).
+    #[allow(dead_code)]
     symbols: &'a SymbolTable,
     /// Source text — passed to error constructors so spans render properly.
     source: &'a str,
@@ -1075,11 +1079,18 @@ impl<'a> MonoCtx<'a> {
                     self.collect_in_expr(a, subst, env);
                 }
                 if let Expr::Ident { name, .. } = callee.as_ref() {
-                    if let Some(SymbolKind::Function { generic_params, .. }) =
-                        self.symbols.lookup(name).map(|s| s.kind.clone())
-                    {
+                    // Look up the callee directly in `generic_fns`, which
+                    // was populated by walking every Item — including those
+                    // inside `mod` bodies. The symbol-table-based check
+                    // would miss calls *between* mod-internal generic fns
+                    // (e.g. `vec::new` -> `vec::with_capacity`) because
+                    // those symbols don't live in the root scope unless
+                    // explicitly re-imported.
+                    if let Some(generic_fn) = self.generic_fns.get(name).cloned() {
+                        let generic_params: Vec<String> =
+                            generic_fn.generics.iter().map(|p| p.name.clone()).collect();
                         if !generic_params.is_empty() {
-                            if let Some(generic_fn) = self.generic_fns.get(name).cloned() {
+                            {
                                 let type_args =
                                     infer_type_args(&generic_fn, args, &generic_params, subst, env);
                                 // Bound check: verify each (type_param, type_arg)
@@ -1711,25 +1722,21 @@ fn rewrite_expr(
                 span: id_span,
             } = callee.as_ref()
             {
-                if let Some(SymbolKind::Function { generic_params, .. }) =
-                    ctx.symbols.lookup(name).map(|s| s.kind.clone())
-                {
-                    if !generic_params.is_empty() {
-                        if let Some(generic_fn) = ctx.generic_fns.get(name) {
-                            let type_args =
-                                infer_type_args(generic_fn, args, &generic_params, subst, env);
-                            Box::new(Expr::Ident {
-                                name: mangled_name(name, &type_args),
-                                span: id_span.clone(),
-                            })
-                        } else {
-                            callee.clone()
-                        }
-                    } else {
-                        callee.clone()
+                // Mirror collect_in_expr: look up the callee in `generic_fns`
+                // directly so mod-internal generic calls (e.g.
+                // `vec::new` -> `vec::with_capacity`) rewrite correctly.
+                match ctx.generic_fns.get(name) {
+                    Some(generic_fn) if !generic_fn.generics.is_empty() => {
+                        let generic_params: Vec<String> =
+                            generic_fn.generics.iter().map(|p| p.name.clone()).collect();
+                        let type_args =
+                            infer_type_args(generic_fn, args, &generic_params, subst, env);
+                        Box::new(Expr::Ident {
+                            name: mangled_name(name, &type_args),
+                            span: id_span.clone(),
+                        })
                     }
-                } else {
-                    callee.clone()
+                    _ => callee.clone(),
                 }
             } else {
                 Box::new(rewrite_expr(callee, subst, ctx, env))

@@ -112,6 +112,23 @@ impl Lower {
                     if let Some(body) = &mod_decl.body {
                         let mut child_path = current_path.to_vec();
                         child_path.push(mod_decl.name.clone());
+                        // Register every function defined in this mod
+                        // under its bare name so intra-mod calls resolve
+                        // to the mod-prefixed C symbol. Without this,
+                        // monomorphized generic functions that get lifted
+                        // out of the mod (e.g. `vec::push` -> root-level
+                        // `push_i32`) lose the ability to call sibling
+                        // non-generic helpers like `vec::next_cap`. Mono
+                        // rewrites generic call sites to mangled names,
+                        // so any later override in the map is harmless.
+                        let mod_prefix = child_path.join("__");
+                        for inner in body {
+                            if let ast::Item::Fn(f) = inner {
+                                self.import_map
+                                    .entry(f.name.clone())
+                                    .or_insert_with(|| format!("{}__{}", mod_prefix, f.name));
+                            }
+                        }
                         self.build_import_map_inner(body, &child_path);
                     }
                 }

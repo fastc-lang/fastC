@@ -300,6 +300,7 @@ mod mem {
     /// users should not invoke these directly outside of `unsafe`.
     extern "C" {
         unsafe fn malloc(size: usize) -> rawm(u8);
+        unsafe fn realloc(ptr: rawm(u8), size: usize) -> rawm(u8);
         unsafe fn free(ptr: rawm(u8)) -> void;
     }
 
@@ -312,9 +313,19 @@ mod mem {
         }
     }
 
-    /// Release memory previously returned by `mem::alloc`. Renamed from
-    /// the libc `free` so the wrapper doesn't shadow the extern symbol
-    /// inside the same module scope.
+    /// Grow or shrink a previously-allocated buffer. `ptr` may be a value
+    /// from `mem::alloc` (or null, in which case this behaves like
+    /// `alloc`). The returned pointer replaces `ptr`; callers must not
+    /// keep the old value.
+    pub fn resize(ptr: rawm(u8), new_size: usize) -> rawm(u8) {
+        unsafe {
+            return realloc(ptr, new_size);
+        }
+    }
+
+    /// Release memory previously returned by `mem::alloc` or
+    /// `mem::resize`. Renamed from the libc `free` so the wrapper doesn't
+    /// shadow the extern symbol inside the same module scope.
     pub fn free_bytes(ptr: rawm(u8)) -> void {
         unsafe {
             free(ptr);
@@ -367,6 +378,7 @@ struct Vec[T] {
 
 mod vec {
     use mem::alloc;
+    use mem::resize;
     use mem::free_bytes;
 
     /// Allocate a vec with the given capacity. `seed` is written into every
@@ -394,18 +406,41 @@ mod vec {
         };
     }
 
-    /// Append `x` to the vec. Silently drops the value if `len == cap` —
-    /// growable push is a follow-up slice.
+    /// Build an empty vec. `seed` exists only to fix `T` at the call site.
+    pub fn new[T](seed: T) -> Vec[T] {
+        return with_capacity(seed, cast(usize, 0));
+    }
+
+    /// Append `x` to the vec, growing the backing buffer if `len == cap`.
+    /// Growth doubles the capacity (initial 4 if cap was 0), matching
+    /// libc's amortized-O(1) idiom and Rust's std `Vec` policy. Reads
+    /// after a successful push see `x` at index `old_len`.
     pub fn push[T](v: mref(Vec[T]), x: T) -> void {
         let cur: usize = (deref(v)).len;
         let cap_v: usize = (deref(v)).cap;
-        if (cur < cap_v) {
-            let buf: rawm(T) = (deref(v)).data;
-            unsafe {
-                at(buf, cur) = x;
-            }
-            (deref(v)).len = (cur + cast(usize, 1));
+        if (cur >= cap_v) {
+            let new_cap: usize = next_cap(cap_v);
+            let new_bytes: usize = (new_cap * sizeof(T));
+            let old_raw: rawm(u8) = cast(rawm(u8), (deref(v)).data);
+            let new_raw: rawm(u8) = resize(old_raw, new_bytes);
+            (deref(v)).data = cast(rawm(T), new_raw);
+            (deref(v)).cap = new_cap;
         }
+        let buf: rawm(T) = (deref(v)).data;
+        unsafe {
+            at(buf, cur) = x;
+        }
+        (deref(v)).len = (cur + cast(usize, 1));
+    }
+
+    /// Growth policy: start at 4 (so the first push of an empty vec
+    /// allocates a useful amount), then double. Kept as a free function so
+    /// the policy is testable and overridable without rewriting `push`.
+    fn next_cap(cur: usize) -> usize {
+        if (cur == cast(usize, 0)) {
+            return cast(usize, 4);
+        }
+        return (cur * cast(usize, 2));
     }
 
     /// Read the element at index `i`. v1 does not bounds-check; callers

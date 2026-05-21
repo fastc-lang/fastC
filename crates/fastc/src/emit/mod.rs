@@ -279,7 +279,12 @@ impl Emitter {
                 ));
             }
             CStmt::If { cond, then, else_ } => {
-                self.line(&format!("if ({}) {{", self.expr_to_string(cond)));
+                // expr_to_string parenthesizes Binary/Paren expressions
+                // already. Wrapping a parenthesized equality in another
+                // pair of parens trips clang's `-Wparentheses-equality`
+                // under `-Werror`, so reuse the existing outer parens
+                // when present and only wrap bare expressions.
+                self.line(&format!("if {} {{", paren_cond(&self.expr_to_string(cond))));
                 self.indent += 1;
                 for s in then {
                     self.emit_stmt(s);
@@ -296,7 +301,10 @@ impl Emitter {
                 self.line("}");
             }
             CStmt::While { cond, body } => {
-                self.line(&format!("while ({}) {{", self.expr_to_string(cond)));
+                self.line(&format!(
+                    "while {} {{",
+                    paren_cond(&self.expr_to_string(cond))
+                ));
                 self.indent += 1;
                 for s in body {
                     self.emit_stmt(s);
@@ -639,6 +647,18 @@ impl Emitter {
 impl Default for Emitter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Wrap an `if`/`while` condition in parens, reusing the expression's own
+/// outer parens when it already produced a parenthesized form. Avoids the
+/// `if ((x == y))` double-paren pattern that trips clang's
+/// `-Wparentheses-equality` warning under `-Werror`.
+fn paren_cond(cond_str: &str) -> String {
+    if cond_str.starts_with('(') && cond_str.ends_with(')') {
+        cond_str.to_string()
+    } else {
+        format!("({})", cond_str)
     }
 }
 
