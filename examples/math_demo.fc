@@ -1,0 +1,21 @@
+// Stage 1.1 slice 1: the `math` module is shipped with the compiler via
+// the built-in prelude. Functions are written in fastC itself — the
+// stdlib is real fastC code, not a magic compiler intrinsic.
+//
+// `min`, `max`, `clamp` are bounded-generic on `Ord`, so they work for
+// every numeric primitive. `abs_i32`/`abs_i64`/`abs_isize` (and the
+// `_f32`/`_f64` floating-point versions) are non-generic helpers
+// because v1 generics cannot yet express "T is signed".
+
+use math::min;
+use math::max;
+use math::clamp;
+use math::abs_i32;
+
+fn main() -> i32 {
+    let lo: i32 = min(7, 35);          // 7
+    let hi: i32 = max(7, 35);          // 35
+    let cl: i32 = clamp(50, lo, hi);   // 35
+    let ab: i32 = abs_i32(0 - 100);    // 100
+    return (((lo + hi) + cl) + ab);     // 7 + 35 + 35 + 100 = 177
+}

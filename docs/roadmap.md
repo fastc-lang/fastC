@@ -331,7 +331,7 @@ This stage lands before stdlib (1.1) so stdlib growth cannot blow the budget unn
 - [x] Method syntax works on inherent and trait impls. *Slice 1 + Slice 2.*
 - [x] `Drop` trait enables deterministic resource cleanup. *Slice 4. v1 covers the common "RAII at scope end" pattern; future slices (stage 1.1+) will add `break`/`continue` drop, for-init drops, and ownership-aware drop suppression on moves.*
 
-## 1.1 — Standard Library and Closures (MVP)
+## 1.1 — Standard Library and Closures (MVP) *(in progress)*
 
 > **Requires:** 1.0 (traits for iterators and Drop, generics for containers).
 > **Complexity managed:** Self-sufficient programs. After 1.1, a user can write a non-trivial program without escaping to C. The standard library is written in FastC itself — proving the language is expressive enough.
@@ -339,16 +339,20 @@ This stage lands before stdlib (1.1) so stdlib growth cannot blow the budget unn
 
 The stdlib is **born capability-aware in shape but not yet in checking.** I/O signatures take a capability-token parameter even before 1.4 enforces capability flow analysis. This means stage 1.4 does not require a stdlib rewrite — only a switch from "the parameter is decorative" to "the parameter is checked."
 
+### Slice progress
+
+- **Slice 1 ✅:** `math` module shipped via the built-in prelude as an inline `mod math { pub fn ... }`. Users opt in with `use math::min;` etc. Stdlib functions are written in fastC itself — `abs_i32` / `abs_i64` / `abs_isize` / `abs_f32` / `abs_f64` as non-generic helpers, plus bounded-generic `min[T: Ord]` / `max[T: Ord]` / `clamp[T: Ord]` that work across every numeric primitive via the stage-1.0 `Ord` impls. Required two mono fixes: (a) `MonoCtx::new` now recursively walks `Item::Mod` bodies to discover generic fns nested in modules; (b) pass 2 strips generic-fn declarations from mod bodies before emit so lower doesn't produce literal-`T` C code. `examples/math_demo.fc` compiles and runs (exit 177).
+
 - [ ] Closures: `|x: i32| -> i32 { return (x + 1); }` lowered to C structs with captured environment.
   - Captures are by value (copy). Mutable captures require `mref` in the closure signature.
   - No implicit heap allocation for closures — they are stack-allocated structs.
 - [ ] Standard library written in FastC:
   - [ ] `io` — file I/O, stdin/stdout (signatures already take a `fs.read` / `fs.write` capability stub)
   - [ ] `string` — owned strings, slicing, formatting
-  - [ ] `vec` — growable array (generic, requires 0.9)
-  - [ ] `hashmap` — hash table (generic, requires 0.9 + `Eq` trait from 1.0)
+  - [ ] `vec` — growable array (generic, requires generic structs from 0.9 — still deferred)
+  - [ ] `hashmap` — hash table (generic, requires generic structs + `Eq` trait from 1.0)
   - [ ] `mem` — allocators, copy, move
-  - [ ] `math` — numeric functions
+  - [x] `math` — numeric functions. *Slice 1 — see above.*
   - [ ] `fs` — filesystem operations (capability stub)
   - [ ] `net` — TCP/UDP sockets (capability stub)
 - [ ] Iterator protocol via traits + closures.

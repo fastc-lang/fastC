@@ -219,6 +219,81 @@ impl Ord for isize {
 }
 
 impl Copy for isize {}
+
+// --- Standard library (stage 1.1) ---
+//
+// Functions live in inline `mod` namespaces. Users opt in with
+// `use math::min;` etc. — no fastC code is forced to take a dependency
+// on stdlib symbols it doesn't import.
+
+mod math {
+    // Integer absolute value. Defined per-type because fastC's v1
+    // generics cannot yet express "T is signed and supports unary minus";
+    // overloading via traits would work but adds noise to the prelude.
+    pub fn abs_i32(x: i32) -> i32 {
+        if (x < 0) {
+            return (0 - x);
+        }
+        return x;
+    }
+
+    pub fn abs_i64(x: i64) -> i64 {
+        if (x < cast(i64, 0)) {
+            return (cast(i64, 0) - x);
+        }
+        return x;
+    }
+
+    pub fn abs_isize(x: isize) -> isize {
+        if (x < cast(isize, 0)) {
+            return (cast(isize, 0) - x);
+        }
+        return x;
+    }
+
+    // Float `abs` via branch — NaN propagates because `NaN < 0` is false,
+    // so we return NaN unchanged. Equivalent semantics to libc `fabs` for
+    // every other input without needing FFI.
+    pub fn abs_f32(x: f32) -> f32 {
+        if (x < cast(f32, 0)) {
+            return (cast(f32, 0) - x);
+        }
+        return x;
+    }
+
+    pub fn abs_f64(x: f64) -> f64 {
+        if (x < cast(f64, 0)) {
+            return (cast(f64, 0) - x);
+        }
+        return x;
+    }
+
+    // Bounded-generic helpers built on the prelude `Ord` trait. These work
+    // for every numeric primitive automatically.
+    pub fn min[T: Ord](a: T, b: T) -> T {
+        if (a.less_than(addr(b))) {
+            return a;
+        }
+        return b;
+    }
+
+    pub fn max[T: Ord](a: T, b: T) -> T {
+        if (a.less_than(addr(b))) {
+            return b;
+        }
+        return a;
+    }
+
+    pub fn clamp[T: Ord](x: T, lo: T, hi: T) -> T {
+        if (x.less_than(addr(lo))) {
+            return lo;
+        }
+        if (hi.less_than(addr(x))) {
+            return hi;
+        }
+        return x;
+    }
+}
 "#;
 
 /// Parse the prelude into a `Vec<Item>` ready to be prepended to a user
@@ -261,5 +336,14 @@ mod tests {
             _ => false,
         });
         assert!(found, "expected impl Eq for i32 in prelude");
+    }
+
+    #[test]
+    fn prelude_has_math_module() {
+        let items = prelude_items();
+        let found = items
+            .iter()
+            .any(|i| matches!(i, Item::Mod(m) if m.name == "math" && m.body.is_some()));
+        assert!(found, "expected `mod math` (inline) in prelude");
     }
 }

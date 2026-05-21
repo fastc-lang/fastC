@@ -1533,4 +1533,31 @@ mod tests {
              fn main() -> i32 { let r: R = R { v: 1 }; return 0; }",
         );
     }
+
+    // === Stdlib math module tests (stage 1.1 slice 1) ===
+
+    #[test]
+    fn test_math_min_max_i32() {
+        check_ok(
+            "use math::min; use math::max; \
+             fn main() -> i32 { return (min(7, 35) + max(7, 35)); }",
+        );
+    }
+
+    #[test]
+    fn test_math_clamp_f64() {
+        // Bounded-generic clamp works on any Ord-implementing primitive.
+        check_ok(
+            "use math::clamp; \
+             fn main() -> i32 { let x: f64 = clamp(50.0, 1.0, 35.0); return 0; }",
+        );
+    }
+
+    #[test]
+    fn test_math_abs_i32() {
+        check_ok(
+            "use math::abs_i32; \
+             fn main() -> i32 { return abs_i32(0 - 100); }",
+        );
+    }
 }

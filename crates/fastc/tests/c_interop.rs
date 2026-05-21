@@ -143,6 +143,13 @@ fn test_drop_compiles() {
 }
 
 #[test]
+fn test_math_module_compiles() {
+    // Stage 1.1 slice 1: math module shipped via the prelude. Bounded
+    // generics (min/max/clamp on Ord) and primitive helpers (abs_i32 etc).
+    compile_and_verify("examples/math_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

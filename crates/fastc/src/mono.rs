@@ -66,7 +66,9 @@ pub fn monomorphize(
 
     // Pass 2: emit a new File. Non-generic items pass through with call
     // sites rewritten. Generic declarations are dropped; their
-    // instantiations are appended in deterministic order.
+    // instantiations are appended in deterministic order. Mod bodies are
+    // filtered the same way so generic fns inside the prelude's `mod math`
+    // don't leak through to lower as literal-`T` declarations.
     let mut new_items: Vec<Item> = Vec::with_capacity(file.items.len());
     for item in &file.items {
         match item {
@@ -75,6 +77,9 @@ pub fn monomorphize(
             }
             Item::Fn(f) => {
                 new_items.push(Item::Fn(rewrite_fn(f, &HashMap::new(), &ctx)));
+            }
+            Item::Mod(m) => {
+                new_items.push(Item::Mod(strip_generic_fns_from_mod(m)));
             }
             _ => new_items.push(item.clone()),
         }
@@ -137,26 +142,69 @@ struct MonoCtx<'a> {
     errors: Vec<CompileError>,
 }
 
+/// Filter generic functions out of a module's body. Specialized
+/// instantiations are appended at the top level by mono's pass 2;
+/// leaving the generic declarations inside the module would cause lower
+/// to emit them with literal `T` types, breaking the C output.
+///
+/// Non-generic items inside the mod are preserved unchanged. Nested
+/// mods are filtered recursively.
+fn strip_generic_fns_from_mod(m: &crate::ast::ModDecl) -> crate::ast::ModDecl {
+    let new_body = m.body.as_ref().map(|items| {
+        items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Fn(f) if !f.generics.is_empty() => None,
+                Item::Mod(inner) => Some(Item::Mod(strip_generic_fns_from_mod(inner))),
+                _ => Some(item.clone()),
+            })
+            .collect()
+    });
+    crate::ast::ModDecl {
+        is_pub: m.is_pub,
+        name: m.name.clone(),
+        body: new_body,
+        span: m.span.clone(),
+    }
+}
+
+/// Walk `items`, plus the bodies of any inline `Item::Mod`, gathering
+/// generic function declarations and trait-impl mappings into the caller's
+/// hashmaps. Recursive so generics declared inside a stdlib module (the
+/// prelude's `mod math` is the canonical case) are visible to mono.
+fn collect_items_recursive(
+    items: &[Item],
+    generic_fns: &mut HashMap<String, FnDecl>,
+    trait_impls: &mut HashMap<String, HashSet<String>>,
+) {
+    for item in items {
+        match item {
+            Item::Fn(f) if !f.generics.is_empty() => {
+                generic_fns.insert(f.name.clone(), f.clone());
+            }
+            Item::Impl(block) => {
+                if let Some(trait_name) = &block.trait_name {
+                    trait_impls
+                        .entry(block.target.clone())
+                        .or_default()
+                        .insert(trait_name.clone());
+                }
+            }
+            Item::Mod(m) => {
+                if let Some(body) = &m.body {
+                    collect_items_recursive(body, generic_fns, trait_impls);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 impl<'a> MonoCtx<'a> {
     fn new(file: &'a File, symbols: &'a SymbolTable, source: &'a str) -> Self {
         let mut generic_fns = HashMap::new();
         let mut trait_impls: HashMap<String, HashSet<String>> = HashMap::new();
-        for item in &file.items {
-            match item {
-                Item::Fn(f) if !f.generics.is_empty() => {
-                    generic_fns.insert(f.name.clone(), f.clone());
-                }
-                Item::Impl(block) => {
-                    if let Some(trait_name) = &block.trait_name {
-                        trait_impls
-                            .entry(block.target.clone())
-                            .or_default()
-                            .insert(trait_name.clone());
-                    }
-                }
-                _ => {}
-            }
-        }
+        collect_items_recursive(&file.items, &mut generic_fns, &mut trait_impls);
         Self {
             generic_fns,
             symbols,
