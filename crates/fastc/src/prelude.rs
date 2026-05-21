@@ -1467,6 +1467,71 @@ mod str {
         return none(usize);
     }
 
+    /// Find the first occurrence of `needle` in `haystack`. Returns
+    /// `some(index)` with the starting byte position, or `none(usize)`
+    /// when the needle is absent. An empty needle returns
+    /// `some(cast(usize, 0))` — every string contains the empty
+    /// string at position 0.
+    ///
+    /// Linear-time naive scan — O(haystack.len * needle.len) worst
+    /// case. Acceptable for v1 stdlib workloads; KMP / Boyer-Moore
+    /// is a stage-2 optimization once benchmarks identify a hotspot.
+    pub fn find(haystack: ref(Str), needle: ref(Str)) -> opt(usize) {
+        let hn: usize = len(addr((deref(haystack)).data));
+        let nn: usize = len(addr((deref(needle)).data));
+        if (nn == cast(usize, 0)) {
+            return some(cast(usize, 0));
+        }
+        if (nn > hn) {
+            return none(usize);
+        }
+        let hbuf: rawm(u8) = (deref(haystack)).data.data;
+        let nbuf: rawm(u8) = (deref(needle)).data.data;
+        let last_start: usize = (hn - nn);
+        let i: usize = cast(usize, 0);
+        let scanning: bool = true;
+        while (scanning) {
+            // Check whether needle matches at offset `i`.
+            let j: usize = cast(usize, 0);
+            let matches: bool = true;
+            while (matches) {
+                if (j >= nn) {
+                    matches = false;
+                    return some(i);
+                }
+                unsafe {
+                    if (at(hbuf, (i + j)) != at(nbuf, j)) {
+                        matches = false;
+                    }
+                }
+                if (matches) {
+                    j = (j + cast(usize, 1));
+                }
+            }
+            if (i >= last_start) {
+                scanning = false;
+            } else {
+                i = (i + cast(usize, 1));
+            }
+        }
+        return none(usize);
+    }
+
+    /// True when `haystack` contains `needle` somewhere. Thin
+    /// wrapper around `find` that discards the position. Useful
+    /// when you only care about membership.
+    pub fn contains_str(haystack: ref(Str), needle: ref(Str)) -> bool {
+        let pos: opt(usize) = find(haystack, needle);
+        let found: bool = false;
+        if let idx = unwrap_checked(pos) {
+            // Reference idx in the body so clang doesn't flag it as
+            // unused under -Werror. The value is always >= 0 for
+            // usize, so the comparison is trivially true.
+            found = (idx >= cast(usize, 0));
+        }
+        return found;
+    }
+
     /// True when `haystack` begins with `needle`'s bytes. An empty
     /// needle returns true vacuously. Linear-time byte compare.
     pub fn starts_with(haystack: ref(Str), needle: ref(Str)) -> bool {

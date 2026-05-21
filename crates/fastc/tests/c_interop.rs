@@ -405,6 +405,15 @@ fn test_str_clone_compiles() {
 }
 
 #[test]
+fn test_str_find_compiles() {
+    // Stage 1.1 slice 32: `str::find(haystack, needle) -> opt(usize)`
+    // — first multi-byte search returning a positional optional. Plus
+    // `str::contains_str` for the membership-only case. Naive O(h*n)
+    // scan; KMP is a stage-2 optimization.
+    compile_and_verify("examples/str_find_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

@@ -1,0 +1,52 @@
+// Stage 1.1 slice 32: `str::find` + `str::contains_str`.
+//
+// `find(haystack, needle) -> opt(usize)` is the natural extension of
+// `byte_search` — locate a multi-byte needle and return its starting
+// index, or `none` when absent. v1 uses a naive O(h*n) scan; KMP or
+// Boyer-Moore is a stage-2 optimization once benchmarks identify a
+// hotspot.
+//
+// `contains_str` discards the position for membership checks.
+
+use str::from_cstr;
+use str::find;
+use str::contains_str;
+use str::dispose;
+
+fn or_neg(o: opt(usize)) -> i32 {
+    if let pos = unwrap_checked(o) {
+        return cast(i32, pos);
+    }
+    return 0 - 1;
+}
+
+fn main() -> i32 {
+    let text: Str = from_cstr(cstr("the quick brown fox jumps over the lazy dog"));
+    let quick: Str = from_cstr(cstr("quick"));
+    let lazy: Str = from_cstr(cstr("lazy"));
+    let cat: Str = from_cstr(cstr("cat"));
+    let empty: Str = from_cstr(cstr(""));
+
+    let q_idx: i32 = or_neg(find(addr(text), addr(quick)));   // 4
+    let l_idx: i32 = or_neg(find(addr(text), addr(lazy)));    // 35
+    let c_idx: i32 = or_neg(find(addr(text), addr(cat)));     // -1 (absent)
+    let e_idx: i32 = or_neg(find(addr(text), addr(empty)));   // 0 (empty matches at 0)
+
+    let has_q: bool = contains_str(addr(text), addr(quick));   // true
+    let has_c: bool = contains_str(addr(text), addr(cat));     // false
+
+    dispose(addrm(text));
+    dispose(addrm(quick));
+    dispose(addrm(lazy));
+    dispose(addrm(cat));
+    dispose(addrm(empty));
+
+    let total: i32 = 0;
+    if (q_idx == 4) { total = (total + 1); }
+    if (l_idx == 35) { total = (total + 2); }
+    if (c_idx == (0 - 1)) { total = (total + 4); }
+    if (e_idx == 0) { total = (total + 8); }
+    if (has_q) { total = (total + 16); }
+    if (!has_c) { total = (total + 32); }
+    return total;   // 1+2+4+8+16+32 = 63
+}
