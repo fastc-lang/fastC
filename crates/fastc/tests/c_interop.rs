@@ -156,6 +156,13 @@ fn test_mem_module_compiles() {
 }
 
 #[test]
+fn test_io_module_compiles() {
+    // Stage 1.1 slice 4: io module exposes `println` and `put_char` via
+    // tiny runtime helpers that bridge `raw(u8)` to libc's `char*`.
+    compile_and_verify("examples/io_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

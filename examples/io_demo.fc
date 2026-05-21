@@ -1,0 +1,17 @@
+// Stage 1.1 slice 4: the `io` module wraps libc `puts` and `putchar` via
+// `extern "C"` (mediated by tiny runtime helpers in `fastc_runtime.h`
+// that handle the `char*` vs `uint8_t*` impedance mismatch under
+// `-Werror`).
+//
+// This is the first slice where a fastC program produces visible output
+// without writing FFI by hand.
+
+use io::println;
+use io::put_char;
+
+fn main() -> i32 {
+    println(cstr("hello, fastC!"));
+    put_char(cast(i32, 33));    // '!'
+    put_char(cast(i32, 10));    // '\n'
+    return 0;
+}

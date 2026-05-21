@@ -321,6 +321,35 @@ mod mem {
         }
     }
 }
+
+mod io {
+    /// Print primitives. These resolve to thin static-inline runtime
+    /// helpers (`fc_puts_u8` / `fc_putchar`) defined in
+    /// `fastc_runtime.h`. The helpers wrap libc `puts`/`putchar` and
+    /// handle the `char*` vs `uint8_t*` impedance mismatch so the prelude
+    /// can keep its `raw(u8)` signatures without tripping
+    /// `-Wpointer-sign` under `-Werror`.
+    extern "C" {
+        unsafe fn fc_puts_u8(s: raw(u8)) -> i32;
+        unsafe fn fc_putchar(c: i32) -> i32;
+    }
+
+    /// Write a null-terminated C string to stdout followed by a newline.
+    /// Use with `cstr("...")` for literal strings.
+    pub fn println(s: raw(u8)) -> void {
+        unsafe {
+            discard(fc_puts_u8(s));
+        }
+    }
+
+    /// Write a single ASCII byte to stdout. Useful for emitting punctuation
+    /// or constructed strings without going through `printf` formatting.
+    pub fn put_char(c: i32) -> void {
+        unsafe {
+            discard(fc_putchar(c));
+        }
+    }
+}
 "#;
 
 /// Parse the prelude into a `Vec<Item>` ready to be prepended to a user
@@ -381,5 +410,14 @@ mod tests {
             .iter()
             .any(|i| matches!(i, Item::Mod(m) if m.name == "mem" && m.body.is_some()));
         assert!(found, "expected `mod mem` (inline) in prelude");
+    }
+
+    #[test]
+    fn prelude_has_io_module() {
+        let items = prelude_items();
+        let found = items
+            .iter()
+            .any(|i| matches!(i, Item::Mod(m) if m.name == "io" && m.body.is_some()));
+        assert!(found, "expected `mod io` (inline) in prelude");
     }
 }

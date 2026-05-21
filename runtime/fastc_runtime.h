@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 /* Trap handler - abort on safety violation */
 static inline _Noreturn void fc_trap(void) {
@@ -20,6 +21,17 @@ static inline void* fc_alloc(size_t size, size_t align) {
 
 static inline void fc_free(void* ptr) {
     free(ptr);
+}
+
+/* Stdout helpers: accept const uint8_t* so the prelude can keep its
+ * raw(u8) signatures without triggering -Wpointer-sign under -Werror
+ * when the underlying libc functions want plain `char*`. */
+static inline int fc_puts_u8(const uint8_t* s) {
+    return puts((const char*)s);
+}
+
+static inline int fc_putchar(int c) {
+    return putchar(c);
 }
 
 /* Memory copy */

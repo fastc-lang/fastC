@@ -1109,7 +1109,14 @@ impl Lower {
                     expr: Box::new(c_expr),
                 }
             }
-            ast::Expr::CStr { value, .. } => CExpr::StringLit(value.clone()),
+            // `cstr("...")` typechecks as `raw(u8)` (a.k.a. `const uint8_t*`),
+            // but a bare C string literal has type `char*`. Wrap in an
+            // explicit cast so passing the literal to a `const uint8_t*`
+            // parameter doesn't trip `-Wpointer-sign` under `-Werror`.
+            ast::Expr::CStr { value, .. } => CExpr::Cast {
+                ty: CType::ConstPtr(Box::new(CType::UInt8)),
+                expr: Box::new(CExpr::StringLit(value.clone())),
+            },
 
             // some(value) -> (fc_opt_T){ .has_value = true, .value = value }
             ast::Expr::Some { value, .. } => {
