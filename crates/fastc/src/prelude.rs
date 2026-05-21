@@ -1174,6 +1174,28 @@ mod hashmap {
         free_bytes(old_state);
     }
 
+    /// Visit every `(key, value)` pair in occupancy order — i.e. the
+    /// underlying bucket order, which is not insertion order. `f`
+    /// receives copies of the key and value, so for owned-buffer
+    /// types like `Str` the visitor sees aliased pointers (same
+    /// ownership rule as the map itself). First stdlib API to take a
+    /// two-argument fn pointer on a generic container.
+    pub fn for_each_entry[K: Hash + Eq, V](m: ref(HashMap[K, V]), f: fn(K, V) -> void) -> void {
+        let cap: usize = (deref(m)).cap;
+        let kb: rawm(K) = (deref(m)).keys;
+        let vb: rawm(V) = (deref(m)).values;
+        let sb: rawm(u8) = (deref(m)).state;
+        let i: usize = cast(usize, 0);
+        while (i < cap) {
+            unsafe {
+                if (at(sb, i) == hm_st_occupied()) {
+                    f(at(kb, i), at(vb, i));
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+    }
+
     /// Release every internal buffer. The map value must not be used
     /// after this returns.
     pub fn release_map[K: Hash + Eq, V](m: mref(HashMap[K, V])) -> void {
@@ -1310,6 +1332,24 @@ mod str {
                 }
             }
         }
+    }
+
+    /// Return the index of the first occurrence of `byte` in `s`, or
+    /// `none(usize)` when not present. Linear scan. Useful for cheap
+    /// tokenizers — split on a delimiter, find the next quote, etc.
+    pub fn byte_search(s: ref(Str), byte: u8) -> opt(usize) {
+        let n: usize = len(addr((deref(s)).data));
+        let buf: rawm(u8) = (deref(s)).data.data;
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                if (at(buf, i) == byte) {
+                    return some(i);
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        return none(usize);
     }
 
     /// True when `haystack` begins with `needle`'s bytes. An empty

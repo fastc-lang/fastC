@@ -1,0 +1,79 @@
+// Stage 1.1 slice 25: `hashmap::for_each_entry` + `str::byte_search`.
+//
+// `for_each_entry(m, f: fn(K, V) -> void)` is the first higher-order
+// API on hashmap. Visits every occupied slot exactly once in bucket
+// order (not insertion order). Combined with side-effect callbacks
+// (counter via raw pointer / file-scope state) it's enough to fold
+// over a hashmap without a Drop-style iterator protocol.
+//
+// `str::byte_search` is the first stdlib search returning `opt(usize)` —
+// the natural primitive for parsing and tokenizing.
+
+use hashmap::new_map;
+use hashmap::put;
+use hashmap::for_each_entry;
+use hashmap::release_map;
+use str::from_cstr;
+use str::byte_search;
+use str::dispose;
+
+// fastC v1 has no closures, so the visitor uses a thin runtime
+// helper that accumulates into a static slot. We expose the helper
+// through an extern declaration and call it from `tally`.
+extern "C" {
+    unsafe fn fc_test_acc_add(x: i32) -> void;
+    unsafe fn fc_test_acc_get() -> i32;
+    unsafe fn fc_test_acc_reset() -> void;
+}
+
+fn tally(k: i32, v: i32) -> void {
+    unsafe {
+        fc_test_acc_add((k + v));
+    }
+}
+
+fn main() -> i32 {
+    let seed_k: i32 = 0;
+    let seed_v: i32 = 0;
+    let m: HashMap[i32, i32] = new_map(seed_k, seed_v);
+
+    discard(put(addrm(m), 1, 10));
+    discard(put(addrm(m), 2, 20));
+    discard(put(addrm(m), 3, 30));
+
+    unsafe {
+        fc_test_acc_reset();
+    }
+    for_each_entry(addr(m), tally);
+    let total: i32 = 0;
+    unsafe {
+        total = fc_test_acc_get();
+    }
+    // Sum of (k+v) across all three entries = (1+10) + (2+20) + (3+30) = 66
+
+    release_map(addrm(m));
+
+    // byte_search on a Str.
+    let needle: Str = from_cstr(cstr("hello world"));
+    let space_idx: opt(usize) = byte_search(addr(needle), cast(u8, 32));   // ' '
+    let bang_idx: opt(usize) = byte_search(addr(needle), cast(u8, 33));    // '!' — absent
+
+    let space_pos: i32 = 0;
+    if let pos = unwrap_checked(space_idx) {
+        space_pos = cast(i32, pos);   // 5
+    }
+    let bang_found: bool = false;
+    if let pos = unwrap_checked(bang_idx) {
+        // Use the binding so clang doesn't flag an unused-variable
+        // warning under -Werror. The check is trivially-true if the
+        // some-branch is taken at all.
+        bang_found = (pos >= cast(usize, 0));
+    }
+
+    dispose(addrm(needle));
+
+    // total=66 + space_pos=5 + (!bang_found ? 1 : 0) = 72
+    let result: i32 = (total + space_pos);
+    if (!bang_found) { result = (result + 1); }
+    return result;
+}

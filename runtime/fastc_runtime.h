@@ -104,6 +104,27 @@ static inline void fc_write_u64_unaligned(void* ptr, uint64_t val) {
     fc_memcpy(ptr, &val, sizeof(val));
 }
 
+/* Test-only accumulator used by examples that need a side-effect
+ * sink before closures with captured state exist. Three helpers:
+ *   - fc_test_acc_reset(): clear the slot
+ *   - fc_test_acc_add(int32_t): add to the slot
+ *   - fc_test_acc_get(): read the slot back
+ * The state is a file-static int32_t so the helpers are self-contained.
+ * Removed once closures land. */
+static int32_t fc_test_accumulator_slot = 0;
+
+static inline void fc_test_acc_reset(void) {
+    fc_test_accumulator_slot = 0;
+}
+
+static inline void fc_test_acc_add(int32_t x) {
+    fc_test_accumulator_slot += x;
+}
+
+static inline int32_t fc_test_acc_get(void) {
+    return fc_test_accumulator_slot;
+}
+
 /* Slice type macro */
 #define FC_DEFINE_SLICE(T, name) \
     typedef struct { T* data; size_t len; } name

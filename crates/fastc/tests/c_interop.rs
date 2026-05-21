@@ -326,6 +326,16 @@ fn test_hashmap_str_compiles() {
 }
 
 #[test]
+fn test_hashmap_iter_compiles() {
+    // Stage 1.1 slice 25: `hashmap::for_each_entry[K, V]` (first
+    // higher-order API on hashmap, taking `fn(K, V) -> void`) and
+    // `str::byte_search` (returns `opt(usize)` for first byte match).
+    // Uses a runtime-side accumulator helper as a closure stand-in
+    // until captured closures land.
+    compile_and_verify("examples/hashmap_iter_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }
