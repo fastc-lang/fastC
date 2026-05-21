@@ -505,6 +505,67 @@ mod vec {
         return false;
     }
 
+    /// Swap two elements by index. Caller must ensure both indices are
+    /// in range; the v1 API does not bounds-check.
+    pub fn swap[T](v: mref(Vec[T]), i: usize, j: usize) -> void {
+        let buf: rawm(T) = (deref(v)).data;
+        unsafe {
+            let tmp: T = at(buf, i);
+            at(buf, i) = at(buf, j);
+            at(buf, j) = tmp;
+        }
+    }
+
+    /// Reverse the vec in place. O(n/2). No allocation; reuses the
+    /// existing buffer.
+    pub fn reverse[T](v: mref(Vec[T])) -> void {
+        let n: usize = (deref(v)).len;
+        if (n < cast(usize, 2)) {
+            return;
+        }
+        let buf: rawm(T) = (deref(v)).data;
+        let i: usize = cast(usize, 0);
+        let j: usize = (n - cast(usize, 1));
+        while (i < j) {
+            unsafe {
+                let tmp: T = at(buf, i);
+                at(buf, i) = at(buf, j);
+                at(buf, j) = tmp;
+            }
+            i = (i + cast(usize, 1));
+            j = (j - cast(usize, 1));
+        }
+    }
+
+    /// Build a fresh vec containing every element of `src` for which
+    /// `pred` returns true, preserving insertion order. The returned vec
+    /// is heap-allocated independently of `src`; both must be released.
+    /// First higher-order using a `fn(T) -> bool` predicate.
+    pub fn filter[T](src: ref(Vec[T]), pred: fn(T) -> bool) -> Vec[T] {
+        let n: usize = (deref(src)).len;
+        let src_buf: rawm(T) = (deref(src)).data;
+        // Start from zero capacity. The explicit cast on `data` lets the
+        // struct-mono pass infer T at this literal — `approx_field_type`
+        // only inspects Cast nodes.
+        let empty_buf: rawm(u8) = alloc(cast(usize, 0));
+        let dst: Vec[T] = Vec {
+            data: cast(rawm(T), empty_buf),
+            len: cast(usize, 0),
+            cap: cast(usize, 0),
+        };
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                let cur: T = at(src_buf, i);
+                if (pred(cur)) {
+                    push(addrm(dst), cur);
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        return dst;
+    }
+
     /// Map every element through `f` into a fresh vec. `dst` is sized
     /// exactly to `src.len`, so the result is fully packed (no extra
     /// capacity). The caller owns both vecs and must release each

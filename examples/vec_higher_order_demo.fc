@@ -1,0 +1,64 @@
+// Stage 1.1 slice 12: vec mutators — `swap`, `reverse`, and `filter`.
+//
+// `swap` exchanges two elements by index, `reverse` flips the vec in
+// place (both reuse the existing buffer, no allocation), and `filter`
+// takes a `fn(T) -> bool` predicate and returns a new vec containing
+// only the elements that matched. `filter` exercises the same fn-
+// pointer + generic inference path as `vec::map` and shows the empty-
+// vec-as-accumulator pattern.
+
+use vec::new;
+use vec::push;
+use vec::pop;
+use vec::get;
+use vec::len;
+use vec::swap;
+use vec::reverse;
+use vec::filter;
+use vec::release;
+
+fn is_even(x: i32) -> bool {
+    return ((x - ((x / 2) * 2)) == 0);
+}
+
+fn main() -> i32 {
+    let v: Vec[i32] = new(0);
+    push(addrm(v), 1);
+    push(addrm(v), 2);
+    push(addrm(v), 3);
+    push(addrm(v), 4);
+
+    // swap(v, 0, 3): [4, 2, 3, 1]
+    swap(addrm(v), cast(usize, 0), cast(usize, 3));
+    let s0: i32 = get(addr(v), cast(usize, 0));  // 4
+    let s3: i32 = get(addr(v), cast(usize, 3));  // 1
+
+    // reverse(v): [1, 3, 2, 4]
+    reverse(addrm(v));
+    let r0: i32 = get(addr(v), cast(usize, 0));  // 1
+    let r3: i32 = get(addr(v), cast(usize, 3));  // 4
+
+    // Reset to [1, 2, 3, 4, 5] for the filter check.
+    pop(addrm(v));
+    pop(addrm(v));
+    pop(addrm(v));
+    pop(addrm(v));
+    // v is now empty.
+    push(addrm(v), 1);
+    push(addrm(v), 2);
+    push(addrm(v), 3);
+    push(addrm(v), 4);
+    push(addrm(v), 5);
+
+    // filter keeps even numbers: [2, 4].
+    let evens: Vec[i32] = filter(addr(v), is_even);
+    let n: i32 = cast(i32, len(addr(evens)));   // 2
+    let e0: i32 = get(addr(evens), cast(usize, 0));  // 2
+    let e1: i32 = get(addr(evens), cast(usize, 1));  // 4
+
+    release(addrm(v));
+    release(addrm(evens));
+
+    // 4 + 1 + 1 + 4 + 2 + 2 + 4 = 18
+    return ((((((s0 + s3) + r0) + r3) + n) + e0) + e1);
+}

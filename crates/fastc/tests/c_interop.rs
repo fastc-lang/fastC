@@ -217,6 +217,17 @@ fn test_vec_map_compiles() {
 }
 
 #[test]
+fn test_vec_higher_order_compiles() {
+    // Stage 1.1 slice 12: `vec::swap` / `vec::reverse` (in-place
+    // mutators) and `vec::filter[T]` (higher-order with predicate fn).
+    // Reverse exercises the temp-slot swap pattern through raw pointers;
+    // filter is the first stdlib API to build an empty Vec via direct
+    // `alloc(0)` + struct literal (skipping `with_capacity`'s seed
+    // requirement).
+    compile_and_verify("examples/vec_higher_order_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }
