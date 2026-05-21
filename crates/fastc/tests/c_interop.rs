@@ -307,6 +307,25 @@ fn test_vec_min_max_clone_compiles() {
 }
 
 #[test]
+fn test_str_helpers_compiles() {
+    // Stage 1.1 slice 23: `str::starts_with` + `str::push_cstr`.
+    // First stdlib prefix check and the natural sibling of from_cstr —
+    // together they enable cheap string-building from C-string
+    // fragments without allocating per-fragment.
+    compile_and_verify("examples/str_helpers_demo.fc");
+}
+
+#[test]
+fn test_hashmap_str_compiles() {
+    // Stage 1.1 slice 24: `HashMap[Str, i32]` — first hashmap with a
+    // non-primitive key. Powered by new `impl Hash for Str` (djb2)
+    // and `impl Eq for Str` (byte compare). Validates the trait-
+    // dispatch path on a user-defined struct type end-to-end through
+    // the bounded-generic hashmap body.
+    compile_and_verify("examples/hashmap_str_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

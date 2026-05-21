@@ -1,0 +1,71 @@
+// Stage 1.1 slice 24: `HashMap[Str, i32]` — first non-primitive type
+// used as a hashmap key.
+//
+// Two new prelude impls power this:
+//   - `impl Hash for Str` (djb2 over the byte buffer)
+//   - `impl Eq for Str`   (byte-wise compare)
+//
+// `HashMap[K: Hash + Eq, V]` bounds check finds both impls on Str
+// and dispatches through `Str_hash` / `Str_eq` at every probe step.
+// This validates the trait-dispatch path on a non-primitive key for
+// the first time end-to-end.
+
+use hashmap::new_map;
+use hashmap::put;
+use hashmap::lookup;
+use hashmap::has_key;
+use hashmap::release_map;
+use str::from_cstr;
+use str::make;
+use str::dispose;
+
+fn or_zero(o: opt(i32)) -> i32 {
+    if let value = unwrap_checked(o) {
+        return value;
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    let seed_k: Str = make();   // empty-Str seed — fixes K=Str
+    let m: HashMap[Str, i32] = new_map(seed_k, 0);
+
+    // Insert three known string -> number pairs.
+    let k_alpha: Str = from_cstr(cstr("alpha"));
+    let k_beta: Str = from_cstr(cstr("beta"));
+    let k_gamma: Str = from_cstr(cstr("gamma"));
+    discard(put(addrm(m), k_alpha, 11));
+    discard(put(addrm(m), k_beta, 22));
+    discard(put(addrm(m), k_gamma, 33));
+
+    // Look each one up using a freshly-constructed key — the Str
+    // values are independent (different heap allocations), so a
+    // successful lookup proves Eq is comparing bytes not pointers.
+    let q_alpha: Str = from_cstr(cstr("alpha"));
+    let q_beta: Str = from_cstr(cstr("beta"));
+    let q_gamma: Str = from_cstr(cstr("gamma"));
+    let q_missing: Str = from_cstr(cstr("delta"));
+
+    let v_alpha: i32 = or_zero(lookup(addr(m), addr(q_alpha)));   // 11
+    let v_beta: i32 = or_zero(lookup(addr(m), addr(q_beta)));     // 22
+    let v_gamma: i32 = or_zero(lookup(addr(m), addr(q_gamma)));   // 33
+    let v_missing: i32 = or_zero(lookup(addr(m), addr(q_missing))); // 0
+    let has_alpha: bool = has_key(addr(m), addr(q_alpha));   // true
+    let has_missing: bool = has_key(addr(m), addr(q_missing)); // false
+
+    release_map(addrm(m));
+    dispose(addrm(q_alpha));
+    dispose(addrm(q_beta));
+    dispose(addrm(q_gamma));
+    dispose(addrm(q_missing));
+    // The keys stored in `m` were moved by `put` (by-value); their
+    // backing buffers were freed by `release_map` along with the rest
+    // of the map. `dispose` on them again would be a double-free, so
+    // we don't — same ownership rule as Rust's HashMap<String, V>.
+
+    let total: i32 = ((v_alpha + v_beta) + v_gamma);   // 66
+    if (v_missing == 0) { total = (total + 10); }
+    if (has_alpha) { total = (total + 20); }
+    if (!has_missing) { total = (total + 40); }
+    return total;   // 66 + 10 + 20 + 40 = 136
+}

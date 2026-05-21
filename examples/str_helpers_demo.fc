@@ -1,0 +1,53 @@
+// Stage 1.1 slice 23: `str::starts_with` + `str::push_cstr`.
+//
+// `push_cstr` is the natural sibling of `from_cstr` — append a
+// null-terminated C-string fragment to an existing `Str`. Together
+// they enable readable string-building from literal pieces without
+// allocating a fresh `Str` per fragment.
+//
+// `starts_with` is the first stdlib prefix check — useful for
+// parsing, prefix-stripping, header inspection, etc.
+
+use str::make;
+use str::push_cstr;
+use str::starts_with;
+use str::from_cstr;
+use str::byte_count;
+use str::write_line;
+use str::dispose;
+
+fn main() -> i32 {
+    // Build "hello world" by pushing two fragments.
+    let s: Str = make();
+    push_cstr(addrm(s), cstr("hello"));
+    push_cstr(addrm(s), cstr(" world"));
+    let n: i32 = cast(i32, byte_count(addr(s)));   // 11
+
+    // Compare against prefixes.
+    let hello: Str = from_cstr(cstr("hello"));
+    let world: Str = from_cstr(cstr("world"));
+    let empty: Str = make();
+    let longer: Str = from_cstr(cstr("hello world!!!"));
+
+    let starts_hello: bool = starts_with(addr(s), addr(hello));    // true
+    let starts_world: bool = starts_with(addr(s), addr(world));    // false (mid-word)
+    let starts_empty: bool = starts_with(addr(s), addr(empty));    // true (vacuous)
+    let starts_longer: bool = starts_with(addr(s), addr(longer));  // false (needle too long)
+
+    // Verify the assembled string is what we expect.
+    write_line(addr(s));
+
+    dispose(addrm(s));
+    dispose(addrm(hello));
+    dispose(addrm(world));
+    dispose(addrm(empty));
+    dispose(addrm(longer));
+
+    let total: i32 = n;
+    if (starts_hello) { total = (total + 10); }
+    if (!starts_world) { total = (total + 20); }
+    if (starts_empty) { total = (total + 30); }
+    if (!starts_longer) { total = (total + 40); }
+    // 11 + 10 + 20 + 30 + 40 = 111
+    return total;
+}

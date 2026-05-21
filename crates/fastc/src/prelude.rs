@@ -1200,6 +1200,52 @@ struct Str {
     data: Vec[u8],
 }
 
+// `impl Hash for Str` + `impl Eq for Str` mean `Str` satisfies the
+// `Hash + Eq` bounds that `HashMap` requires for keys. The hash is
+// djb2 — small, branchless, decent distribution for short ASCII
+// inputs (which is what string keys mostly are in v1 demos). A
+// stronger hash (fxhash/wyhash) is a stage-2 swap once benchmarking
+// surfaces real collision numbers.
+
+impl Hash for Str {
+    fn hash(self: ref(Self)) -> usize {
+        let h: usize = cast(usize, 5381);
+        let n: usize = (deref(self)).data.len;
+        let buf: rawm(u8) = (deref(self)).data.data;
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                // djb2 step: h = (h * 33) + byte
+                h = ((h * cast(usize, 33)) + cast(usize, at(buf, i)));
+            }
+            i = (i + cast(usize, 1));
+        }
+        return h;
+    }
+}
+
+impl Eq for Str {
+    fn eq(self: ref(Self), other: ref(Self)) -> bool {
+        let na: usize = (deref(self)).data.len;
+        let nb: usize = (deref(other)).data.len;
+        if (na != nb) {
+            return false;
+        }
+        let ba: rawm(u8) = (deref(self)).data.data;
+        let bb: rawm(u8) = (deref(other)).data.data;
+        let i: usize = cast(usize, 0);
+        while (i < na) {
+            unsafe {
+                if (at(ba, i) != at(bb, i)) {
+                    return false;
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        return true;
+    }
+}
+
 mod str {
     use vec::new;
     use vec::with_capacity;
@@ -1244,6 +1290,48 @@ mod str {
     /// Release the backing heap allocation. Mirrors `vec::release`.
     pub fn dispose(s: mref(Str)) -> void {
         release(addrm((deref(s)).data));
+    }
+
+    /// Append every byte of a null-terminated C-style buffer to `s`.
+    /// Like `from_cstr` but writes into an existing `Str` rather than
+    /// allocating a fresh one — useful for building up a string with
+    /// multiple literal fragments without intermediate allocations.
+    pub fn push_cstr(s: mref(Str), c: raw(u8)) -> void {
+        let i: usize = cast(usize, 0);
+        let done: bool = false;
+        while (!done) {
+            unsafe {
+                let b: u8 = at(c, i);
+                if (b == cast(u8, 0)) {
+                    done = true;
+                } else {
+                    push_byte(s, b);
+                    i = (i + cast(usize, 1));
+                }
+            }
+        }
+    }
+
+    /// True when `haystack` begins with `needle`'s bytes. An empty
+    /// needle returns true vacuously. Linear-time byte compare.
+    pub fn starts_with(haystack: ref(Str), needle: ref(Str)) -> bool {
+        let hn: usize = len(addr((deref(haystack)).data));
+        let nn: usize = len(addr((deref(needle)).data));
+        if (nn > hn) {
+            return false;
+        }
+        let hbuf: rawm(u8) = (deref(haystack)).data.data;
+        let nbuf: rawm(u8) = (deref(needle)).data.data;
+        let i: usize = cast(usize, 0);
+        while (i < nn) {
+            unsafe {
+                if (at(hbuf, i) != at(nbuf, i)) {
+                    return false;
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        return true;
     }
 
     /// Build a `Str` by walking a null-terminated C-style buffer and

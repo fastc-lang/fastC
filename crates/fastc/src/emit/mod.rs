@@ -106,7 +106,21 @@ impl Emitter {
             self.emit_decl(decl);
         }
 
-        // Type definitions
+        // Struct-tag forward declarations. Emitted before the full
+        // typedefs so a struct field of type `Other*` works even when
+        // the topological sort can't pull `Other`'s full definition
+        // ahead (pointers don't require complete types in C, but the
+        // typedef alias still has to exist by name).
+        for def in &file.type_defs {
+            if let CDecl::Struct { name, .. } = def {
+                self.line(&format!("typedef struct {} {};", name, name));
+            }
+        }
+        if !file.type_defs.is_empty() {
+            self.blank();
+        }
+
+        // Type definitions (full body)
         for def in &file.type_defs {
             self.emit_decl(def);
             self.blank();
