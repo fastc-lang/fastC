@@ -655,6 +655,41 @@ mod vec {
         }
     }
 
+    /// Build a fresh vec containing `a`'s elements followed by `b`'s.
+    /// Both inputs are read-only; the caller still owns each. The
+    /// returned vec is packed (cap = a.len + b.len). Useful for
+    /// non-destructive concatenation — `extend(dst, src)` is the
+    /// in-place sibling.
+    pub fn concat[T](a: ref(Vec[T]), b: ref(Vec[T])) -> Vec[T] {
+        let na: usize = (deref(a)).len;
+        let nb: usize = (deref(b)).len;
+        let n: usize = (na + nb);
+        let nbytes: usize = (n * sizeof(T));
+        let raw_buf: rawm(u8) = alloc(nbytes);
+        let dst_buf: rawm(T) = cast(rawm(T), raw_buf);
+        let ab: rawm(T) = (deref(a)).data;
+        let bb: rawm(T) = (deref(b)).data;
+        let i: usize = cast(usize, 0);
+        while (i < na) {
+            unsafe {
+                at(dst_buf, i) = at(ab, i);
+            }
+            i = (i + cast(usize, 1));
+        }
+        let j: usize = cast(usize, 0);
+        while (j < nb) {
+            unsafe {
+                at(dst_buf, (na + j)) = at(bb, j);
+            }
+            j = (j + cast(usize, 1));
+        }
+        return Vec {
+            data: cast(rawm(T), raw_buf),
+            len: n,
+            cap: n,
+        };
+    }
+
     /// Allocate a fresh vec with the same contents and length. Capacity
     /// is set to `len` (packed) rather than copied from the source so
     /// the clone doesn't carry over any slack. The clone is fully
@@ -1404,6 +1439,127 @@ mod str {
             i = (i + cast(usize, 1));
         }
         return true;
+    }
+
+    /// True for the four common ASCII whitespace bytes: space, tab,
+    /// newline, carriage return. Helper for the trim family. Kept
+    /// private to mod str — exposing a per-byte classification needs
+    /// a fuller Unicode story than v1 has.
+    fn is_ws(b: u8) -> bool {
+        if (b == cast(u8, 32)) {
+            return true;
+        }
+        if (b == cast(u8, 9)) {
+            return true;
+        }
+        if (b == cast(u8, 10)) {
+            return true;
+        }
+        if (b == cast(u8, 13)) {
+            return true;
+        }
+        return false;
+    }
+
+    /// Return a fresh `Str` with leading ASCII whitespace removed.
+    /// Caller owns the original and the result; neither is freed by
+    /// this call.
+    pub fn trim_start(s: ref(Str)) -> Str {
+        let n: usize = len(addr((deref(s)).data));
+        let buf: rawm(u8) = (deref(s)).data.data;
+        let i: usize = cast(usize, 0);
+        let scanning: bool = true;
+        while (scanning) {
+            if (i >= n) {
+                scanning = false;
+            } else {
+                unsafe {
+                    if (!is_ws(at(buf, i))) {
+                        scanning = false;
+                    } else {
+                        i = (i + cast(usize, 1));
+                    }
+                }
+            }
+        }
+        let out: Str = make();
+        let k: usize = i;
+        while (k < n) {
+            unsafe {
+                push_byte(addrm(out), at(buf, k));
+            }
+            k = (k + cast(usize, 1));
+        }
+        return out;
+    }
+
+    /// Return a fresh `Str` with trailing ASCII whitespace removed.
+    pub fn trim_end(s: ref(Str)) -> Str {
+        let n: usize = len(addr((deref(s)).data));
+        let buf: rawm(u8) = (deref(s)).data.data;
+        // Walk backward to find the new logical length. Use a signed
+        // loop counter via `cast(isize, ...)` to handle the all-
+        // whitespace input cleanly without underflowing usize.
+        let last: usize = n;
+        let scanning: bool = (n > cast(usize, 0));
+        while (scanning) {
+            let prev: usize = (last - cast(usize, 1));
+            unsafe {
+                if (is_ws(at(buf, prev))) {
+                    last = prev;
+                    if (last == cast(usize, 0)) {
+                        scanning = false;
+                    }
+                } else {
+                    scanning = false;
+                }
+            }
+        }
+        let out: Str = make();
+        let k: usize = cast(usize, 0);
+        while (k < last) {
+            unsafe {
+                push_byte(addrm(out), at(buf, k));
+            }
+            k = (k + cast(usize, 1));
+        }
+        return out;
+    }
+
+    /// Return a fresh `Str` with both leading and trailing ASCII
+    /// whitespace removed. Two passes for clarity — micro-optimizing
+    /// to a single walk waits until benchmarks identify a hotspot.
+    pub fn trim(s: ref(Str)) -> Str {
+        let mid: Str = trim_start(s);
+        let out: Str = trim_end(addr(mid));
+        dispose(addrm(mid));
+        return out;
+    }
+
+    /// Return a fresh `Str` with every ASCII letter mapped to its
+    /// uppercase form. Non-letter bytes pass through unchanged.
+    /// Locale-agnostic; non-ASCII bytes are left untouched.
+    pub fn to_upper(s: ref(Str)) -> Str {
+        let n: usize = len(addr((deref(s)).data));
+        let buf: rawm(u8) = (deref(s)).data.data;
+        let out: Str = make();
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                let b: u8 = at(buf, i);
+                if (b >= cast(u8, 97)) {
+                    if (b <= cast(u8, 122)) {
+                        push_byte(addrm(out), (b - cast(u8, 32)));
+                    } else {
+                        push_byte(addrm(out), b);
+                    }
+                } else {
+                    push_byte(addrm(out), b);
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        return out;
     }
 
     /// Split `s` into byte-equal-delimited segments. Each segment is a

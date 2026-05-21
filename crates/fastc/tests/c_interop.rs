@@ -358,6 +358,22 @@ fn test_str_split_compiles() {
 }
 
 #[test]
+fn test_str_trim_upper_compiles() {
+    // Stage 1.1 slice 28: `str::trim` / `trim_start` / `trim_end` /
+    // `to_upper`. ASCII-only case mapping for now; non-letter bytes
+    // pass through. trim() composes start+end into a single call.
+    compile_and_verify("examples/str_trim_upper_demo.fc");
+}
+
+#[test]
+fn test_vec_concat_compiles() {
+    // Stage 1.1 slice 28b: `vec::concat[T](a, b) -> Vec[T]` —
+    // non-destructive concatenation, sibling of `vec::extend`. Both
+    // inputs are read-only; result is packed.
+    compile_and_verify("examples/vec_concat_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

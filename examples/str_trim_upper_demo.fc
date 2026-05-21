@@ -1,0 +1,54 @@
+// Stage 1.1 slice 28: `str::trim_start` / `trim_end` / `trim` /
+// `to_upper`. Pure additions — no compiler-pass changes.
+//
+// Each returns a fresh `Str`. The demo trims a padded "hello", then
+// uppercases another input, and walks the bytes back out to confirm
+// the byte transformations actually happened.
+
+use str::from_cstr;
+use str::trim;
+use str::trim_start;
+use str::trim_end;
+use str::to_upper;
+use str::byte_count;
+use str::byte_at;
+use str::dispose;
+
+fn main() -> i32 {
+    let padded: Str = from_cstr(cstr("   hello   "));
+    let trimmed: Str = trim(addr(padded));
+    let n: i32 = cast(i32, byte_count(addr(trimmed)));        // 5
+    let c0: i32 = cast(i32, byte_at(addr(trimmed), cast(usize, 0)));  // 'h' = 104
+    let c4: i32 = cast(i32, byte_at(addr(trimmed), cast(usize, 4)));  // 'o' = 111
+
+    let only_left: Str = trim_start(addr(padded));
+    let n_left: i32 = cast(i32, byte_count(addr(only_left)));    // 8 ("hello   ")
+    let only_right: Str = trim_end(addr(padded));
+    let n_right: i32 = cast(i32, byte_count(addr(only_right)));  // 8 ("   hello")
+
+    let abc: Str = from_cstr(cstr("aBc!"));
+    let upper: Str = to_upper(addr(abc));
+    let u0: i32 = cast(i32, byte_at(addr(upper), cast(usize, 0)));  // 'A' = 65
+    let u1: i32 = cast(i32, byte_at(addr(upper), cast(usize, 1)));  // 'B' = 66
+    let u2: i32 = cast(i32, byte_at(addr(upper), cast(usize, 2)));  // 'C' = 67
+    let u3: i32 = cast(i32, byte_at(addr(upper), cast(usize, 3)));  // '!' = 33
+
+    dispose(addrm(padded));
+    dispose(addrm(trimmed));
+    dispose(addrm(only_left));
+    dispose(addrm(only_right));
+    dispose(addrm(abc));
+    dispose(addrm(upper));
+
+    // n=5, n_left=8, n_right=8.
+    // Then equality checks on c0/c4/u0/u1/u2/u3 give known scores.
+    let total: i32 = ((n + n_left) + n_right);   // 21
+    if (c0 == 104) { total = (total + 1); }
+    if (c4 == 111) { total = (total + 2); }
+    if (u0 == 65) { total = (total + 4); }
+    if (u1 == 66) { total = (total + 8); }
+    if (u2 == 67) { total = (total + 16); }
+    if (u3 == 33) { total = (total + 32); }
+    // 21 + 1 + 2 + 4 + 8 + 16 + 32 = 84
+    return total;
+}
