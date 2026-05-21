@@ -287,6 +287,14 @@ fn test_io_format_compiles() {
 }
 
 #[test]
+fn test_vec_any_all_compiles() {
+    // Stage 1.1 slice 20: `vec::any` + `vec::all` predicate scans
+    // with short-circuit. Covers the vacuously-true case for `all`
+    // and the vacuously-false case for `any` on an empty vec.
+    compile_and_verify("examples/vec_any_all_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

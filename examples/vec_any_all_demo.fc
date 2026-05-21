@@ -1,0 +1,50 @@
+// Stage 1.1 slice 20: `vec::any` + `vec::all`.
+//
+// Predicate scans with short-circuit. `any` returns true at the first
+// match, `all` returns false at the first mismatch. Both reuse the
+// same fn-pointer machinery as `filter`. The demo verifies that
+// short-circuit behavior actually happens by also exercising the
+// vacuously-true case (`all` on an evec vec).
+
+use vec::new;
+use vec::push;
+use vec::any;
+use vec::all;
+use vec::release;
+
+fn is_positive(x: i32) -> bool {
+    return (x > 0);
+}
+
+fn is_huge(x: i32) -> bool {
+    return (x > 1000);
+}
+
+fn main() -> i32 {
+    let v: Vec[i32] = new(0);
+    push(addrm(v), 1);
+    push(addrm(v), 2);
+    push(addrm(v), 3);
+
+    let any_positive: bool = any(addr(v), is_positive);   // true
+    let any_huge: bool = any(addr(v), is_huge);           // false
+    let all_positive: bool = all(addr(v), is_positive);   // true
+    let all_huge: bool = all(addr(v), is_huge);           // false
+
+    // Vacuously-true case: any on evec is false, all on evec is true.
+    let evec: Vec[i32] = new(0);
+    let any_on_evec: bool = any(addr(evec), is_positive);  // false
+    let all_on_evec: bool = all(addr(evec), is_positive);  // true
+
+    release(addrm(v));
+    release(addrm(evec));
+
+    let total: i32 = 0;
+    if (any_positive) { total = (total + 1); }
+    if (!any_huge) { total = (total + 2); }
+    if (all_positive) { total = (total + 4); }
+    if (!all_huge) { total = (total + 8); }
+    if (!any_on_evec) { total = (total + 16); }
+    if (all_on_evec) { total = (total + 32); }
+    return total;  // 1+2+4+8+16+32 = 63
+}

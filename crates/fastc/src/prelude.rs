@@ -667,6 +667,40 @@ mod vec {
         }
     }
 
+    /// True when at least one element matches `pred`. Short-circuits
+    /// on the first match — does not touch later elements.
+    pub fn any[T](src: ref(Vec[T]), pred: fn(T) -> bool) -> bool {
+        let n: usize = (deref(src)).len;
+        let buf: rawm(T) = (deref(src)).data;
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                if (pred(at(buf, i))) {
+                    return true;
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        return false;
+    }
+
+    /// True when every element matches `pred`. Vacuously true on an
+    /// empty vec. Short-circuits on the first mismatch.
+    pub fn all[T](src: ref(Vec[T]), pred: fn(T) -> bool) -> bool {
+        let n: usize = (deref(src)).len;
+        let buf: rawm(T) = (deref(src)).data;
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                if (!pred(at(buf, i))) {
+                    return false;
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        return true;
+    }
+
     /// Build a fresh vec containing every element of `src` for which
     /// `pred` returns true, preserving insertion order. The returned vec
     /// is heap-allocated independently of `src`; both must be released.
