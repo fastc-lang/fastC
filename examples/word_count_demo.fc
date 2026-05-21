@@ -1,0 +1,86 @@
+// Stage 1.1 slice 30: word-count integration demo.
+//
+// First non-trivial program written against the stdlib. Splits a
+// space-delimited sentence, builds a `HashMap[Str, i32]` from word
+// to occurrence count, and looks up specific words to verify. Uses
+// `str::split`, `hashmap::put` / `lookup`, `vec::get` / `len`, and
+// the prelude `Hash`/`Eq` impls on `Str`.
+//
+// Memory-ownership caveat that v1 has to live with: when we move a
+// `Str` value into the hashmap via `put`, the map and the source
+// vec both hold a struct pointing at the same inner heap buffer.
+// Releasing both would double-free that buffer. v1 has no `Clone`
+// trait, so the demo deliberately leaks the inner Str buffers
+// after `release_map(...)` — the OS reclaims on exit. A real
+// `Clone` impl on `Str` lands in a follow-up slice.
+
+use str::from_cstr;
+use str::split;
+use str::make;
+use str::dispose;
+use vec::get;
+use vec::len;
+use vec::release;
+use hashmap::new_map;
+use hashmap::put;
+use hashmap::lookup;
+use hashmap::count_map;
+use hashmap::release_map;
+
+fn or_zero(o: opt(i32)) -> i32 {
+    if let value = unwrap_checked(o) {
+        return value;
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    let text: Str = from_cstr(cstr("the quick brown fox jumps over the lazy dog the"));
+    let words: Vec[Str] = split(addr(text), cast(u8, 32));    // split on ' '
+    let total_words: usize = len(addr(words));
+
+    let counter: HashMap[Str, i32] = new_map(make(), 0);
+
+    // Walk the words and build the histogram.
+    let i: usize = cast(usize, 0);
+    while (i < total_words) {
+        let word: Str = get(addr(words), i);
+        let prev: i32 = or_zero(lookup(addr(counter), addr(word)));
+        discard(put(addrm(counter), word, (prev + 1)));
+        i = (i + cast(usize, 1));
+    }
+
+    // Verify specific counts. "the" appears 3 times; "fox" once;
+    // a missing word returns none -> 0.
+    let q_the: Str = from_cstr(cstr("the"));
+    let q_fox: Str = from_cstr(cstr("fox"));
+    let q_missing: Str = from_cstr(cstr("nope"));
+    let n_the: i32 = or_zero(lookup(addr(counter), addr(q_the)));        // 3
+    let n_fox: i32 = or_zero(lookup(addr(counter), addr(q_fox)));        // 1
+    let n_missing: i32 = or_zero(lookup(addr(counter), addr(q_missing))); // 0
+
+    // Distinct-word count: the / quick / brown / fox / jumps / over /
+    // lazy / dog = 8.
+    let distinct: i32 = cast(i32, count_map(addr(counter)));
+
+    // Cleanup — outer containers only. Inner Strs are shared between
+    // `words` and `counter`; v1 has no per-entry clone so we just
+    // free the structural buffers and let the inner .data leak.
+    dispose(addrm(q_the));
+    dispose(addrm(q_fox));
+    dispose(addrm(q_missing));
+    release(addrm(words));
+    release_map(addrm(counter));
+    dispose(addrm(text));
+
+    // Score: n_the=3 + n_fox=1 + n_missing=0 + distinct=8 = 12.
+    // Plus a flag-bit per individual observation for sharper test.
+    let total: i32 = 0;
+    if (n_the == 3) { total = (total + 100); }
+    if (n_fox == 1) { total = (total + 50); }
+    if (n_missing == 0) { total = (total + 30); }
+    if (distinct == 8) { total = (total + 20); }
+    if (cast(i32, total_words) == 10) { total = (total + 5); }
+    // 100 + 50 + 30 + 20 + 5 = 205
+    return total;
+}

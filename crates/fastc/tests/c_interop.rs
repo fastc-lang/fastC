@@ -384,6 +384,16 @@ fn test_str_repeat_hm_clone_compiles() {
 }
 
 #[test]
+fn test_word_count_compiles() {
+    // Stage 1.1 slice 30: first non-trivial integration demo. Splits
+    // a sentence on spaces, builds a HashMap[Str, i32] frequency
+    // histogram, and verifies specific lookups. Exercises str::split,
+    // hashmap::put / lookup / count_map, vec::get / len, and the
+    // prelude Hash/Eq impls on Str working in concert.
+    compile_and_verify("examples/word_count_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }
