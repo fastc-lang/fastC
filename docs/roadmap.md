@@ -349,11 +349,12 @@ The stdlib is **born capability-aware in shape but not yet in checking.** I/O si
 - [ ] Closures: `|x: i32| -> i32 { return (x + 1); }` lowered to C structs with captured environment.
   - Captures are by value (copy). Mutable captures require `mref` in the closure signature.
   - No implicit heap allocation for closures — they are stack-allocated structs.
+  - *Status:* deferred to its own slice. Investigation found that `TypeExpr::Fn` currently lowers to `CType::Void` (function pointers were never wired through emit); shipping even no-capture closures requires `CType::FnPtr` + per-signature typedef generation in the emitter, or closure-by-monomorphization (treat the fn-typed parameter as an additional type parameter and specialize per call site). Both approaches are ~comparable to stage 0.9's mono work and need a focused slice.
 - [ ] Standard library written in FastC:
   - [x] `io` — `println(s)` + `put_char(c)` for stdout. *Slice 4 — bridges `raw(u8)` to libc's `char*` via static-inline runtime helpers (`fc_puts_u8`, `fc_putchar`). Also added a lowering fix so `cstr("...")` emits an explicit `(const uint8_t*)` cast, clearing `-Wpointer-sign` under `-Werror`. File I/O, stdin, and the capability stub remain for follow-up slices.*
   - [ ] `string` — owned strings, slicing, formatting
-  - [ ] `vec` — growable array (generic, requires generic structs from 0.9 — still deferred)
-  - [ ] `hashmap` — hash table (generic, requires generic structs + `Eq` trait from 1.0)
+  - [ ] `vec` — growable array (generic, requires generic structs from 0.9 — still deferred; needs struct monomorphization pass parallel to the existing fn mono).
+  - [ ] `hashmap` — hash table (generic, requires generic structs + the `Eq` trait from 1.0 which is already in place).
   - [x] `mem` — allocators (`alloc(size)`, `free_bytes(ptr)`). *Slice 3 — wraps libc malloc/free via `extern "C"` inside a `mod mem` block in the prelude. Copy/move helpers deferred until generic structs unblock real container types.*
   - [x] `math` — numeric functions. *Slice 1 — see above.*
   - [ ] `fs` — filesystem operations (capability stub)
