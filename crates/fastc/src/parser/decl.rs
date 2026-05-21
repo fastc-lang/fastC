@@ -311,6 +311,7 @@ impl Parser<'_> {
         let start = self.current_span().start;
         self.consume(&Token::Struct, "expected 'struct'")?;
         let name = self.expect_ident()?;
+        let generics = self.parse_optional_type_params()?;
         self.consume(&Token::LBrace, "expected '{'")?;
 
         let mut fields = Vec::new();
@@ -340,6 +341,7 @@ impl Parser<'_> {
         Ok(StructDecl {
             repr,
             name,
+            generics,
             fields,
             span: start..end,
             doc_comments: Vec::new(),

@@ -439,8 +439,30 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_struct(&mut self, struct_decl: &StructDecl) {
+        // Generic structs scope their type parameters during field-type
+        // resolution so the field types may reference them. The scope is
+        // ephemeral — only used for resolving the field types.
+        if !struct_decl.generics.is_empty() {
+            self.symbols.enter_scope();
+            for tp in &struct_decl.generics {
+                let symbol = Symbol {
+                    name: tp.name.clone(),
+                    kind: SymbolKind::TypeParam {
+                        bounds: tp.bounds.clone(),
+                    },
+                    ty: TypeExpr::Named(tp.name.clone()),
+                    span: tp.span.clone(),
+                };
+                let _ = self.symbols.define(symbol);
+            }
+        }
+
         for field in &struct_decl.fields {
             self.resolve_type(&field.ty);
+        }
+
+        if !struct_decl.generics.is_empty() {
+            self.symbols.exit_scope();
         }
     }
 

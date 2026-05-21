@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::{
     Block, Case, ElseBranch, Expr, FieldInit, File, FnDecl, ForInit, ForStep, Item, Param,
-    PrimitiveType, Stmt, TypeExpr, TypeParam,
+    PrimitiveType, Stmt, StructDecl, TypeExpr, TypeParam,
 };
 use crate::diag::CompileError;
 use crate::resolve::{SymbolKind, SymbolTable};
@@ -95,10 +95,12 @@ pub fn monomorphize(
 
     let pseudo_ctx = MonoCtx {
         generic_fns: ctx.generic_fns.clone(),
+        generic_structs: ctx.generic_structs.clone(),
         symbols,
         source: ctx.source,
         trait_impls: ctx.trait_impls.clone(),
         instantiations: ctx.instantiations.clone(),
+        struct_instantiations: ctx.struct_instantiations.clone(),
         worklist: Vec::new(),
         errors: Vec::new(),
     };
@@ -117,13 +119,558 @@ pub fn monomorphize(
     if !ctx.errors.is_empty() {
         return Err(CompileError::multiple(ctx.errors));
     }
-    Ok(File { items: new_items })
+
+    // Final pass: specialize generic structs. Walk `new_items`, mangle
+    // every `NamedGeneric(...)` type reference to `Named(<mangled>)`,
+    // rewrite `Pair { ... }` struct-literal names when the typecheck
+    // inferred the struct as generic, drop the original generic-struct
+    // declarations, and emit one specialized struct decl per instantiation.
+    let post = run_struct_mono(File { items: new_items }, &ctx.generic_structs);
+    Ok(post)
+}
+
+/// Post-fn-mono pass that specializes generic structs. Walks the file,
+/// collecting `NamedGeneric` instantiations into `struct_insts`, rewriting
+/// every type and struct-literal name to the mangled concrete form,
+/// dropping the original generic struct declarations, and appending one
+/// `Item::Struct` per unique instantiation.
+fn run_struct_mono(file: File, generic_structs: &HashMap<String, StructDecl>) -> File {
+    use crate::ast::Field;
+
+    if generic_structs.is_empty() {
+        return file;
+    }
+
+    let mut struct_insts: HashMap<String, (String, Vec<TypeExpr>)> = HashMap::new();
+
+    // Pass A: collect instantiations and rewrite every type-bearing site.
+    let rewritten: Vec<Item> = file
+        .items
+        .into_iter()
+        .filter_map(|item| match item {
+            Item::Struct(s) if !s.generics.is_empty() => None,
+            Item::Fn(f) => Some(Item::Fn(rewrite_fn_struct_refs(
+                f,
+                generic_structs,
+                &mut struct_insts,
+            ))),
+            Item::Struct(s) => Some(Item::Struct(StructDecl {
+                repr: s.repr,
+                name: s.name,
+                generics: s.generics,
+                fields: s
+                    .fields
+                    .into_iter()
+                    .map(|f| Field {
+                        name: f.name,
+                        ty: mangle_type_refs(&f.ty, generic_structs, &mut struct_insts),
+                        span: f.span,
+                    })
+                    .collect(),
+                span: s.span,
+                doc_comments: s.doc_comments,
+            })),
+            Item::Mod(m) => Some(Item::Mod(rewrite_mod_struct_refs(
+                m,
+                generic_structs,
+                &mut struct_insts,
+            ))),
+            other => Some(other),
+        })
+        .collect();
+
+    // Pass B: emit one specialized struct per unique instantiation, in
+    // deterministic mangled-name order. Run mangle_type_refs again on
+    // each specialized field type so nested generics (Pair[Vec[i32], _])
+    // resolve all the way down.
+    let mut emit_order: Vec<(String, (String, Vec<TypeExpr>))> = struct_insts
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    emit_order.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut nested_insts: HashMap<String, (String, Vec<TypeExpr>)> = struct_insts.clone();
+    let mut specialized: Vec<Item> = Vec::with_capacity(emit_order.len());
+    for (mangled, (orig_name, type_args)) in emit_order {
+        if let Some(decl) = generic_structs.get(&orig_name) {
+            let subst: HashMap<String, TypeExpr> = decl
+                .generics
+                .iter()
+                .zip(type_args.iter())
+                .map(|(p, a)| (p.name.clone(), a.clone()))
+                .collect();
+            let new_fields: Vec<Field> = decl
+                .fields
+                .iter()
+                .map(|f| {
+                    let after_subst = substitute(&f.ty, &subst);
+                    Field {
+                        name: f.name.clone(),
+                        ty: mangle_type_refs(&after_subst, generic_structs, &mut nested_insts),
+                        span: f.span.clone(),
+                    }
+                })
+                .collect();
+            specialized.push(Item::Struct(StructDecl {
+                repr: decl.repr.clone(),
+                name: mangled,
+                generics: Vec::new(),
+                fields: new_fields,
+                span: decl.span.clone(),
+                doc_comments: decl.doc_comments.clone(),
+            }));
+        }
+    }
+
+    // If specializing introduced *new* nested instantiations, do a single
+    // additional round. For the v1 stdlib (Pair, vec-style) one extra
+    // round suffices; deeper nesting would need a fixpoint loop. Punt for
+    // now and emit any newly-discovered instantiations as well.
+    for (mangled, (orig_name, type_args)) in &nested_insts {
+        if struct_insts.contains_key(mangled) {
+            continue;
+        }
+        if let Some(decl) = generic_structs.get(orig_name) {
+            let subst: HashMap<String, TypeExpr> = decl
+                .generics
+                .iter()
+                .zip(type_args.iter())
+                .map(|(p, a)| (p.name.clone(), a.clone()))
+                .collect();
+            let new_fields: Vec<Field> = decl
+                .fields
+                .iter()
+                .map(|f| {
+                    let after_subst = substitute(&f.ty, &subst);
+                    let mut sink: HashMap<String, (String, Vec<TypeExpr>)> = HashMap::new();
+                    Field {
+                        name: f.name.clone(),
+                        ty: mangle_type_refs(&after_subst, generic_structs, &mut sink),
+                        span: f.span.clone(),
+                    }
+                })
+                .collect();
+            specialized.push(Item::Struct(StructDecl {
+                repr: decl.repr.clone(),
+                name: mangled.clone(),
+                generics: Vec::new(),
+                fields: new_fields,
+                span: decl.span.clone(),
+                doc_comments: decl.doc_comments.clone(),
+            }));
+        }
+    }
+
+    let mut out_items = rewritten;
+    out_items.extend(specialized);
+    File { items: out_items }
+}
+
+/// Walk an FnDecl's type-bearing positions (params, return type, body type
+/// annotations, and cast/struct-lit expressions) and mangle every generic
+/// struct reference.
+fn rewrite_fn_struct_refs(
+    f: FnDecl,
+    generic_structs: &HashMap<String, StructDecl>,
+    struct_insts: &mut HashMap<String, (String, Vec<TypeExpr>)>,
+) -> FnDecl {
+    FnDecl {
+        is_unsafe: f.is_unsafe,
+        name: f.name,
+        generics: f.generics,
+        doc_comments: f.doc_comments,
+        params: f
+            .params
+            .into_iter()
+            .map(|p| Param {
+                name: p.name,
+                ty: mangle_type_refs(&p.ty, generic_structs, struct_insts),
+                span: p.span,
+            })
+            .collect(),
+        return_type: mangle_type_refs(&f.return_type, generic_structs, struct_insts),
+        body: mangle_block_struct_refs(f.body, generic_structs, struct_insts),
+        span: f.span,
+    }
+}
+
+fn rewrite_mod_struct_refs(
+    m: crate::ast::ModDecl,
+    generic_structs: &HashMap<String, StructDecl>,
+    struct_insts: &mut HashMap<String, (String, Vec<TypeExpr>)>,
+) -> crate::ast::ModDecl {
+    crate::ast::ModDecl {
+        is_pub: m.is_pub,
+        name: m.name,
+        body: m.body.map(|items| {
+            items
+                .into_iter()
+                .filter_map(|item| match item {
+                    Item::Struct(s) if !s.generics.is_empty() => None,
+                    Item::Fn(f) => Some(Item::Fn(rewrite_fn_struct_refs(
+                        f,
+                        generic_structs,
+                        struct_insts,
+                    ))),
+                    Item::Mod(inner) => Some(Item::Mod(rewrite_mod_struct_refs(
+                        inner,
+                        generic_structs,
+                        struct_insts,
+                    ))),
+                    other => Some(other),
+                })
+                .collect()
+        }),
+        span: m.span,
+    }
+}
+
+fn mangle_block_struct_refs(
+    block: Block,
+    generic_structs: &HashMap<String, StructDecl>,
+    struct_insts: &mut HashMap<String, (String, Vec<TypeExpr>)>,
+) -> Block {
+    Block {
+        stmts: block
+            .stmts
+            .into_iter()
+            .map(|s| mangle_stmt_struct_refs(s, generic_structs, struct_insts))
+            .collect(),
+        span: block.span,
+    }
+}
+
+fn mangle_stmt_struct_refs(
+    stmt: Stmt,
+    generic_structs: &HashMap<String, StructDecl>,
+    struct_insts: &mut HashMap<String, (String, Vec<TypeExpr>)>,
+) -> Stmt {
+    match stmt {
+        Stmt::Let {
+            name,
+            ty,
+            init,
+            span,
+        } => Stmt::Let {
+            name,
+            ty: mangle_type_refs(&ty, generic_structs, struct_insts),
+            init: mangle_expr_struct_refs(init, generic_structs, struct_insts),
+            span,
+        },
+        Stmt::Assign { lhs, rhs, span } => Stmt::Assign {
+            lhs: mangle_expr_struct_refs(lhs, generic_structs, struct_insts),
+            rhs: mangle_expr_struct_refs(rhs, generic_structs, struct_insts),
+            span,
+        },
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+            span,
+        } => Stmt::If {
+            cond: mangle_expr_struct_refs(cond, generic_structs, struct_insts),
+            then_block: mangle_block_struct_refs(then_block, generic_structs, struct_insts),
+            else_block: else_block.map(|e| match e {
+                ElseBranch::ElseIf(s) => ElseBranch::ElseIf(Box::new(mangle_stmt_struct_refs(
+                    *s,
+                    generic_structs,
+                    struct_insts,
+                ))),
+                ElseBranch::Else(b) => {
+                    ElseBranch::Else(mangle_block_struct_refs(b, generic_structs, struct_insts))
+                }
+            }),
+            span,
+        },
+        Stmt::IfLet {
+            name,
+            expr,
+            then_block,
+            else_block,
+            span,
+        } => Stmt::IfLet {
+            name,
+            expr: mangle_expr_struct_refs(expr, generic_structs, struct_insts),
+            then_block: mangle_block_struct_refs(then_block, generic_structs, struct_insts),
+            else_block: else_block
+                .map(|b| mangle_block_struct_refs(b, generic_structs, struct_insts)),
+            span,
+        },
+        Stmt::While { cond, body, span } => Stmt::While {
+            cond: mangle_expr_struct_refs(cond, generic_structs, struct_insts),
+            body: mangle_block_struct_refs(body, generic_structs, struct_insts),
+            span,
+        },
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+            span,
+        } => Stmt::For {
+            init: init.map(|i| match i {
+                ForInit::Let { name, ty, init } => ForInit::Let {
+                    name,
+                    ty: mangle_type_refs(&ty, generic_structs, struct_insts),
+                    init: mangle_expr_struct_refs(init, generic_structs, struct_insts),
+                },
+                ForInit::Assign { lhs, rhs } => ForInit::Assign {
+                    lhs: mangle_expr_struct_refs(lhs, generic_structs, struct_insts),
+                    rhs: mangle_expr_struct_refs(rhs, generic_structs, struct_insts),
+                },
+                ForInit::Call(e) => {
+                    ForInit::Call(mangle_expr_struct_refs(e, generic_structs, struct_insts))
+                }
+            }),
+            cond: cond.map(|c| mangle_expr_struct_refs(c, generic_structs, struct_insts)),
+            step: step.map(|s| match s {
+                ForStep::Assign { lhs, rhs } => ForStep::Assign {
+                    lhs: mangle_expr_struct_refs(lhs, generic_structs, struct_insts),
+                    rhs: mangle_expr_struct_refs(rhs, generic_structs, struct_insts),
+                },
+                ForStep::Call(e) => {
+                    ForStep::Call(mangle_expr_struct_refs(e, generic_structs, struct_insts))
+                }
+            }),
+            body: mangle_block_struct_refs(body, generic_structs, struct_insts),
+            span,
+        },
+        Stmt::Switch {
+            expr,
+            cases,
+            default,
+            span,
+        } => Stmt::Switch {
+            expr: mangle_expr_struct_refs(expr, generic_structs, struct_insts),
+            cases: cases
+                .into_iter()
+                .map(|c| Case {
+                    value: c.value,
+                    stmts: c
+                        .stmts
+                        .into_iter()
+                        .map(|s| mangle_stmt_struct_refs(s, generic_structs, struct_insts))
+                        .collect(),
+                    span: c.span,
+                })
+                .collect(),
+            default: default.map(|stmts| {
+                stmts
+                    .into_iter()
+                    .map(|s| mangle_stmt_struct_refs(s, generic_structs, struct_insts))
+                    .collect()
+            }),
+            span,
+        },
+        Stmt::Return { value, span } => Stmt::Return {
+            value: value.map(|e| mangle_expr_struct_refs(e, generic_structs, struct_insts)),
+            span,
+        },
+        Stmt::Defer { body, span } => Stmt::Defer {
+            body: mangle_block_struct_refs(body, generic_structs, struct_insts),
+            span,
+        },
+        Stmt::Unsafe { body, span } => Stmt::Unsafe {
+            body: mangle_block_struct_refs(body, generic_structs, struct_insts),
+            span,
+        },
+        Stmt::Block(b) => Stmt::Block(mangle_block_struct_refs(b, generic_structs, struct_insts)),
+        Stmt::Expr { expr, span } => Stmt::Expr {
+            expr: mangle_expr_struct_refs(expr, generic_structs, struct_insts),
+            span,
+        },
+        Stmt::Discard { expr, span } => Stmt::Discard {
+            expr: mangle_expr_struct_refs(expr, generic_structs, struct_insts),
+            span,
+        },
+        Stmt::Break { .. } | Stmt::Continue { .. } => stmt,
+    }
+}
+
+fn mangle_expr_struct_refs(
+    expr: Expr,
+    generic_structs: &HashMap<String, StructDecl>,
+    struct_insts: &mut HashMap<String, (String, Vec<TypeExpr>)>,
+) -> Expr {
+    match expr {
+        Expr::StructLit { name, fields, span } => {
+            // If the struct is generic, infer type args from the field
+            // values and rewrite the literal's name to the mangled form.
+            let rewritten_fields: Vec<FieldInit> = fields
+                .into_iter()
+                .map(|f| FieldInit {
+                    name: f.name,
+                    value: mangle_expr_struct_refs(f.value, generic_structs, struct_insts),
+                    span: f.span,
+                })
+                .collect();
+            if let Some(decl) = generic_structs.get(&name) {
+                let type_params: Vec<String> =
+                    decl.generics.iter().map(|p| p.name.clone()).collect();
+                let mut subst: HashMap<String, TypeExpr> = HashMap::new();
+                for fld in &rewritten_fields {
+                    if let Some(decl_field) = decl.fields.iter().find(|d| d.name == fld.name) {
+                        let arg_ty = approx_field_type(&fld.value);
+                        unify_generic(&decl_field.ty, &arg_ty, &type_params, &mut subst);
+                    }
+                }
+                let type_args: Vec<TypeExpr> = type_params
+                    .iter()
+                    .map(|p| {
+                        subst
+                            .get(p)
+                            .cloned()
+                            .unwrap_or_else(|| TypeExpr::Named(p.clone()))
+                    })
+                    .collect();
+                let mangled = mangled_name(&name, &type_args);
+                struct_insts
+                    .entry(mangled.clone())
+                    .or_insert((name.clone(), type_args));
+                Expr::StructLit {
+                    name: mangled,
+                    fields: rewritten_fields,
+                    span,
+                }
+            } else {
+                Expr::StructLit {
+                    name,
+                    fields: rewritten_fields,
+                    span,
+                }
+            }
+        }
+        Expr::Cast { ty, expr: e, span } => Expr::Cast {
+            ty: mangle_type_refs(&ty, generic_structs, struct_insts),
+            expr: Box::new(mangle_expr_struct_refs(*e, generic_structs, struct_insts)),
+            span,
+        },
+        Expr::None { ty, span } => Expr::None {
+            ty: mangle_type_refs(&ty, generic_structs, struct_insts),
+            span,
+        },
+        Expr::Call { callee, args, span } => Expr::Call {
+            callee: Box::new(mangle_expr_struct_refs(
+                *callee,
+                generic_structs,
+                struct_insts,
+            )),
+            args: args
+                .into_iter()
+                .map(|a| mangle_expr_struct_refs(a, generic_structs, struct_insts))
+                .collect(),
+            span,
+        },
+        Expr::Binary { op, lhs, rhs, span } => Expr::Binary {
+            op,
+            lhs: Box::new(mangle_expr_struct_refs(*lhs, generic_structs, struct_insts)),
+            rhs: Box::new(mangle_expr_struct_refs(*rhs, generic_structs, struct_insts)),
+            span,
+        },
+        Expr::Unary { op, operand, span } => Expr::Unary {
+            op,
+            operand: Box::new(mangle_expr_struct_refs(
+                *operand,
+                generic_structs,
+                struct_insts,
+            )),
+            span,
+        },
+        Expr::Paren { inner, span } => Expr::Paren {
+            inner: Box::new(mangle_expr_struct_refs(
+                *inner,
+                generic_structs,
+                struct_insts,
+            )),
+            span,
+        },
+        Expr::Field { base, field, span } => Expr::Field {
+            base: Box::new(mangle_expr_struct_refs(
+                *base,
+                generic_structs,
+                struct_insts,
+            )),
+            field,
+            span,
+        },
+        Expr::Addr { operand, span } => Expr::Addr {
+            operand: Box::new(mangle_expr_struct_refs(
+                *operand,
+                generic_structs,
+                struct_insts,
+            )),
+            span,
+        },
+        Expr::Deref { operand, span } => Expr::Deref {
+            operand: Box::new(mangle_expr_struct_refs(
+                *operand,
+                generic_structs,
+                struct_insts,
+            )),
+            span,
+        },
+        Expr::At { base, index, span } => Expr::At {
+            base: Box::new(mangle_expr_struct_refs(
+                *base,
+                generic_structs,
+                struct_insts,
+            )),
+            index: Box::new(mangle_expr_struct_refs(
+                *index,
+                generic_structs,
+                struct_insts,
+            )),
+            span,
+        },
+        Expr::Some { value, span } => Expr::Some {
+            value: Box::new(mangle_expr_struct_refs(
+                *value,
+                generic_structs,
+                struct_insts,
+            )),
+            span,
+        },
+        Expr::Ok { value, span } => Expr::Ok {
+            value: Box::new(mangle_expr_struct_refs(
+                *value,
+                generic_structs,
+                struct_insts,
+            )),
+            span,
+        },
+        Expr::Err { value, span } => Expr::Err {
+            value: Box::new(mangle_expr_struct_refs(
+                *value,
+                generic_structs,
+                struct_insts,
+            )),
+            span,
+        },
+        other => other,
+    }
+}
+
+/// Best-effort type-of for a struct-literal field value, used to infer
+/// type-args. Only handles the leaf cases that show up in v1 stdlib
+/// initializers; deeper expressions are typed at typecheck time and
+/// don't need to be re-inferred here.
+fn approx_field_type(expr: &Expr) -> TypeExpr {
+    match expr {
+        Expr::IntLit { .. } => TypeExpr::Primitive(PrimitiveType::I32),
+        Expr::FloatLit { .. } => TypeExpr::Primitive(PrimitiveType::F64),
+        Expr::BoolLit { .. } => TypeExpr::Primitive(PrimitiveType::Bool),
+        Expr::Cast { ty, .. } => ty.clone(),
+        Expr::Paren { inner, .. } => approx_field_type(inner),
+        _ => TypeExpr::Void,
+    }
 }
 
 /// Walking context for monomorphization.
 struct MonoCtx<'a> {
     /// All generic-fn declarations in the program, keyed by name.
     generic_fns: HashMap<String, FnDecl>,
+    /// All generic struct declarations, keyed by name.
+    generic_structs: HashMap<String, StructDecl>,
     /// Symbol table used to identify generic call sites by name lookup.
     symbols: &'a SymbolTable,
     /// Source text — passed to error constructors so spans render properly.
@@ -132,14 +679,102 @@ struct MonoCtx<'a> {
     /// `Item::Impl` entries that name a trait. Used to verify bound
     /// satisfaction when specializing generic instantiations.
     trait_impls: HashMap<String, HashSet<String>>,
-    /// Known instantiations keyed by mangled name. The value records the
+    /// Known fn instantiations keyed by mangled name. The value records the
     /// original (fn_name, type_args) tuple so pass 2 can specialize the body.
     /// Mangled-name keying side-steps `Vec<TypeExpr>: !Hash`.
     instantiations: HashMap<String, (String, Vec<TypeExpr>)>,
-    /// Worklist for transitive instantiation discovery.
+    /// Known struct instantiations keyed by mangled name (`Pair_i32_bool`).
+    /// Values map back to (struct_name, type_args).
+    struct_instantiations: HashMap<String, (String, Vec<TypeExpr>)>,
+    /// Worklist for transitive fn instantiation discovery.
     worklist: Vec<(String, Vec<TypeExpr>)>,
     /// Bound-satisfaction errors accumulated during the collect pass.
     errors: Vec<CompileError>,
+}
+
+/// Rewrite a `TypeExpr` so every `NamedGeneric(name, args)` referring to a
+/// generic struct in `generic_structs` becomes `Named(mangled)`. Also
+/// registers each instantiation in `struct_insts` so pass 2 can emit a
+/// specialized struct definition.
+fn mangle_type_refs(
+    ty: &TypeExpr,
+    generic_structs: &HashMap<String, StructDecl>,
+    struct_insts: &mut HashMap<String, (String, Vec<TypeExpr>)>,
+) -> TypeExpr {
+    match ty {
+        TypeExpr::NamedGeneric(name, args) => {
+            // First, recurse into args so nested generics are mangled too.
+            let new_args: Vec<TypeExpr> = args
+                .iter()
+                .map(|a| mangle_type_refs(a, generic_structs, struct_insts))
+                .collect();
+            if generic_structs.contains_key(name) {
+                let mangled = mangled_name(name, &new_args);
+                struct_insts
+                    .entry(mangled.clone())
+                    .or_insert((name.clone(), new_args));
+                TypeExpr::Named(mangled)
+            } else {
+                TypeExpr::NamedGeneric(name.clone(), new_args)
+            }
+        }
+        TypeExpr::Ref(inner) => TypeExpr::Ref(Box::new(mangle_type_refs(
+            inner,
+            generic_structs,
+            struct_insts,
+        ))),
+        TypeExpr::Mref(inner) => TypeExpr::Mref(Box::new(mangle_type_refs(
+            inner,
+            generic_structs,
+            struct_insts,
+        ))),
+        TypeExpr::Raw(inner) => TypeExpr::Raw(Box::new(mangle_type_refs(
+            inner,
+            generic_structs,
+            struct_insts,
+        ))),
+        TypeExpr::Rawm(inner) => TypeExpr::Rawm(Box::new(mangle_type_refs(
+            inner,
+            generic_structs,
+            struct_insts,
+        ))),
+        TypeExpr::Own(inner) => TypeExpr::Own(Box::new(mangle_type_refs(
+            inner,
+            generic_structs,
+            struct_insts,
+        ))),
+        TypeExpr::Slice(inner) => TypeExpr::Slice(Box::new(mangle_type_refs(
+            inner,
+            generic_structs,
+            struct_insts,
+        ))),
+        TypeExpr::Arr(inner, n) => TypeExpr::Arr(
+            Box::new(mangle_type_refs(inner, generic_structs, struct_insts)),
+            n.clone(),
+        ),
+        TypeExpr::Opt(inner) => TypeExpr::Opt(Box::new(mangle_type_refs(
+            inner,
+            generic_structs,
+            struct_insts,
+        ))),
+        TypeExpr::Res(a, b) => TypeExpr::Res(
+            Box::new(mangle_type_refs(a, generic_structs, struct_insts)),
+            Box::new(mangle_type_refs(b, generic_structs, struct_insts)),
+        ),
+        TypeExpr::Fn {
+            is_unsafe,
+            params,
+            ret,
+        } => TypeExpr::Fn {
+            is_unsafe: *is_unsafe,
+            params: params
+                .iter()
+                .map(|p| mangle_type_refs(p, generic_structs, struct_insts))
+                .collect(),
+            ret: Box::new(mangle_type_refs(ret, generic_structs, struct_insts)),
+        },
+        TypeExpr::Named(_) | TypeExpr::Primitive(_) | TypeExpr::Void => ty.clone(),
+    }
 }
 
 /// Filter generic functions out of a module's body. Specialized
@@ -169,18 +804,23 @@ fn strip_generic_fns_from_mod(m: &crate::ast::ModDecl) -> crate::ast::ModDecl {
 }
 
 /// Walk `items`, plus the bodies of any inline `Item::Mod`, gathering
-/// generic function declarations and trait-impl mappings into the caller's
-/// hashmaps. Recursive so generics declared inside a stdlib module (the
-/// prelude's `mod math` is the canonical case) are visible to mono.
+/// generic function declarations, generic struct declarations, and
+/// trait-impl mappings into the caller's hashmaps. Recursive so generics
+/// declared inside a stdlib module (the prelude's `mod math` is the
+/// canonical case) are visible to mono.
 fn collect_items_recursive(
     items: &[Item],
     generic_fns: &mut HashMap<String, FnDecl>,
+    generic_structs: &mut HashMap<String, StructDecl>,
     trait_impls: &mut HashMap<String, HashSet<String>>,
 ) {
     for item in items {
         match item {
             Item::Fn(f) if !f.generics.is_empty() => {
                 generic_fns.insert(f.name.clone(), f.clone());
+            }
+            Item::Struct(s) if !s.generics.is_empty() => {
+                generic_structs.insert(s.name.clone(), s.clone());
             }
             Item::Impl(block) => {
                 if let Some(trait_name) = &block.trait_name {
@@ -192,7 +832,7 @@ fn collect_items_recursive(
             }
             Item::Mod(m) => {
                 if let Some(body) = &m.body {
-                    collect_items_recursive(body, generic_fns, trait_impls);
+                    collect_items_recursive(body, generic_fns, generic_structs, trait_impls);
                 }
             }
             _ => {}
@@ -203,14 +843,22 @@ fn collect_items_recursive(
 impl<'a> MonoCtx<'a> {
     fn new(file: &'a File, symbols: &'a SymbolTable, source: &'a str) -> Self {
         let mut generic_fns = HashMap::new();
+        let mut generic_structs = HashMap::new();
         let mut trait_impls: HashMap<String, HashSet<String>> = HashMap::new();
-        collect_items_recursive(&file.items, &mut generic_fns, &mut trait_impls);
+        collect_items_recursive(
+            &file.items,
+            &mut generic_fns,
+            &mut generic_structs,
+            &mut trait_impls,
+        );
         Self {
             generic_fns,
+            generic_structs,
             symbols,
             source,
             trait_impls,
             instantiations: HashMap::new(),
+            struct_instantiations: HashMap::new(),
             worklist: Vec::new(),
             errors: Vec::new(),
         }

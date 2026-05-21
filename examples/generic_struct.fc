@@ -1,0 +1,22 @@
+// Stage 1.1 slice 6: generic structs.
+//
+// `struct Pair[A, B] { first: A, second: B }` declarations are now real.
+// Mono specializes the struct per type-argument combination, emitting
+// `Pair_i32_bool`, `Pair_f64_i32`, … as ordinary C typedefs. Struct
+// literals infer their type args from the field values; the mangled
+// name is filled in automatically.
+//
+// This unblocks the path to `vec`, `hashmap`, owned strings, and the
+// rest of the generic-container stdlib.
+
+struct Pair[A, B] {
+    first: A,
+    second: B,
+}
+
+fn main() -> i32 {
+    // Two independent instantiations live side by side.
+    let pi: Pair[i32, bool] = Pair { first: 7, second: true };
+    let pf: Pair[f64, i32] = Pair { first: 1.5, second: 42 };
+    return (pi.first + pf.second);   // 7 + 42 = 49
+}

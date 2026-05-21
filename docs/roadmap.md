@@ -291,7 +291,7 @@ This stage lands before stdlib (1.1) so stdlib growth cannot blow the budget unn
 - [x] Grammar extension: `fn find_min[T](s: slice(T), len: i32) -> T`.
 - [x] Type parameter parsing and AST representation.
 - [x] Monomorphization pass between type checking and lowering. *New `mono` module, ~660 lines: collects instantiations, transitive closure via worklist, name-mangles deterministically, rewrites call sites.*
-- [ ] Generic structs: `struct Pair[A, B] { first: A, second: B }`. *Deferred to a follow-up slice — requires substituting type params through field types and struct-literal sites. Functions cover the common case for stage 1.1 stdlib pull-up.*
+- [x] Generic structs: `struct Pair[A, B] { first: A, second: B }`. *Stage 1.1 slice 6 — mono now runs a `run_struct_mono` post-pass that walks the AST, collects every `NamedGeneric` reference into a struct-instantiation table, rewrites types to `Named(<mangled>)`, rewrites struct-literal names to their mangled form (inferring type args from field values), drops generic struct declarations, and appends one specialized struct per instantiation. `examples/generic_struct.fc` exercises two independent instantiations (`Pair[i32, bool]` and `Pair[f64, i32]`) in the same compilation. Unblocks `vec`/`hashmap` in stage 1.1.*
 - [x] Generic function instantiation with concrete types.
 - [ ] Minimal constraint system (`T: Eq`, `T: Ord`). *Moved to stage 1.0 slice 2 where traits provide a more principled foundation than ad-hoc constraints.*
 - [x] Error diagnostics for unsatisfied constraints. *Inferred-type mismatch errors at call sites produce the same structured miette diagnostics as ordinary type errors.*
@@ -300,7 +300,7 @@ This stage lands before stdlib (1.1) so stdlib growth cannot blow the budget unn
 **Definition of Done**
 
 - [x] Generic functions work end-to-end. *`examples/generic_id.fc` exercises single- and multi-param generics; mixed-type call (`pick(35, b)`) compiles to runnable C.*
-- [ ] Generic structs work end-to-end. *Deferred.*
+- [x] Generic structs work end-to-end. *Closed in stage 1.1 slice 6 via the `run_struct_mono` post-pass.*
 - [x] Monomorphization generates specialized C functions (e.g., `id_i32`, `id_bool`, `pick_i32_bool`).
 - [ ] Constraints are checked at call sites with clear error messages. *Moved to stage 1.0 slice 2 (bound checking happens at mono time).*
 - [x] Compile-time budget targets remain green after generics land.
@@ -346,6 +346,7 @@ The stdlib is **born capability-aware in shape but not yet in checking.** I/O si
 - **Slice 3 ✅:** `mem` module — `extern "C"` wrappers for libc `malloc` / `free`, exposed as `mem::alloc(size: usize) -> rawm(u8)` and `mem::free_bytes(ptr: rawm(u8))`. First demonstration that the prelude can carry FFI declarations and that extern blocks parse inside `mod` bodies. `examples/mem_demo.fc` round-trips an allocation and exits 0.
 - **Slice 4 ✅:** `io` module — `println(s: raw(u8))` and `put_char(c: i32)` for stdout. Runtime helpers `fc_puts_u8` / `fc_putchar` in `fastc_runtime.h` bridge `raw(u8)` to libc's `char*`. The lower pass now wraps `cstr("...")` literals in an explicit `(const uint8_t*)` cast so `-Werror -Wall` stops complaining. `examples/io_demo.fc` prints `hello, fastC!` and `!\n`. Hello-world without writing FFI by hand finally works.
 - **Slice 5 ✅:** Function pointers. `fn(T) -> R` types lower through new `CType::FnPtr`; the emitter pre-pass walks the C AST collecting unique fn-pointer signatures and emits typedefs at the top of the output. `apply(dbl, 5)` and `let f: fn(i32) -> i32 = add_one;` both compile and run end-to-end. `examples/fn_ptr.fc` exercises both higher-order args and local bindings (exit 50). This is the prerequisite for any future closure slice — anonymous `|x| ...` syntax desugars onto these typedef-backed fn ptrs.
+- **Slice 6 ✅:** Generic structs (closes the deferred 0.9 item). New `run_struct_mono` post-pass after fn monomorphization. Walks the AST, mangles every `NamedGeneric(Pair, [i32, bool])` to `Named("Pair_i32_bool")`, infers type arguments at struct-literal sites from field values, drops generic struct declarations, and emits one specialized struct per instantiation. `examples/generic_struct.fc` runs two independent instantiations in the same compilation (`Pair[i32, bool]` and `Pair[f64, i32]`, exit 49). Unblocks the path to `vec` / `hashmap` in subsequent slices.
 
 - [ ] Closures: `|x: i32| -> i32 { return (x + 1); }` lowered to C structs with captured environment.
   - Captures are by value (copy). Mutable captures require `mref` in the closure signature.
@@ -354,8 +355,8 @@ The stdlib is **born capability-aware in shape but not yet in checking.** I/O si
 - [ ] Standard library written in FastC:
   - [x] `io` — `println(s)` + `put_char(c)` for stdout. *Slice 4 — bridges `raw(u8)` to libc's `char*` via static-inline runtime helpers (`fc_puts_u8`, `fc_putchar`). Also added a lowering fix so `cstr("...")` emits an explicit `(const uint8_t*)` cast, clearing `-Wpointer-sign` under `-Werror`. File I/O, stdin, and the capability stub remain for follow-up slices.*
   - [ ] `string` — owned strings, slicing, formatting
-  - [ ] `vec` — growable array (generic, requires generic structs from 0.9 — still deferred; needs struct monomorphization pass parallel to the existing fn mono).
-  - [ ] `hashmap` — hash table (generic, requires generic structs + the `Eq` trait from 1.0 which is already in place).
+  - [ ] `vec` — growable array (generic). *Unblocked by stage 1.1 slice 6 generic structs; the v1 implementation needs a `mem`-backed buffer + `len`/`cap` fields + push/pop/index methods.*
+  - [ ] `hashmap` — hash table (generic). *Unblocked. Needs vec or its own raw buffer; uses `Eq` from 1.0 for key comparison.*
   - [x] `mem` — allocators (`alloc(size)`, `free_bytes(ptr)`). *Slice 3 — wraps libc malloc/free via `extern "C"` inside a `mod mem` block in the prelude. Copy/move helpers deferred until generic structs unblock real container types.*
   - [x] `math` — numeric functions. *Slice 1 — see above.*
   - [ ] `fs` — filesystem operations (capability stub)

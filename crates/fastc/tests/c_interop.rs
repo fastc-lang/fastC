@@ -172,6 +172,14 @@ fn test_fn_pointers_compile() {
 }
 
 #[test]
+fn test_generic_struct_compiles() {
+    // Stage 1.1 slice 6: generic structs. Mono specializes `Pair[A, B]`
+    // per instantiation, emitting `Pair_i32_bool` / `Pair_f64_i32` as
+    // independent typedefs.
+    compile_and_verify("examples/generic_struct.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

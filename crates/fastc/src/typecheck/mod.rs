@@ -805,18 +805,74 @@ impl<'a> TypeChecker<'a> {
             Expr::Field { base, field, span } => {
                 let base_ty = self.infer_expr(base);
 
-                // Look up field in struct
-                if let TypeExpr::Named(struct_name) = &base_ty {
-                    // TODO: Look up struct definition and find field type
-                    // For now, return void as placeholder
-                    let _ = (struct_name, field, span);
-                    TypeExpr::Void
-                } else {
-                    self.error(
-                        format!("field access on non-struct type {:?}", base_ty),
-                        span.clone(),
-                    );
-                    TypeExpr::Void
+                // Strip one level of ref/mref so `p.first` on `p: ref(Pair[..])`
+                // still resolves through the underlying struct.
+                let core_ty = match &base_ty {
+                    TypeExpr::Ref(inner) | TypeExpr::Mref(inner) => (**inner).clone(),
+                    other => other.clone(),
+                };
+
+                match &core_ty {
+                    TypeExpr::Named(struct_name) => {
+                        if let Some(struct_decl) = self.struct_decls.get(struct_name).cloned() {
+                            if let Some(field_decl) =
+                                struct_decl.fields.iter().find(|f| f.name == *field)
+                            {
+                                return field_decl.ty.clone();
+                            }
+                            self.error(
+                                format!("no field '{}' on struct '{}'", field, struct_name),
+                                span.clone(),
+                            );
+                            return TypeExpr::Void;
+                        }
+                        // Unknown struct — fall through to error
+                        self.error(
+                            format!("field access on unknown type '{}'", struct_name),
+                            span.clone(),
+                        );
+                        TypeExpr::Void
+                    }
+                    TypeExpr::NamedGeneric(struct_name, type_args) => {
+                        if let Some(struct_decl) = self.struct_decls.get(struct_name).cloned() {
+                            if struct_decl.generics.len() != type_args.len() {
+                                self.error(
+                                    format!(
+                                        "type argument count mismatch on '{}': expected {}, got {}",
+                                        struct_name,
+                                        struct_decl.generics.len(),
+                                        type_args.len()
+                                    ),
+                                    span.clone(),
+                                );
+                                return TypeExpr::Void;
+                            }
+                            let subst: HashMap<String, TypeExpr> = struct_decl
+                                .generics
+                                .iter()
+                                .zip(type_args.iter())
+                                .map(|(p, a)| (p.name.clone(), a.clone()))
+                                .collect();
+                            if let Some(field_decl) =
+                                struct_decl.fields.iter().find(|f| f.name == *field)
+                            {
+                                return substitute(&field_decl.ty, &subst);
+                            }
+                            self.error(
+                                format!("no field '{}' on struct '{}'", field, struct_name),
+                                span.clone(),
+                            );
+                            return TypeExpr::Void;
+                        }
+                        TypeExpr::Void
+                    }
+                    _ => {
+                        self.error(
+                            format!("field access on non-struct type {:?}", base_ty),
+                            span.clone(),
+                        );
+                        TypeExpr::Void
+                    }
                 }
             }
 
@@ -912,7 +968,41 @@ impl<'a> TypeChecker<'a> {
                 TypeExpr::Res(Box::new(TypeExpr::Void), Box::new(inner_ty))
             }
 
-            Expr::StructLit { name, .. } => TypeExpr::Named(name.clone()),
+            Expr::StructLit { name, fields, .. } => {
+                // For generic structs, infer the type arguments by
+                // unifying each provided field value's type against the
+                // struct's declared field type. The struct's `generics`
+                // names are the type params we're inferring.
+                if let Some(struct_decl) = self.struct_decls.get(name).cloned() {
+                    if !struct_decl.generics.is_empty() {
+                        let type_params: Vec<String> = struct_decl
+                            .generics
+                            .iter()
+                            .map(|p| p.name.clone())
+                            .collect();
+                        let mut subst: HashMap<String, TypeExpr> = HashMap::new();
+                        for f in fields {
+                            if let Some(decl_field) =
+                                struct_decl.fields.iter().find(|d| d.name == f.name)
+                            {
+                                let val_ty = self.infer_expr(&f.value);
+                                unify_generic(&decl_field.ty, &val_ty, &type_params, &mut subst);
+                            }
+                        }
+                        let type_args: Vec<TypeExpr> = type_params
+                            .iter()
+                            .map(|p| {
+                                subst
+                                    .get(p)
+                                    .cloned()
+                                    .unwrap_or_else(|| TypeExpr::Named(p.clone()))
+                            })
+                            .collect();
+                        return TypeExpr::NamedGeneric(name.clone(), type_args);
+                    }
+                }
+                TypeExpr::Named(name.clone())
+            }
         }
     }
 
@@ -923,6 +1013,14 @@ impl<'a> TypeChecker<'a> {
             (TypeExpr::Void, TypeExpr::Void) => true,
             (TypeExpr::Primitive(a), TypeExpr::Primitive(b)) => a == b,
             (TypeExpr::Named(a), TypeExpr::Named(b)) => a == b,
+            (TypeExpr::NamedGeneric(an, aargs), TypeExpr::NamedGeneric(bn, bargs)) => {
+                an == bn
+                    && aargs.len() == bargs.len()
+                    && aargs
+                        .iter()
+                        .zip(bargs.iter())
+                        .all(|(a, b)| self.types_compatible(a, b))
+            }
             (TypeExpr::Ref(a), TypeExpr::Ref(b)) => self.types_compatible(a, b),
             (TypeExpr::Mref(a), TypeExpr::Mref(b)) => self.types_compatible(a, b),
             (TypeExpr::Raw(a), TypeExpr::Raw(b)) => self.types_compatible(a, b),
@@ -1610,6 +1708,31 @@ mod tests {
              fn main() -> i32 { \
                 let f: fn(i32) -> i32 = add_one; \
                 return f(41); \
+             }",
+        );
+    }
+
+    // === Generic struct tests (stage 1.1 slice 6) ===
+
+    #[test]
+    fn test_generic_struct_decl_and_use() {
+        check_ok(
+            "struct Pair[A, B] { first: A, second: B } \
+             fn main() -> i32 { \
+                let p: Pair[i32, bool] = Pair { first: 7, second: true }; \
+                return p.first; \
+             }",
+        );
+    }
+
+    #[test]
+    fn test_generic_struct_multiple_instantiations() {
+        check_ok(
+            "struct Pair[A, B] { first: A, second: B } \
+             fn main() -> i32 { \
+                let a: Pair[i32, bool] = Pair { first: 1, second: true }; \
+                let b: Pair[f64, i32] = Pair { first: 1.5, second: 2 }; \
+                return (a.first + b.second); \
              }",
         );
     }

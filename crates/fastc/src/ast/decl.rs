@@ -98,6 +98,10 @@ pub struct Param {
 pub struct StructDecl {
     pub repr: Option<Repr>,
     pub name: String,
+    /// Type parameters declared with `struct Name[A, B] { ... }`. Empty
+    /// for non-generic structs; populated when the struct is generic.
+    /// Specialization happens during mono — see `mono::monomorphize`.
+    pub generics: Vec<TypeParam>,
     pub fields: Vec<Field>,
     pub span: Span,
     pub doc_comments: Vec<String>,
