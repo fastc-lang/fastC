@@ -1,0 +1,79 @@
+// Stage 1.1 slice 9: vec ergonomics.
+//
+// `vec::pop` returns `opt(T)` (`none` when empty, `some(x)` otherwise),
+// `vec::clear` resets `len` without freeing, `vec::is_empty` is the
+// cheap zero-check, and `vec::contains[T: Eq]` linear-searches via the
+// `Eq` trait. The bounded-generic dispatch reuses the same machinery
+// `math::min[T: Ord]` already proved out.
+
+use vec::new;
+use vec::push;
+use vec::pop;
+use vec::clear;
+use vec::is_empty;
+use vec::contains;
+use vec::len;
+use vec::release;
+
+// Pull the popped value out of opt(i32) or default to 0 if the vec was
+// empty. Kept as a helper so main stays linear.
+fn or_zero(o: opt(i32)) -> i32 {
+    if let value = unwrap_checked(o) {
+        return value;
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    let v: Vec[i32] = new(0);
+    push(addrm(v), 10);
+    push(addrm(v), 20);
+    push(addrm(v), 30);
+
+    // Three pops: 30, 20, 10. A fourth pop returns none(i32).
+    let p1: opt(i32) = pop(addrm(v));
+    let p2: opt(i32) = pop(addrm(v));
+    let p3: opt(i32) = pop(addrm(v));
+    let p4: opt(i32) = pop(addrm(v));
+
+    let a: i32 = or_zero(p1);   // 30
+    let b: i32 = or_zero(p2);   // 20
+    let c: i32 = or_zero(p3);   // 10
+    let d: i32 = or_zero(p4);   // 0 (none)
+
+    // After the fourth pop the vec is empty. Cap is still nonzero, so
+    // we can push again without reallocating.
+    let empty_after: bool = is_empty(addr(v));
+    push(addrm(v), 7);
+    push(addrm(v), 11);
+    push(addrm(v), 13);
+
+    // `contains` walks the buffer and dispatches through `i32_eq`.
+    let target_present: i32 = 11;
+    let target_absent: i32 = 99;
+    let has_11: bool = contains(addr(v), addr(target_present));   // true
+    let has_99: bool = contains(addr(v), addr(target_absent));    // false
+
+    // clear() resets len to 0 without freeing.
+    clear(addrm(v));
+    let empty_after_clear: bool = is_empty(addr(v));
+    let n_after_clear: i32 = cast(i32, len(addr(v)));
+
+    release(addrm(v));
+
+    // Build the exit code from every observation so any regression
+    // shows up immediately.
+    //   30 + 20 + 10 + 0           = 60   (pop values)
+    // + (empty_after ? 1 : 0)      = 1    (post-empty check)
+    // + (has_11 ? 10 : 0)          = 10   (contains hit)
+    // + (has_99 ? 100 : 0)         = 0    (contains miss)
+    // + (empty_after_clear ? 5 : 0)= 5    (clear cleared)
+    // + n_after_clear              = 0    (len after clear)
+    // = 76
+    let total: i32 = (((a + b) + c) + d);
+    if (empty_after) { total = (total + 1); }
+    if (has_11) { total = (total + 10); }
+    if (has_99) { total = (total + 100); }
+    if (empty_after_clear) { total = (total + 5); }
+    return (total + n_after_clear);
+}

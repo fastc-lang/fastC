@@ -457,6 +457,79 @@ mod vec {
         return (deref(v)).len;
     }
 
+    /// True when the vec holds zero elements. Cheaper than `len(v) == 0`
+    /// at the call site because callers don't have to write the cast.
+    pub fn is_empty[T](v: ref(Vec[T])) -> bool {
+        return ((deref(v)).len == cast(usize, 0));
+    }
+
+    /// Drop the last element and return it. Returns `none(T)` when the
+    /// vec was empty. The backing buffer is *not* shrunk — keeping the
+    /// capacity around makes a subsequent `push` allocation-free.
+    pub fn pop[T](v: mref(Vec[T])) -> opt(T) {
+        let cur: usize = (deref(v)).len;
+        if (cur == cast(usize, 0)) {
+            return none(T);
+        }
+        let new_len: usize = (cur - cast(usize, 1));
+        let buf: rawm(T) = (deref(v)).data;
+        (deref(v)).len = new_len;
+        unsafe {
+            return some(at(buf, new_len));
+        }
+    }
+
+    /// Reset the vec to empty without freeing the buffer. Subsequent
+    /// pushes reuse the existing allocation up to `cap`.
+    pub fn clear[T](v: mref(Vec[T])) -> void {
+        (deref(v)).len = cast(usize, 0);
+    }
+
+    /// Linear search: returns true when any element compares equal to
+    /// `target` via the `Eq` trait. Bounded on `T: Eq` so the body can
+    /// dispatch through `T_eq(&cur, target)` — same machinery that
+    /// `math::min[T: Ord]` uses on `Ord`.
+    pub fn contains[T: Eq](v: ref(Vec[T]), target: ref(T)) -> bool {
+        let i: usize = cast(usize, 0);
+        let n: usize = (deref(v)).len;
+        let buf: rawm(T) = (deref(v)).data;
+        while (i < n) {
+            unsafe {
+                let cur: T = at(buf, i);
+                if (cur.eq(target)) {
+                    return true;
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        return false;
+    }
+
+    /// Map every element through `f` into a fresh vec. `dst` is sized
+    /// exactly to `src.len`, so the result is fully packed (no extra
+    /// capacity). The caller owns both vecs and must release each
+    /// independently. v1 takes a plain fn pointer; closures with captured
+    /// state arrive when the closure slice lands.
+    pub fn map[T, U](src: ref(Vec[T]), f: fn(T) -> U) -> Vec[U] {
+        let n: usize = (deref(src)).len;
+        let nbytes: usize = (n * sizeof(U));
+        let raw_buf: rawm(u8) = alloc(nbytes);
+        let buf: rawm(U) = cast(rawm(U), raw_buf);
+        let src_buf: rawm(T) = (deref(src)).data;
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                at(buf, i) = f(at(src_buf, i));
+            }
+            i = (i + cast(usize, 1));
+        }
+        return Vec {
+            data: cast(rawm(U), raw_buf),
+            len: n,
+            cap: n,
+        };
+    }
+
     /// Release the heap buffer. The vec value must not be used after this
     /// returns. Replaces the missing Drop integration; the name avoids
     /// `free` so the P10-3 (no-runtime-alloc) rule does not flag every
@@ -464,6 +537,66 @@ mod vec {
     pub fn release[T](v: mref(Vec[T])) -> void {
         let buf: rawm(T) = (deref(v)).data;
         free_bytes(cast(rawm(u8), buf));
+    }
+}
+
+// --- Str: owned byte string built on Vec[u8] (stage 1.1 slice 10) ---
+//
+// `Str` is a wrapper around `Vec[u8]`. We use a wrapper rather than a
+// type alias because aliases aren't a thing in fastC v1, and because a
+// nominal type lets future string methods stay separate from generic
+// vec methods. The function names avoid collisions with `vec::*`
+// (`make` / `dispose` / `byte_count`) because fastC v1 lacks `use X as
+// Y`; once aliases land, these can rename back to `new` / `release` /
+// `len` for ergonomics.
+
+struct Str {
+    data: Vec[u8],
+}
+
+mod str {
+    use vec::new;
+    use vec::with_capacity;
+    use vec::push;
+    use vec::get;
+    use vec::len;
+    use vec::is_empty;
+    use vec::release;
+
+    /// Construct an empty Str. Equivalent to `vec::new(0u8)` wrapped.
+    pub fn make() -> Str {
+        return Str { data: new(cast(u8, 0)) };
+    }
+
+    /// Pre-allocate `cap` bytes so subsequent pushes don't reallocate
+    /// until exceeding that ceiling.
+    pub fn with_cap(cap: usize) -> Str {
+        return Str { data: with_capacity(cast(u8, 0), cap) };
+    }
+
+    /// Append a single byte. Grows the backing vec when necessary.
+    pub fn push_byte(s: mref(Str), b: u8) -> void {
+        push(addrm((deref(s)).data), b);
+    }
+
+    /// Byte length (not character count — Str is byte-oriented in v1).
+    pub fn byte_count(s: ref(Str)) -> usize {
+        return len(addr((deref(s)).data));
+    }
+
+    /// Read the byte at index `i`. Caller must ensure `i < byte_count(s)`.
+    pub fn byte_at(s: ref(Str), i: usize) -> u8 {
+        return get(addr((deref(s)).data), i);
+    }
+
+    /// True when the Str has zero bytes.
+    pub fn empty(s: ref(Str)) -> bool {
+        return is_empty(addr((deref(s)).data));
+    }
+
+    /// Release the backing heap allocation. Mirrors `vec::release`.
+    pub fn dispose(s: mref(Str)) -> void {
+        release(addrm((deref(s)).data));
     }
 }
 "#;

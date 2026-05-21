@@ -189,6 +189,34 @@ fn test_vec_compiles() {
 }
 
 #[test]
+fn test_vec_ops_compiles() {
+    // Stage 1.1 slice 9: `vec::pop` (returns `opt(T)`), `vec::clear`,
+    // `vec::is_empty`, and `vec::contains[T: Eq]`. Exercises the
+    // bounded-generic Eq dispatch path inside a generic container body.
+    compile_and_verify("examples/vec_ops_demo.fc");
+}
+
+#[test]
+fn test_str_compiles() {
+    // Stage 1.1 slice 10: `Str` — owned byte string built on `Vec[u8]`.
+    // First example of a non-generic struct holding a generic struct as
+    // a field; verifies struct-mono picks up the embedded `Vec[u8]`
+    // instantiation and that typedef topological ordering puts `Vec_u8`
+    // before `Str` so C accepts the field declaration.
+    compile_and_verify("examples/str_demo.fc");
+}
+
+#[test]
+fn test_vec_map_compiles() {
+    // Stage 1.1 slice 11: `vec::map[T, U]` — higher-order vec transform
+    // taking a fn pointer. Drives type-arg inference through Fn-shape
+    // unification: T comes from the receiver `Vec[T]`, U from the
+    // mapping function's return type. Validates fn pointer + generic
+    // interaction inside a generic container body.
+    compile_and_verify("examples/vec_map_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

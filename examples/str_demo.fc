@@ -1,0 +1,39 @@
+// Stage 1.1 slice 10: `Str` — owned byte string backed by `Vec[u8]`.
+//
+// First example of a non-generic struct holding a generic struct as a
+// field. The struct-mono pass picks up the embedded `Vec[u8]` and
+// specializes it to `Vec_u8` automatically; the new `Str` type itself
+// is monomorphic, so it lowers straight to a C struct holding a
+// `Vec_u8`. Demo builds "ABC" byte-by-byte, reads it back, and uses
+// the byte values + length as the exit code so any regression in
+// either the wrapper struct or the underlying generic vec shows up.
+
+use str::make;
+use str::push_byte;
+use str::byte_at;
+use str::byte_count;
+use str::empty;
+use str::dispose;
+
+fn main() -> i32 {
+    let s: Str = make();
+    let before: bool = empty(addr(s));   // true
+
+    push_byte(addrm(s), cast(u8, 65));   // 'A'
+    push_byte(addrm(s), cast(u8, 66));   // 'B'
+    push_byte(addrm(s), cast(u8, 67));   // 'C'
+
+    let after: bool = empty(addr(s));    // false
+    let n: i32 = cast(i32, byte_count(addr(s)));               // 3
+    let a: i32 = cast(i32, byte_at(addr(s), cast(usize, 0)));   // 65
+    let b: i32 = cast(i32, byte_at(addr(s), cast(usize, 1)));   // 66
+    let c: i32 = cast(i32, byte_at(addr(s), cast(usize, 2)));   // 67
+
+    dispose(addrm(s));
+
+    // 65 + 66 + 67 + 3 = 201, then +1 for before-empty, +0 for after-empty.
+    let total: i32 = (((a + b) + c) + n);
+    if (before) { total = (total + 1); }
+    if (after) { total = (total + 100); }
+    return total;
+}

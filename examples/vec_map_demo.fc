@@ -1,0 +1,45 @@
+// Stage 1.1 slice 11: `vec::map[T, U]` — higher-order vec transform.
+//
+// `map` takes a `ref(Vec[T])` and a plain `fn(T) -> U` and returns a
+// fresh `Vec[U]` sized exactly to the input. This is the first slice
+// that uses fn pointers (slice 5) inside a generic container body,
+// and the first generic call that drives type-arg inference through
+// a Fn-typed parameter — both legs (T from the receiver, U from the
+// fn's return) come from the same call site.
+//
+// The demo dbl_i32s a vec of i32s and verifies the mapping by summing
+// the result.
+
+use vec::new;
+use vec::push;
+use vec::map;
+use vec::get;
+use vec::len;
+use vec::release;
+
+fn dbl_i32(x: i32) -> i32 {
+    return (x + x);
+}
+
+fn main() -> i32 {
+    let src: Vec[i32] = new(0);
+    push(addrm(src), 1);
+    push(addrm(src), 2);
+    push(addrm(src), 3);
+    push(addrm(src), 4);
+
+    // map(addr(src), dbl_i32) -> Vec[i32] containing [2, 4, 6, 8].
+    let dbl_i32d: Vec[i32] = map(addr(src), dbl_i32);
+
+    let n: i32 = cast(i32, len(addr(dbl_i32d)));   // 4
+    let a: i32 = get(addr(dbl_i32d), cast(usize, 0));   // 2
+    let b: i32 = get(addr(dbl_i32d), cast(usize, 1));   // 4
+    let c: i32 = get(addr(dbl_i32d), cast(usize, 2));   // 6
+    let d: i32 = get(addr(dbl_i32d), cast(usize, 3));   // 8
+
+    release(addrm(src));
+    release(addrm(dbl_i32d));
+
+    // 2 + 4 + 6 + 8 + 4 = 24
+    return ((((a + b) + c) + d) + n);
+}

@@ -39,18 +39,31 @@ pub fn monomorphize(
 ) -> Result<File, CompileError> {
     let mut ctx = MonoCtx::new(file, symbols, source);
 
-    // Pass 1: collect every generic call reachable from non-generic code.
-    for item in &file.items {
-        if let Item::Fn(f) = item {
-            if f.generics.is_empty() {
-                let mut env: HashMap<String, TypeExpr> = HashMap::new();
-                for p in &f.params {
-                    env.insert(p.name.clone(), p.ty.clone());
+    // Pass 1: collect every generic call reachable from non-generic
+    // code, including non-generic functions nested inside `mod` bodies
+    // (the stdlib `mod str` is the canonical case — its concrete
+    // wrapper functions call into generic `vec::*` and need to drive
+    // T-inference even though the str fns themselves aren't generic).
+    fn collect_recursive(ctx: &mut MonoCtx<'_>, items: &[Item]) {
+        for item in items {
+            match item {
+                Item::Fn(f) if f.generics.is_empty() => {
+                    let mut env: HashMap<String, TypeExpr> = HashMap::new();
+                    for p in &f.params {
+                        env.insert(p.name.clone(), p.ty.clone());
+                    }
+                    ctx.collect_in_block(&f.body, &HashMap::new(), &mut env);
                 }
-                ctx.collect_in_block(&f.body, &HashMap::new(), &mut env);
+                Item::Mod(m) => {
+                    if let Some(body) = &m.body {
+                        collect_recursive(ctx, body);
+                    }
+                }
+                _ => {}
             }
         }
     }
+    collect_recursive(&mut ctx, &file.items);
 
     // Pass 1b: transitive closure — a generic body may call further generics.
     while let Some((fn_name, type_args)) = ctx.worklist.pop() {
@@ -79,7 +92,7 @@ pub fn monomorphize(
                 new_items.push(Item::Fn(rewrite_fn(f, &HashMap::new(), &ctx)));
             }
             Item::Mod(m) => {
-                new_items.push(Item::Mod(strip_generic_fns_from_mod(m)));
+                new_items.push(Item::Mod(strip_generic_fns_from_mod(m, &ctx)));
             }
             _ => new_items.push(item.clone()),
         }
@@ -96,6 +109,8 @@ pub fn monomorphize(
     let pseudo_ctx = MonoCtx {
         generic_fns: ctx.generic_fns.clone(),
         generic_structs: ctx.generic_structs.clone(),
+        all_structs: ctx.all_structs.clone(),
+        all_fns: ctx.all_fns.clone(),
         symbols,
         source: ctx.source,
         trait_impls: ctx.trait_impls.clone(),
@@ -261,8 +276,15 @@ fn run_struct_mono(file: File, generic_structs: &HashMap<String, StructDecl>) ->
         }
     }
 
-    let mut out_items = rewritten;
+    // Emit specialized struct typedefs *before* the user's other items
+    // so any non-generic struct that holds a specialized one as a field
+    // (e.g. `struct Str { data: Vec[u8] }` -> `Str { Vec_u8 data; }`)
+    // sees its dependency declared first. Within the specialized group
+    // we keep mangled-name order, which is the longest-existing
+    // deterministic key.
+    let mut out_items: Vec<Item> = Vec::with_capacity(rewritten.len() + specialized.len());
     out_items.extend(specialized);
+    out_items.extend(rewritten);
     File { items: out_items }
 }
 
@@ -683,6 +705,17 @@ struct MonoCtx<'a> {
     generic_fns: HashMap<String, FnDecl>,
     /// All generic struct declarations, keyed by name.
     generic_structs: HashMap<String, StructDecl>,
+    /// Every struct declaration (generic + non-generic), keyed by name.
+    /// Used by `approx_expr_type`'s Field handler to look up the type of
+    /// a struct field — required when a generic call site's argument is
+    /// `addr(struct.field)` and we need to recover the field type to
+    /// drive type-argument inference.
+    all_structs: HashMap<String, StructDecl>,
+    /// Every fn declaration (including non-generic), keyed by bare name.
+    /// Used by `approx_expr_type`'s Ident handler to recover the
+    /// `fn(P) -> R` type when an identifier passed to a higher-order
+    /// generic call is a free function (e.g. `vec::map(addr(v), double)`).
+    all_fns: HashMap<String, FnDecl>,
     /// Symbol table used to identify generic call sites by name lookup.
     /// Currently unused — callee resolution looks up `generic_fns`
     /// directly so mod-internal calls work, but kept for future passes
@@ -798,15 +831,17 @@ fn mangle_type_refs(
 /// leaving the generic declarations inside the module would cause lower
 /// to emit them with literal `T` types, breaking the C output.
 ///
-/// Non-generic items inside the mod are preserved unchanged. Nested
-/// mods are filtered recursively.
-fn strip_generic_fns_from_mod(m: &crate::ast::ModDecl) -> crate::ast::ModDecl {
+/// Non-generic items inside the mod are preserved, but their bodies are
+/// rewritten so any calls to generic helpers point at the specialized
+/// mangled name (e.g. `vec::push` -> `push_u8`). Nested mods recurse.
+fn strip_generic_fns_from_mod(m: &crate::ast::ModDecl, ctx: &MonoCtx) -> crate::ast::ModDecl {
     let new_body = m.body.as_ref().map(|items| {
         items
             .iter()
             .filter_map(|item| match item {
                 Item::Fn(f) if !f.generics.is_empty() => None,
-                Item::Mod(inner) => Some(Item::Mod(strip_generic_fns_from_mod(inner))),
+                Item::Fn(f) => Some(Item::Fn(rewrite_fn(f, &HashMap::new(), ctx))),
+                Item::Mod(inner) => Some(Item::Mod(strip_generic_fns_from_mod(inner, ctx))),
                 _ => Some(item.clone()),
             })
             .collect()
@@ -828,15 +863,23 @@ fn collect_items_recursive(
     items: &[Item],
     generic_fns: &mut HashMap<String, FnDecl>,
     generic_structs: &mut HashMap<String, StructDecl>,
+    all_structs: &mut HashMap<String, StructDecl>,
+    all_fns: &mut HashMap<String, FnDecl>,
     trait_impls: &mut HashMap<String, HashSet<String>>,
 ) {
     for item in items {
         match item {
-            Item::Fn(f) if !f.generics.is_empty() => {
-                generic_fns.insert(f.name.clone(), f.clone());
+            Item::Fn(f) => {
+                if !f.generics.is_empty() {
+                    generic_fns.insert(f.name.clone(), f.clone());
+                }
+                all_fns.insert(f.name.clone(), f.clone());
             }
-            Item::Struct(s) if !s.generics.is_empty() => {
-                generic_structs.insert(s.name.clone(), s.clone());
+            Item::Struct(s) => {
+                if !s.generics.is_empty() {
+                    generic_structs.insert(s.name.clone(), s.clone());
+                }
+                all_structs.insert(s.name.clone(), s.clone());
             }
             Item::Impl(block) => {
                 if let Some(trait_name) = &block.trait_name {
@@ -848,7 +891,14 @@ fn collect_items_recursive(
             }
             Item::Mod(m) => {
                 if let Some(body) = &m.body {
-                    collect_items_recursive(body, generic_fns, generic_structs, trait_impls);
+                    collect_items_recursive(
+                        body,
+                        generic_fns,
+                        generic_structs,
+                        all_structs,
+                        all_fns,
+                        trait_impls,
+                    );
                 }
             }
             _ => {}
@@ -860,16 +910,22 @@ impl<'a> MonoCtx<'a> {
     fn new(file: &'a File, symbols: &'a SymbolTable, source: &'a str) -> Self {
         let mut generic_fns = HashMap::new();
         let mut generic_structs = HashMap::new();
+        let mut all_structs = HashMap::new();
+        let mut all_fns = HashMap::new();
         let mut trait_impls: HashMap<String, HashSet<String>> = HashMap::new();
         collect_items_recursive(
             &file.items,
             &mut generic_fns,
             &mut generic_structs,
+            &mut all_structs,
+            &mut all_fns,
             &mut trait_impls,
         );
         Self {
             generic_fns,
             generic_structs,
+            all_structs,
+            all_fns,
             symbols,
             source,
             trait_impls,
@@ -1091,8 +1147,15 @@ impl<'a> MonoCtx<'a> {
                             generic_fn.generics.iter().map(|p| p.name.clone()).collect();
                         if !generic_params.is_empty() {
                             {
-                                let type_args =
-                                    infer_type_args(&generic_fn, args, &generic_params, subst, env);
+                                let type_args = infer_type_args(
+                                    &generic_fn,
+                                    args,
+                                    &generic_params,
+                                    subst,
+                                    env,
+                                    &self.all_structs,
+                                    &self.all_fns,
+                                );
                                 // Bound check: verify each (type_param, type_arg)
                                 // pair satisfies the declared trait bounds.
                                 self.check_bounds(&generic_fn, &type_args);
@@ -1153,10 +1216,12 @@ fn infer_type_args(
     type_params: &[String],
     subst: &HashMap<String, TypeExpr>,
     env: &HashMap<String, TypeExpr>,
+    structs: &HashMap<String, StructDecl>,
+    fns: &HashMap<String, FnDecl>,
 ) -> Vec<TypeExpr> {
     let mut inferred: HashMap<String, TypeExpr> = HashMap::new();
     for (arg_expr, param) in args.iter().zip(generic_fn.params.iter()) {
-        let arg_ty = approx_expr_type(arg_expr, subst, env);
+        let arg_ty = approx_expr_type(arg_expr, subst, env, structs, fns);
         unify_generic(&param.ty, &arg_ty, type_params, &mut inferred);
     }
     type_params
@@ -1179,6 +1244,8 @@ fn approx_expr_type(
     expr: &Expr,
     subst: &HashMap<String, TypeExpr>,
     env: &HashMap<String, TypeExpr>,
+    structs: &HashMap<String, StructDecl>,
+    fns: &HashMap<String, FnDecl>,
 ) -> TypeExpr {
     match expr {
         Expr::IntLit { .. } => TypeExpr::Primitive(PrimitiveType::I32),
@@ -1186,36 +1253,53 @@ fn approx_expr_type(
         Expr::BoolLit { .. } => TypeExpr::Primitive(PrimitiveType::Bool),
         Expr::Cast { ty, .. } => substitute(ty, subst),
         Expr::SizeOf { .. } => TypeExpr::Primitive(PrimitiveType::Usize),
-        Expr::Paren { inner, .. } => approx_expr_type(inner, subst, env),
+        Expr::Paren { inner, .. } => approx_expr_type(inner, subst, env, structs, fns),
         Expr::Addr { operand, .. } => {
             // Mirror typecheck: addr(x) has type ref(typeof x). Without
             // this, `push(addr(v), x)` cannot bind T from the receiver and
             // mono leaves the call generic.
-            TypeExpr::Ref(Box::new(approx_expr_type(operand, subst, env)))
+            TypeExpr::Ref(Box::new(approx_expr_type(
+                operand, subst, env, structs, fns,
+            )))
         }
-        Expr::AddrM { operand, .. } => {
-            TypeExpr::Mref(Box::new(approx_expr_type(operand, subst, env)))
-        }
-        Expr::Deref { operand, .. } => match approx_expr_type(operand, subst, env) {
+        Expr::AddrM { operand, .. } => TypeExpr::Mref(Box::new(approx_expr_type(
+            operand, subst, env, structs, fns,
+        ))),
+        Expr::Deref { operand, .. } => match approx_expr_type(operand, subst, env, structs, fns) {
             TypeExpr::Ref(inner) | TypeExpr::Mref(inner) => *inner,
             TypeExpr::Raw(inner) | TypeExpr::Rawm(inner) => *inner,
             other => other,
         },
         Expr::Field { base, field, .. } => {
-            // Struct field projection. Needed so a call like
-            // `push(addr(v.field), x)` can still drive T-inference.
-            let base_ty = approx_expr_type(base, subst, env);
+            // Struct field projection. Look up the field's declared type
+            // in `structs` so calls like `push(addrm(s.data), x)` can
+            // drive T-inference when `s.data` is a generic struct field.
+            let base_ty = approx_expr_type(base, subst, env, structs, fns);
             let core = match &base_ty {
                 TypeExpr::Ref(t) | TypeExpr::Mref(t) => (**t).clone(),
                 other => other.clone(),
             };
             match core {
-                TypeExpr::Named(_) | TypeExpr::NamedGeneric(_, _) => {
-                    // Field type lookup needs the struct decl table, which
-                    // isn't threaded through approx_expr_type. v1 falls
-                    // back to Void; the call site's other args usually
-                    // supply T regardless.
-                    let _ = field;
+                TypeExpr::Named(struct_name) => structs
+                    .get(&struct_name)
+                    .and_then(|d| d.fields.iter().find(|f| f.name == *field))
+                    .map(|f| substitute(&f.ty, subst))
+                    .unwrap_or(TypeExpr::Void),
+                TypeExpr::NamedGeneric(struct_name, type_args) => {
+                    if let Some(decl) = structs.get(&struct_name) {
+                        if decl.generics.len() == type_args.len() {
+                            let local_subst: HashMap<String, TypeExpr> = decl
+                                .generics
+                                .iter()
+                                .zip(type_args.iter())
+                                .map(|(p, a)| (p.name.clone(), a.clone()))
+                                .collect();
+                            if let Some(f) = decl.fields.iter().find(|f| f.name == *field) {
+                                let after_inner = substitute(&f.ty, &local_subst);
+                                return substitute(&after_inner, subst);
+                            }
+                        }
+                    }
                     TypeExpr::Void
                 }
                 _ => TypeExpr::Void,
@@ -1228,9 +1312,22 @@ fn approx_expr_type(
                 return from_subst;
             }
             // Then the local env — variable `b` declared `: bool`.
-            env.get(name)
-                .cloned()
-                .unwrap_or_else(|| TypeExpr::Named(name.clone()))
+            if let Some(local_ty) = env.get(name) {
+                return local_ty.clone();
+            }
+            // Finally fall back to a top-level fn: a bare identifier that
+            // names a function has type `fn(P...) -> R`. Needed for
+            // higher-order generic calls like `vec::map(addr(v), dbl)`
+            // where `dbl` is a free function and Fn-shape unification
+            // recovers the result-type parameter from `dbl`'s signature.
+            if let Some(decl) = fns.get(name) {
+                return TypeExpr::Fn {
+                    is_unsafe: decl.is_unsafe,
+                    params: decl.params.iter().map(|p| p.ty.clone()).collect(),
+                    ret: Box::new(decl.return_type.clone()),
+                };
+            }
+            TypeExpr::Named(name.clone())
         }
         _ => TypeExpr::Void,
     }
@@ -1674,7 +1771,7 @@ fn rewrite_expr(
                     .map(|a| rewrite_expr(a, subst, ctx, env))
                     .collect();
 
-                let recv_ty = approx_expr_type(base, subst, env);
+                let recv_ty = approx_expr_type(base, subst, env, &ctx.all_structs, &ctx.all_fns);
                 if let Some(type_name) = struct_name_of(&recv_ty) {
                     let method_fn = format!("{}_{}", type_name, field);
                     // Auto-address value-typed receivers so the call
@@ -1729,8 +1826,15 @@ fn rewrite_expr(
                     Some(generic_fn) if !generic_fn.generics.is_empty() => {
                         let generic_params: Vec<String> =
                             generic_fn.generics.iter().map(|p| p.name.clone()).collect();
-                        let type_args =
-                            infer_type_args(generic_fn, args, &generic_params, subst, env);
+                        let type_args = infer_type_args(
+                            generic_fn,
+                            args,
+                            &generic_params,
+                            subst,
+                            env,
+                            &ctx.all_structs,
+                            &ctx.all_fns,
+                        );
                         Box::new(Expr::Ident {
                             name: mangled_name(name, &type_args),
                             span: id_span.clone(),

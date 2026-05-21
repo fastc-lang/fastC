@@ -245,6 +245,24 @@ impl Lower {
                     CType::Void
                 }
             }
+            // Index through pointer/slice/array peels off the element
+            // type. Needed so `some(at(buf, i))` infers `opt(T)` and the
+            // emitter typedef doesn't degenerate to `opt(void)`.
+            ast::Expr::At { base, .. } => match self.infer_expr_type(base) {
+                CType::Ptr(inner)
+                | CType::ConstPtr(inner)
+                | CType::Slice(inner)
+                | CType::Array(inner, _) => *inner,
+                _ => CType::Void,
+            },
+            ast::Expr::Deref { operand, .. } => match self.infer_expr_type(operand) {
+                CType::Ptr(inner) | CType::ConstPtr(inner) => *inner,
+                _ => CType::Void,
+            },
+            ast::Expr::Addr { operand, .. } => {
+                CType::ConstPtr(Box::new(self.infer_expr_type(operand)))
+            }
+            ast::Expr::AddrM { operand, .. } => CType::Ptr(Box::new(self.infer_expr_type(operand))),
             // For other expressions, we'd need full type checking - default to Void
             _ => CType::Void,
         }
@@ -265,17 +283,14 @@ impl Lower {
 
         self.lower_items(&file.items, &mut c_file);
 
-        // Sort user-defined type_defs by name for deterministic output
-        c_file.type_defs.sort_by(|a, b| {
-            fn get_name(decl: &CDecl) -> &str {
-                match decl {
-                    CDecl::Struct { name, .. } => name,
-                    CDecl::Typedef { name, .. } => name,
-                    CDecl::Enum { name, .. } => name,
-                }
-            }
-            get_name(a).cmp(get_name(b))
-        });
+        // Topologically order type_defs so a struct that holds another
+        // struct as a direct (non-pointer) field is emitted *after* its
+        // dependency. Within each dependency tier, sort by name for
+        // determinism. The previous unconditional name-sort broke
+        // `struct Str { data: Vec_u8 }` because alphabetical order puts
+        // Str before Vec_u8, but C requires the field type to be
+        // declared first.
+        topo_sort_typedefs(&mut c_file.type_defs);
 
         // Generate typedefs for opt/res types used in the file
         self.generate_opt_res_typedefs(&mut c_file);
@@ -1410,4 +1425,112 @@ impl Default for Lower {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Topologically order type definitions so a struct holding another struct
+/// as a direct (non-pointer) field is declared after its dependency. Used
+/// to fix ordering when struct mono synthesizes `Vec_u8` while the
+/// user-defined `Str { data: Vec_u8 }` comes earlier alphabetically.
+///
+/// Algorithm: scan each struct's field types for direct `Named(...)`
+/// references that name another struct in the list. Edge `A -> B` means
+/// `A` depends on `B`. Stable sort with dependencies first, breaking ties
+/// by name so the output stays deterministic.
+fn topo_sort_typedefs(defs: &mut Vec<CDecl>) {
+    use std::collections::{HashMap, HashSet};
+
+    fn get_name(decl: &CDecl) -> &str {
+        match decl {
+            CDecl::Struct { name, .. } => name,
+            CDecl::Typedef { name, .. } => name,
+            CDecl::Enum { name, .. } => name,
+        }
+    }
+
+    /// Collect every `Named(n)` reachable through direct (non-pointer)
+    /// type constructors. Pointers and slices erase to a forward decl
+    /// at C-level, so `Foo* bar;` doesn't require `Foo` defined first.
+    fn collect_direct_deps(ty: &CType, deps: &mut HashSet<String>) {
+        match ty {
+            CType::Named(n) => {
+                deps.insert(n.clone());
+            }
+            CType::Array(inner, _) => collect_direct_deps(inner, deps),
+            // Slice/Opt/Res lower to struct types with a name; treat as
+            // direct deps because the field stores the struct by value.
+            CType::Slice(inner) | CType::Opt(inner) => collect_direct_deps(inner, deps),
+            CType::Res(a, b) => {
+                collect_direct_deps(a, deps);
+                collect_direct_deps(b, deps);
+            }
+            // Pointers don't need the pointee declared first.
+            CType::Ptr(_)
+            | CType::ConstPtr(_)
+            | CType::FnPtr { .. }
+            | CType::Void
+            | CType::Bool
+            | CType::Int8
+            | CType::Int16
+            | CType::Int32
+            | CType::Int64
+            | CType::UInt8
+            | CType::UInt16
+            | CType::UInt32
+            | CType::UInt64
+            | CType::Float
+            | CType::Double
+            | CType::SizeT
+            | CType::PtrDiffT => {}
+        }
+    }
+
+    let names: HashSet<String> = defs.iter().map(|d| get_name(d).to_string()).collect();
+    let mut deps_of: HashMap<String, HashSet<String>> = HashMap::new();
+    for decl in defs.iter() {
+        let name = get_name(decl).to_string();
+        let mut deps = HashSet::new();
+        if let CDecl::Struct { fields, .. } = decl {
+            for f in fields {
+                collect_direct_deps(&f.ty, &mut deps);
+            }
+        }
+        // Restrict to deps that are actually in `defs`; ignore externs.
+        deps.retain(|d| names.contains(d) && d != &name);
+        deps_of.insert(name, deps);
+    }
+
+    // Kahn's algorithm with deterministic tie-breaking by name.
+    let mut sorted: Vec<String> = Vec::with_capacity(defs.len());
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut all_names: Vec<String> = defs.iter().map(|d| get_name(d).to_string()).collect();
+    all_names.sort();
+    let mut progress = true;
+    while progress {
+        progress = false;
+        for name in &all_names {
+            if visited.contains(name) {
+                continue;
+            }
+            if deps_of[name].iter().all(|d| visited.contains(d)) {
+                sorted.push(name.clone());
+                visited.insert(name.clone());
+                progress = true;
+            }
+        }
+    }
+    // Anything left over has a cycle; append in alphabetical order so
+    // the emitter still produces deterministic output and the C
+    // compiler surfaces the cycle as a definition-order error.
+    for name in &all_names {
+        if !visited.contains(name) {
+            sorted.push(name.clone());
+        }
+    }
+
+    let order: HashMap<String, usize> = sorted
+        .into_iter()
+        .enumerate()
+        .map(|(i, n)| (n, i))
+        .collect();
+    defs.sort_by_key(|d| order.get(get_name(d)).copied().unwrap_or(usize::MAX));
 }

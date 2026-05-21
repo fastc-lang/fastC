@@ -1267,6 +1267,26 @@ pub(crate) fn unify_generic(
                 unify_generic(f, a, type_params, subst);
             }
         }
+        // Recurse into function pointer types so `fn(T) -> U` against
+        // `fn(i32) -> bool` binds `T -> i32, U -> bool`. Needed for
+        // higher-order generics like `vec::map[T, U]`.
+        (
+            TypeExpr::Fn {
+                params: fparams,
+                ret: fret,
+                ..
+            },
+            TypeExpr::Fn {
+                params: aparams,
+                ret: aret,
+                ..
+            },
+        ) if fparams.len() == aparams.len() => {
+            for (f, a) in fparams.iter().zip(aparams.iter()) {
+                unify_generic(f, a, type_params, subst);
+            }
+            unify_generic(fret, aret, type_params, subst);
+        }
         // No deeper structure to bind through; non-matching shapes will be
         // caught by the substituted compatibility check at the call site.
         _ => {}
