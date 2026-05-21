@@ -820,6 +820,38 @@ mod vec {
         }
     }
 
+    /// Sum every element starting from 0. Specialized for `i32` so
+    /// the body uses native `+`. A bounded-generic `sum[T: Add]`
+    /// would supersede this once a numeric `Add` trait lands.
+    pub fn sum_i32(v: ref(Vec[i32])) -> i32 {
+        let acc: i32 = 0;
+        let n: usize = (deref(v)).len;
+        let buf: rawm(i32) = (deref(v)).data;
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                acc = (acc + at(buf, i));
+            }
+            i = (i + cast(usize, 1));
+        }
+        return acc;
+    }
+
+    /// Multiply every element starting from 1. Same caveat as `sum_i32`.
+    pub fn product_i32(v: ref(Vec[i32])) -> i32 {
+        let acc: i32 = 1;
+        let n: usize = (deref(v)).len;
+        let buf: rawm(i32) = (deref(v)).data;
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                acc = (acc * at(buf, i));
+            }
+            i = (i + cast(usize, 1));
+        }
+        return acc;
+    }
+
     /// Left fold: thread `init` through every element via `f`. First
     /// stdlib API to take a two-argument fn pointer; exercises the
     /// fn-ptr typedef pre-pass on arity > 1 and `unify_generic`'s Fn
@@ -1372,6 +1404,47 @@ mod str {
             i = (i + cast(usize, 1));
         }
         return true;
+    }
+
+    /// Split `s` into byte-equal-delimited segments. Each segment is a
+    /// fresh `Str` allocation; the returned `Vec[Str]` and every
+    /// element must be released independently. Empty segments are
+    /// preserved — `"a,,b"` split on `,` yields three strings.
+    /// Always returns at least one element (possibly the empty Str
+    /// when input is empty or starts with delim).
+    pub fn split(s: ref(Str), delim: u8) -> Vec[Str] {
+        let result: Vec[Str] = new(make());
+        let n: usize = len(addr((deref(s)).data));
+        let buf: rawm(u8) = (deref(s)).data.data;
+        let start: usize = cast(usize, 0);
+        let i: usize = cast(usize, 0);
+        while (i < n) {
+            unsafe {
+                if (at(buf, i) == delim) {
+                    let seg: Str = make();
+                    let j: usize = start;
+                    while (j < i) {
+                        push_byte(addrm(seg), at(buf, j));
+                        j = (j + cast(usize, 1));
+                    }
+                    push(addrm(result), seg);
+                    start = (i + cast(usize, 1));
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        // Trailing segment after the last delimiter (or the whole
+        // input if no delimiter was found).
+        let tail: Str = make();
+        let k: usize = start;
+        while (k < n) {
+            unsafe {
+                push_byte(addrm(tail), at(buf, k));
+            }
+            k = (k + cast(usize, 1));
+        }
+        push(addrm(result), tail);
+        return result;
     }
 
     /// Build a `Str` by walking a null-terminated C-style buffer and

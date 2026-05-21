@@ -1,0 +1,75 @@
+// Stage 1.1 slice 27: `str::split` — first stdlib function returning
+// a `Vec[Str]`, i.e. a generic container of generic structs. Mono
+// has to specialize `Vec[Str]` (which already worked for slice 24's
+// HashMap[Str, V] keys) AND every vec::* helper it calls
+// (`vec::new(seed: Str)`, `vec::push(v: mref(Vec[Str]), x: Str)`).
+//
+// The demo splits "alpha:beta:gamma" on ':' and verifies the three
+// segments come back in order with the right byte lengths.
+
+use str::from_cstr;
+use str::split;
+use str::byte_count;
+use str::byte_at;
+use str::dispose;
+use vec::get;
+use vec::len;
+use vec::release;
+
+fn main() -> i32 {
+    let s: Str = from_cstr(cstr("alpha:beta:gamma"));
+    let parts: Vec[Str] = split(addr(s), cast(u8, 58));   // ':' = 58
+
+    let n: i32 = cast(i32, len(addr(parts)));   // 3
+
+    // Read each segment back and verify length + first byte.
+    let p0: Str = get(addr(parts), cast(usize, 0));
+    let p1: Str = get(addr(parts), cast(usize, 1));
+    let p2: Str = get(addr(parts), cast(usize, 2));
+
+    let l0: i32 = cast(i32, byte_count(addr(p0)));   // 5 ("alpha")
+    let l1: i32 = cast(i32, byte_count(addr(p1)));   // 4 ("beta")
+    let l2: i32 = cast(i32, byte_count(addr(p2)));   // 5 ("gamma")
+
+    let c0: i32 = cast(i32, byte_at(addr(p0), cast(usize, 0)));  // 'a' = 97
+    let c1: i32 = cast(i32, byte_at(addr(p1), cast(usize, 0)));  // 'b' = 98
+    let c2: i32 = cast(i32, byte_at(addr(p2), cast(usize, 0)));  // 'g' = 103
+
+    // Edge case: split a string containing no delimiter — single
+    // element result that equals the original.
+    let solo: Str = from_cstr(cstr("nodelim"));
+    let solo_parts: Vec[Str] = split(addr(solo), cast(u8, 58));
+    let solo_n: i32 = cast(i32, len(addr(solo_parts)));   // 1
+    let solo_p0: Str = get(addr(solo_parts), cast(usize, 0));
+    let solo_l: i32 = cast(i32, byte_count(addr(solo_p0)));  // 7
+
+    // `get` returns a shallow copy of the Str (same .data pointers).
+    // Releasing `parts` would free those buffers, then disposing p0
+    // would double-free. So we only dispose what `get` returned us if
+    // we WEREN'T about to release the vec — but we are, so we drop
+    // only the original `s` and the vec wrapper, and the vec's
+    // contents leak (a real Drop impl would handle this for us).
+    // For the demo this is fine; valgrind would complain but it's
+    // documented in the roadmap as a stage-1.5 fix.
+    dispose(addrm(s));
+    dispose(addrm(solo));
+    discard(p0);
+    discard(p1);
+    discard(p2);
+    discard(solo_p0);
+    release(addrm(parts));
+    release(addrm(solo_parts));
+
+    // n=3, lengths 5+4+5=14, first chars 97+98+103=298 (truncated).
+    // Build a verification score that won't overflow 256.
+    let total: i32 = (n + l0);   // 3 + 5 = 8
+    total = (total + l1);        // + 4 = 12
+    total = (total + l2);        // + 5 = 17
+    if (c0 == 97) { total = (total + 10); }
+    if (c1 == 98) { total = (total + 20); }
+    if (c2 == 103) { total = (total + 30); }
+    if (solo_n == 1) { total = (total + 5); }
+    if (solo_l == 7) { total = (total + 7); }
+    // 17 + 10 + 20 + 30 + 5 + 7 = 89
+    return total;
+}

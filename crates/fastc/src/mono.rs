@@ -1333,6 +1333,21 @@ fn approx_expr_type(
             }
             TypeExpr::Named(name.clone())
         }
+        // Look up a non-generic call's return type so `vec::new(make())`
+        // can drive T-inference from the inner result. Generic callees
+        // would need recursive inference here — skipped for v1 because
+        // a generic call's `T` is usually fixed by other arguments
+        // anyway, and full inference would risk infinite recursion.
+        Expr::Call { callee, .. } => {
+            if let Expr::Ident { name, .. } = callee.as_ref() {
+                if let Some(decl) = fns.get(name) {
+                    if decl.generics.is_empty() {
+                        return substitute(&decl.return_type, subst);
+                    }
+                }
+            }
+            TypeExpr::Void
+        }
         _ => TypeExpr::Void,
     }
 }

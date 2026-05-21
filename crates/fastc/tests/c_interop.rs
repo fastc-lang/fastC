@@ -348,6 +348,16 @@ fn test_closures_compiles() {
 }
 
 #[test]
+fn test_str_split_compiles() {
+    // Stage 1.1 slice 27: `str::split(s, byte) -> Vec[Str]` — first
+    // stdlib function returning a generic container of generic
+    // structs. Required adding Call-return-type inference to mono's
+    // `approx_expr_type` so `vec::new(make())` can infer T=Str from
+    // the inner result.
+    compile_and_verify("examples/str_split_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }
