@@ -819,6 +819,11 @@ impl Formatter {
                 self.write(".");
                 self.write(field);
             }
+            Expr::AddrM { operand, .. } => {
+                self.write("addrm(");
+                self.format_expr(operand);
+                self.write(")");
+            }
             Expr::Addr { operand, .. } => {
                 self.write("addr(");
                 self.format_expr(operand);
@@ -841,6 +846,11 @@ impl Formatter {
                 self.format_type(ty);
                 self.write(", ");
                 self.format_expr(expr);
+                self.write(")");
+            }
+            Expr::SizeOf { ty, .. } => {
+                self.write("sizeof(");
+                self.format_type(ty);
                 self.write(")");
             }
             Expr::CStr { value, .. } => {

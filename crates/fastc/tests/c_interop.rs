@@ -180,6 +180,15 @@ fn test_generic_struct_compiles() {
 }
 
 #[test]
+fn test_vec_compiles() {
+    // Stage 1.1 slice 7: the `vec` module — first generic container.
+    // Verifies struct-mono cooperates with generic free functions across
+    // a non-trivial body that uses `sizeof(T)`, raw-pointer indexing via
+    // `at(buf, i)`, and the new `addrm(x)` builtin for mutable refs.
+    compile_and_verify("examples/vec_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

@@ -545,6 +545,10 @@ fn mangle_expr_struct_refs(
             expr: Box::new(mangle_expr_struct_refs(*e, generic_structs, struct_insts)),
             span,
         },
+        Expr::SizeOf { ty, span } => Expr::SizeOf {
+            ty: mangle_type_refs(&ty, generic_structs, struct_insts),
+            span,
+        },
         Expr::None { ty, span } => Expr::None {
             ty: mangle_type_refs(&ty, generic_structs, struct_insts),
             span,
@@ -594,6 +598,14 @@ fn mangle_expr_struct_refs(
             span,
         },
         Expr::Addr { operand, span } => Expr::Addr {
+            operand: Box::new(mangle_expr_struct_refs(
+                *operand,
+                generic_structs,
+                struct_insts,
+            )),
+            span,
+        },
+        Expr::AddrM { operand, span } => Expr::AddrM {
             operand: Box::new(mangle_expr_struct_refs(
                 *operand,
                 generic_structs,
@@ -1092,7 +1104,9 @@ impl<'a> MonoCtx<'a> {
             Expr::Unary { operand, .. } => self.collect_in_expr(operand, subst, env),
             Expr::Paren { inner, .. } => self.collect_in_expr(inner, subst, env),
             Expr::Field { base, .. } => self.collect_in_expr(base, subst, env),
-            Expr::Addr { operand, .. } | Expr::Deref { operand, .. } => {
+            Expr::Addr { operand, .. }
+            | Expr::AddrM { operand, .. }
+            | Expr::Deref { operand, .. } => {
                 self.collect_in_expr(operand, subst, env);
             }
             Expr::At { base, index, .. } => {
@@ -1100,6 +1114,7 @@ impl<'a> MonoCtx<'a> {
                 self.collect_in_expr(index, subst, env);
             }
             Expr::Cast { expr: e, .. } => self.collect_in_expr(e, subst, env),
+            Expr::SizeOf { .. } => {}
             Expr::Some { value, .. } | Expr::Ok { value, .. } | Expr::Err { value, .. } => {
                 self.collect_in_expr(value, subst, env);
             }
@@ -1159,7 +1174,42 @@ fn approx_expr_type(
         Expr::FloatLit { .. } => TypeExpr::Primitive(PrimitiveType::F64),
         Expr::BoolLit { .. } => TypeExpr::Primitive(PrimitiveType::Bool),
         Expr::Cast { ty, .. } => substitute(ty, subst),
+        Expr::SizeOf { .. } => TypeExpr::Primitive(PrimitiveType::Usize),
         Expr::Paren { inner, .. } => approx_expr_type(inner, subst, env),
+        Expr::Addr { operand, .. } => {
+            // Mirror typecheck: addr(x) has type ref(typeof x). Without
+            // this, `push(addr(v), x)` cannot bind T from the receiver and
+            // mono leaves the call generic.
+            TypeExpr::Ref(Box::new(approx_expr_type(operand, subst, env)))
+        }
+        Expr::AddrM { operand, .. } => {
+            TypeExpr::Mref(Box::new(approx_expr_type(operand, subst, env)))
+        }
+        Expr::Deref { operand, .. } => match approx_expr_type(operand, subst, env) {
+            TypeExpr::Ref(inner) | TypeExpr::Mref(inner) => *inner,
+            TypeExpr::Raw(inner) | TypeExpr::Rawm(inner) => *inner,
+            other => other,
+        },
+        Expr::Field { base, field, .. } => {
+            // Struct field projection. Needed so a call like
+            // `push(addr(v.field), x)` can still drive T-inference.
+            let base_ty = approx_expr_type(base, subst, env);
+            let core = match &base_ty {
+                TypeExpr::Ref(t) | TypeExpr::Mref(t) => (**t).clone(),
+                other => other.clone(),
+            };
+            match core {
+                TypeExpr::Named(_) | TypeExpr::NamedGeneric(_, _) => {
+                    // Field type lookup needs the struct decl table, which
+                    // isn't threaded through approx_expr_type. v1 falls
+                    // back to Void; the call site's other args usually
+                    // supply T regardless.
+                    let _ = field;
+                    TypeExpr::Void
+                }
+                _ => TypeExpr::Void,
+            }
+        }
         Expr::Ident { name, .. } => {
             // Substitution first — handles `T` inside a specialized body.
             let from_subst = substitute(&TypeExpr::Named(name.clone()), subst);
@@ -1714,6 +1764,10 @@ fn rewrite_expr(
             operand: Box::new(rewrite_expr(operand, subst, ctx, env)),
             span: span.clone(),
         },
+        Expr::AddrM { operand, span } => Expr::AddrM {
+            operand: Box::new(rewrite_expr(operand, subst, ctx, env)),
+            span: span.clone(),
+        },
         Expr::Deref { operand, span } => Expr::Deref {
             operand: Box::new(rewrite_expr(operand, subst, ctx, env)),
             span: span.clone(),
@@ -1726,6 +1780,10 @@ fn rewrite_expr(
         Expr::Cast { ty, expr: e, span } => Expr::Cast {
             ty: substitute(ty, subst),
             expr: Box::new(rewrite_expr(e, subst, ctx, env)),
+            span: span.clone(),
+        },
+        Expr::SizeOf { ty, span } => Expr::SizeOf {
+            ty: substitute(ty, subst),
             span: span.clone(),
         },
         Expr::None { ty, span } => Expr::None {

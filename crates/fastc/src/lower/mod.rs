@@ -72,9 +72,13 @@ impl Lower {
         for item in items {
             match item {
                 ast::Item::Use(use_decl) => {
-                    // Build the full module path for the use target
-                    let mut full_path: Vec<String> = current_path.to_vec();
-                    full_path.extend(use_decl.path.clone());
+                    // Build the full module path for the use target. `use`
+                    // paths are scope-chain-resolved (the resolver walks
+                    // parent scopes), so a `use mem::alloc;` inside
+                    // `mod vec` refers to the root-level `mem`, not
+                    // `vec::mem`. Honor that by treating the use path as
+                    // absolute from the root, ignoring `current_path`.
+                    let full_path: Vec<String> = use_decl.path.clone();
                     let mangled_prefix = full_path.join("__");
 
                     match &use_decl.items {
@@ -164,12 +168,15 @@ impl Lower {
             ast::Expr::Unary { operand, .. } => self.has_side_effects(operand),
             ast::Expr::Paren { inner, .. } => self.has_side_effects(inner),
             ast::Expr::Field { base, .. } => self.has_side_effects(base),
-            ast::Expr::Addr { operand, .. } => self.has_side_effects(operand),
+            ast::Expr::Addr { operand, .. } | ast::Expr::AddrM { operand, .. } => {
+                self.has_side_effects(operand)
+            }
             ast::Expr::Deref { operand, .. } => self.has_side_effects(operand),
             ast::Expr::At { base, index, .. } => {
                 self.has_side_effects(base) || self.has_side_effects(index)
             }
             ast::Expr::Cast { expr, .. } => self.has_side_effects(expr),
+            ast::Expr::SizeOf { .. } => false,
             ast::Expr::Some { value, .. } => self.has_side_effects(value),
             ast::Expr::Ok { value, .. } => self.has_side_effects(value),
             ast::Expr::Err { value, .. } => self.has_side_effects(value),
@@ -184,6 +191,7 @@ impl Lower {
             ast::Expr::FloatLit { .. } => CType::Double, // Default to f64 for float literals
             ast::Expr::BoolLit { .. } => CType::Bool,
             ast::Expr::Cast { ty, .. } => self.lower_type(ty),
+            ast::Expr::SizeOf { .. } => CType::SizeT,
             ast::Expr::Paren { inner, .. } => self.infer_expr_type(inner),
             ast::Expr::Unary { operand, .. } => self.infer_expr_type(operand),
             ast::Expr::Binary { op, lhs, .. } => {
@@ -1073,7 +1081,7 @@ impl Lower {
                     field: field.clone(),
                 }
             }
-            ast::Expr::Addr { operand, .. } => {
+            ast::Expr::Addr { operand, .. } | ast::Expr::AddrM { operand, .. } => {
                 let c_operand = self.lower_expr(operand, pre_stmts);
                 CExpr::AddrOf(Box::new(c_operand))
             }
@@ -1121,6 +1129,7 @@ impl Lower {
                     expr: Box::new(c_expr),
                 }
             }
+            ast::Expr::SizeOf { ty, .. } => CExpr::SizeOf(self.lower_type(ty)),
             // `cstr("...")` typechecks as `raw(u8)` (a.k.a. `const uint8_t*`),
             // but a bare C string literal has type `char*`. Wrap in an
             // explicit cast so passing the literal to a `const uint8_t*`

@@ -477,6 +477,7 @@ impl Emitter {
                     self.expr_to_string(expr)
                 )
             }
+            CExpr::SizeOf(ty) => format!("sizeof({})", self.type_to_string(ty)),
             CExpr::Paren(inner) => {
                 format!("({})", self.expr_to_string(inner))
             }

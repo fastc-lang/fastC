@@ -231,6 +231,17 @@ impl Parser<'_> {
                     span: start..end,
                 })
             }
+            Token::AddrM => {
+                self.advance();
+                self.consume(&Token::LParen, "expected '(' after 'addrm'")?;
+                let operand = self.parse_expr()?;
+                self.consume(&Token::RParen, "expected ')'")?;
+                let end = self.previous_span().end;
+                Ok(Expr::AddrM {
+                    operand: Box::new(operand),
+                    span: start..end,
+                })
+            }
             Token::Deref => {
                 self.advance();
                 self.consume(&Token::LParen, "expected '(' after 'deref'")?;
@@ -267,6 +278,17 @@ impl Parser<'_> {
                 Ok(Expr::Cast {
                     ty,
                     expr: Box::new(expr),
+                    span: start..end,
+                })
+            }
+            Token::SizeOf => {
+                self.advance();
+                self.consume(&Token::LParen, "expected '(' after 'sizeof'")?;
+                let ty = self.parse_type()?;
+                self.consume(&Token::RParen, "expected ')'")?;
+                let end = self.previous_span().end;
+                Ok(Expr::SizeOf {
+                    ty,
                     span: start..end,
                 })
             }

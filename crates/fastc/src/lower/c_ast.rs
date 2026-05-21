@@ -175,6 +175,7 @@ pub enum CExpr {
         ty: CType,
         expr: Box<CExpr>,
     },
+    SizeOf(CType),
     Paren(Box<CExpr>),
     Compound {
         ty: CType,

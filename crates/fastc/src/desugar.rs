@@ -305,6 +305,10 @@ fn subst_self_in_expr(expr: &Expr, target: &str) -> Expr {
             expr: Box::new(subst_self_in_expr(e, target)),
             span: span.clone(),
         },
+        Expr::SizeOf { ty, span } => Expr::SizeOf {
+            ty: subst_self(ty, target),
+            span: span.clone(),
+        },
         Expr::None { ty, span } => Expr::None {
             ty: subst_self(ty, target),
             span: span.clone(),
@@ -335,6 +339,10 @@ fn subst_self_in_expr(expr: &Expr, target: &str) -> Expr {
             span: span.clone(),
         },
         Expr::Addr { operand, span } => Expr::Addr {
+            operand: Box::new(subst_self_in_expr(operand, target)),
+            span: span.clone(),
+        },
+        Expr::AddrM { operand, span } => Expr::AddrM {
             operand: Box::new(subst_self_in_expr(operand, target)),
             span: span.clone(),
         },

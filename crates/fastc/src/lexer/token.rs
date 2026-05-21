@@ -133,12 +133,16 @@ pub enum Token {
     // Builtin functions
     #[token("addr")]
     Addr,
+    #[token("addrm")]
+    AddrM,
     #[token("deref")]
     Deref,
     #[token("at")]
     At,
     #[token("cast")]
     Cast,
+    #[token("sizeof")]
+    SizeOf,
     #[token("cstr")]
     Cstr,
     #[token("bytes")]
@@ -396,9 +400,11 @@ impl fmt::Display for Token {
             Token::Opt => write!(f, "opt"),
             Token::Res => write!(f, "res"),
             Token::Addr => write!(f, "addr"),
+            Token::AddrM => write!(f, "addrm"),
             Token::Deref => write!(f, "deref"),
             Token::At => write!(f, "at"),
             Token::Cast => write!(f, "cast"),
+            Token::SizeOf => write!(f, "sizeof"),
             Token::Cstr => write!(f, "cstr"),
             Token::Bytes => write!(f, "bytes"),
             Token::Discard => write!(f, "discard"),

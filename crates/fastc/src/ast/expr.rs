@@ -75,8 +75,10 @@ pub enum Expr {
         field: String,
         span: Span,
     },
-    /// addr(x) - take address
+    /// addr(x) - take address (immutable, returns ref)
     Addr { operand: Box<Expr>, span: Span },
+    /// addrm(x) - take mutable address (returns mref)
+    AddrM { operand: Box<Expr>, span: Span },
     /// deref(p) - dereference pointer
     Deref { operand: Box<Expr>, span: Span },
     /// at(arr, i) - array/slice indexing
@@ -91,6 +93,8 @@ pub enum Expr {
         expr: Box<Expr>,
         span: Span,
     },
+    /// sizeof(T) - size in bytes of a type, returns usize
+    SizeOf { ty: TypeExpr, span: Span },
     /// cstr("...") - C string literal
     CStr { value: String, span: Span },
     /// bytes("...") - byte slice literal
@@ -157,9 +161,11 @@ impl Expr {
             | Expr::Call { span, .. }
             | Expr::Field { span, .. }
             | Expr::Addr { span, .. }
+            | Expr::AddrM { span, .. }
             | Expr::Deref { span, .. }
             | Expr::At { span, .. }
             | Expr::Cast { span, .. }
+            | Expr::SizeOf { span, .. }
             | Expr::CStr { span, .. }
             | Expr::Bytes { span, .. }
             | Expr::None { span, .. }

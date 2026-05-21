@@ -1,0 +1,44 @@
+// Stage 1.1 slice 7: the `vec` module ships the first generic container.
+//
+// `Vec[T]` lives in the prelude as a heap-backed dynamic array; `mod vec`
+// provides `with_capacity`, `push`, `get`, `len`, and `free`. v1 is
+// fixed-capacity (no automatic growth) and uses explicit `vec::free` for
+// release — generic `impl Drop for Vec[T]` is blocked on parser support
+// for impl-on-generic targets, scheduled for a follow-up slice.
+//
+// This demo exercises every entry point and returns a value derived from
+// the pushed-and-read elements so the exit code is a hard correctness
+// check.
+
+use vec::with_capacity;
+use vec::push;
+use vec::get;
+use vec::len;
+use vec::release;
+
+fn main() -> i32 {
+    // Capacity 4, every slot pre-zeroed via the `seed` argument. The
+    // seed value is what fixes T = i32 at the call site — fastC's v1
+    // generic-fn inference can only look at argument types.
+    let v: Vec[i32] = with_capacity(0, cast(usize, 4));
+
+    push(addrm(v), 10);
+    push(addrm(v), 20);
+    push(addrm(v), 5);
+    push(addrm(v), 7);
+    // Fifth push is silently dropped because len == cap. Growable push
+    // is a follow-up slice; for now this is the documented v1 behavior.
+    push(addrm(v), 999);
+
+    // Reads come back in insertion order.
+    let a: i32 = get(addr(v), cast(usize, 0));   // 10
+    let b: i32 = get(addr(v), cast(usize, 1));   // 20
+    let c: i32 = get(addr(v), cast(usize, 2));   // 5
+    let d: i32 = get(addr(v), cast(usize, 3));   // 7
+    let n: i32 = cast(i32, len(addr(v)));         // 4
+
+    release(addrm(v));
+
+    // 10 + 20 + 5 + 7 + 4 = 46
+    return ((((a + b) + c) + d) + n);
+}

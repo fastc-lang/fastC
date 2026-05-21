@@ -882,6 +882,12 @@ impl<'a> TypeChecker<'a> {
                 TypeExpr::Ref(Box::new(operand_ty))
             }
 
+            Expr::AddrM { operand, span } => {
+                let operand_ty = self.infer_expr(operand);
+                self.check_addressable(operand, span);
+                TypeExpr::Mref(Box::new(operand_ty))
+            }
+
             Expr::Deref { operand, span } => {
                 let operand_ty = self.infer_expr(operand);
 
@@ -925,6 +931,15 @@ impl<'a> TypeChecker<'a> {
                 match base_ty {
                     TypeExpr::Slice(inner) => *inner,
                     TypeExpr::Arr(inner, _) => *inner,
+                    TypeExpr::Raw(inner) | TypeExpr::Rawm(inner) => {
+                        if !self.safety.is_unsafe() {
+                            self.error(
+                                "indexing a raw pointer requires unsafe block".to_string(),
+                                span.clone(),
+                            );
+                        }
+                        *inner
+                    }
                     _ => {
                         self.error(
                             format!("cannot index non-array type {:?}", base_ty),
@@ -948,6 +963,8 @@ impl<'a> TypeChecker<'a> {
 
                 ty.clone()
             }
+
+            Expr::SizeOf { .. } => TypeExpr::Primitive(PrimitiveType::Usize),
 
             Expr::None { ty, .. } => TypeExpr::Opt(Box::new(ty.clone())),
 
@@ -1239,6 +1256,16 @@ pub(crate) fn unify_generic(
         (TypeExpr::Res(ft, fe), TypeExpr::Res(at, ae)) => {
             unify_generic(ft, at, type_params, subst);
             unify_generic(fe, ae, type_params, subst);
+        }
+        // Recurse into generic type arguments so `Vec[T]` against
+        // `Vec[i32]` binds `T -> i32`. Names must match; the arity check
+        // protects against `Pair[T, U]` unifying with `Vec[i32]`.
+        (TypeExpr::NamedGeneric(fn_, fargs), TypeExpr::NamedGeneric(an, aargs))
+            if fn_ == an && fargs.len() == aargs.len() =>
+        {
+            for (f, a) in fargs.iter().zip(aargs.iter()) {
+                unify_generic(f, a, type_params, subst);
+            }
         }
         // No deeper structure to bind through; non-matching shapes will be
         // caught by the substituted compatibility check at the call site.

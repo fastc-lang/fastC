@@ -213,7 +213,9 @@ impl ControlFlowRule {
             Expr::Field { base, .. } => {
                 self.collect_calls_from_expr(base, known_fns, calls);
             }
-            Expr::Addr { operand, .. } | Expr::Deref { operand, .. } => {
+            Expr::Addr { operand, .. }
+            | Expr::AddrM { operand, .. }
+            | Expr::Deref { operand, .. } => {
                 self.collect_calls_from_expr(operand, known_fns, calls);
             }
             Expr::At { base, index, .. } => {
@@ -223,6 +225,7 @@ impl ControlFlowRule {
             Expr::Cast { expr, .. } => {
                 self.collect_calls_from_expr(expr, known_fns, calls);
             }
+            Expr::SizeOf { .. } => {}
             Expr::Some { value, .. } | Expr::Ok { value, .. } | Expr::Err { value, .. } => {
                 self.collect_calls_from_expr(value, known_fns, calls);
             }

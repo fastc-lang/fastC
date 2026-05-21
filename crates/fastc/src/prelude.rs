@@ -350,6 +350,87 @@ mod io {
         }
     }
 }
+
+// --- Vec[T]: the first generic container ---
+//
+// Heap-backed dynamic array. v1 is fixed-capacity (no automatic growth);
+// growth lives in a follow-up slice once `realloc` and capability-aware
+// allocators are in. Drop integration is also a follow-up — generic impls
+// (`impl Drop for Vec[T]`) need parser/desugar/mono support that we have
+// not built yet. Today callers free the buffer manually with `vec::free`.
+
+struct Vec[T] {
+    data: rawm(T),
+    len: usize,
+    cap: usize,
+}
+
+mod vec {
+    use mem::alloc;
+    use mem::free_bytes;
+
+    /// Allocate a vec with the given capacity. `seed` is written into every
+    /// slot so the buffer is fully initialized (no UB on later reads); it
+    /// also fixes `T` at the call site, which v1 type-arg inference needs
+    /// because the bare `cap: usize` argument carries no `T`. Returned vec
+    /// has `len = 0`; values become observable only via `vec::push`.
+    pub fn with_capacity[T](seed: T, cap: usize) -> Vec[T] {
+        let nbytes: usize = (cap * sizeof(T));
+        let raw_buf: rawm(u8) = alloc(nbytes);
+        let buf: rawm(T) = cast(rawm(T), raw_buf);
+        let i: usize = cast(usize, 0);
+        while (i < cap) {
+            unsafe {
+                at(buf, i) = seed;
+            }
+            i = (i + cast(usize, 1));
+        }
+        // Explicit cast on `data` so the struct-mono pass can infer T from
+        // the field value (approx_field_type only inspects Cast nodes).
+        return Vec {
+            data: cast(rawm(T), raw_buf),
+            len: cast(usize, 0),
+            cap: cap,
+        };
+    }
+
+    /// Append `x` to the vec. Silently drops the value if `len == cap` —
+    /// growable push is a follow-up slice.
+    pub fn push[T](v: mref(Vec[T]), x: T) -> void {
+        let cur: usize = (deref(v)).len;
+        let cap_v: usize = (deref(v)).cap;
+        if (cur < cap_v) {
+            let buf: rawm(T) = (deref(v)).data;
+            unsafe {
+                at(buf, cur) = x;
+            }
+            (deref(v)).len = (cur + cast(usize, 1));
+        }
+    }
+
+    /// Read the element at index `i`. v1 does not bounds-check; callers
+    /// must ensure `i < vec::len(v)`. A safe `get_opt` returning `opt(T)`
+    /// arrives with the safety-tier slice.
+    pub fn get[T](v: ref(Vec[T]), i: usize) -> T {
+        let buf: rawm(T) = (deref(v)).data;
+        unsafe {
+            return at(buf, i);
+        }
+    }
+
+    pub fn len[T](v: ref(Vec[T])) -> usize {
+        return (deref(v)).len;
+    }
+
+    /// Release the heap buffer. The vec value must not be used after this
+    /// returns. Replaces the missing Drop integration; the name avoids
+    /// `free` so the P10-3 (no-runtime-alloc) rule does not flag every
+    /// vec destructor as a libc allocator call.
+    pub fn release[T](v: mref(Vec[T])) -> void {
+        let buf: rawm(T) = (deref(v)).data;
+        free_bytes(cast(rawm(u8), buf));
+    }
+}
 "#;
 
 /// Parse the prelude into a `Vec<Item>` ready to be prepended to a user
@@ -419,5 +500,18 @@ mod tests {
             .iter()
             .any(|i| matches!(i, Item::Mod(m) if m.name == "io" && m.body.is_some()));
         assert!(found, "expected `mod io` (inline) in prelude");
+    }
+
+    #[test]
+    fn prelude_has_vec_struct_and_module() {
+        let items = prelude_items();
+        let has_struct = items
+            .iter()
+            .any(|i| matches!(i, Item::Struct(s) if s.name == "Vec" && !s.generics.is_empty()));
+        assert!(has_struct, "expected `struct Vec[T]` in prelude");
+        let has_mod = items
+            .iter()
+            .any(|i| matches!(i, Item::Mod(m) if m.name == "vec" && m.body.is_some()));
+        assert!(has_mod, "expected `mod vec` (inline) in prelude");
     }
 }

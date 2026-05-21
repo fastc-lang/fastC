@@ -706,7 +706,7 @@ impl<'a> Resolver<'a> {
                 self.resolve_expr(base);
                 // Field name resolution is done during type checking
             }
-            Expr::Addr { operand, .. } => {
+            Expr::AddrM { operand, .. } | Expr::Addr { operand, .. } => {
                 self.resolve_expr(operand);
             }
             Expr::Deref { operand, .. } => {
@@ -719,6 +719,9 @@ impl<'a> Resolver<'a> {
             Expr::Cast { ty, expr, .. } => {
                 self.resolve_type(ty);
                 self.resolve_expr(expr);
+            }
+            Expr::SizeOf { ty, .. } => {
+                self.resolve_type(ty);
             }
             Expr::None { ty, .. } => {
                 self.resolve_type(ty);
