@@ -552,6 +552,16 @@ fn test_env_rand_cap_demo_compiles() {
 }
 
 #[test]
+fn test_fs_cap_demo_compiles() {
+    // Deferred-item 12: `mod fs` cap-typed file ops. Minimum-
+    // viable v1: `fs::exists(c, path) -> i32` and
+    // `fs::size_bytes(c, path) -> i64`, both gated on `CapFsRead`.
+    // Probes `/dev/null` to verify the cap-gated call path works
+    // end to end.
+    compile_and_verify("examples/fs_cap_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

@@ -1,0 +1,41 @@
+// Deferred-item 12: `mod fs` cap-typed file system reads.
+//
+// Two minimum-viable file operations gated on `CapFsRead`:
+//
+//   - `fs::exists(c, path) -> i32` returns 1 if the path is
+//     reachable via libc `access(F_OK)`, 0 otherwise.
+//   - `fs::size_bytes(c, path) -> i64` returns the regular
+//     file's byte size, or -1 if the path doesn't stat as a
+//     regular file (directories / fifos / sockets return -1).
+//
+// Together they let scripts probe the filesystem without giving
+// the calling code blanket I/O authority — the cap shows up in
+// every signature on the read path. `mod fs` write operations
+// (truncate, append, write_all) follow the same pattern in a
+// later sub-slice once `CapFsWrite` is wired through; until then,
+// trying to write requires holding a separate capability so
+// read-only code stays read-only by construction.
+
+use caps::init;
+
+fn probe_self(c: ref(CapFsRead)) -> i64 {
+    // We don't have argc/argv yet, so probe a path we know the
+    // build invocation has access to. `/dev/null` exists on every
+    // POSIX system; its size is 0 because it's not a regular file
+    // (it stats as a character device), so the return value will
+    // be -1.
+    let here_exists: i32 = fs::exists(c, cstr("/dev/null"));
+    discard(here_exists);
+    return fs::size_bytes(c, cstr("/dev/null"));
+}
+
+fn main() -> i32 {
+    let bundle: Caps = init();
+    let sz: i64 = probe_self(addr(bundle.fs_read));
+    // /dev/null is a character device, so size_bytes returns -1.
+    // We exit 0 to confirm the cap-gated call path worked end to
+    // end; non-existent files would have returned -1 too, so this
+    // is intentionally a smoke test rather than a value check.
+    discard(sz);
+    return 0;
+}

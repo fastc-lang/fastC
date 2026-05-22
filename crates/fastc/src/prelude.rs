@@ -876,6 +876,37 @@ mod env {
     }
 }
 
+mod fs {
+    extern "C" {
+        // `fc_fs_exists` / `fc_fs_size_bytes` defined in
+        // `fastc_runtime.h`. Both wrap libc `access` / `stat`
+        // respectively and widen to int32_t / int64_t so the
+        // fastC bindings stay platform-independent.
+        unsafe fn fc_fs_exists(path: raw(u8)) -> i32;
+        unsafe fn fc_fs_size_bytes(path: raw(u8)) -> i64;
+    }
+
+    /// Return 1 if `path` exists and is reachable, 0 otherwise.
+    /// Requires `CapFsRead`. Doesn't distinguish between "missing"
+    /// and "permission denied" — a richer error path will return
+    /// `res(bool, FsError)` once `mod fs` graduates to fastc-core.
+    pub fn exists(_c: ref(CapFsRead), path: raw(u8)) -> i32 {
+        unsafe {
+            return fc_fs_exists(path);
+        }
+    }
+
+    /// Return the byte size of a regular file at `path`, or -1 if
+    /// the path doesn't stat or isn't a regular file (directory,
+    /// socket, fifo, etc). Requires `CapFsRead`. Widened to i64
+    /// so callers don't have to worry about platform off_t size.
+    pub fn size_bytes(_c: ref(CapFsRead), path: raw(u8)) -> i64 {
+        unsafe {
+            return fc_fs_size_bytes(path);
+        }
+    }
+}
+
 mod rand {
     extern "C" {
         // `fc_rand_seed` / `fc_rand_u32` are defined in

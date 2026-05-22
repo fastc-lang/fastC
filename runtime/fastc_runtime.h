@@ -86,6 +86,28 @@ static inline const uint8_t* fc_env_get(const uint8_t* key) {
     return (const uint8_t*)getenv((const char*)key);
 }
 
+/* File existence check. Returns 1 if the path is reachable via
+ * libc `access(..., F_OK)`, 0 otherwise. Used by `mod fs::exists`;
+ * the cap check happens at the fastC level. */
+#include <unistd.h>
+static inline int32_t fc_fs_exists(const uint8_t* path) {
+    return access((const char*)path, F_OK) == 0 ? 1 : 0;
+}
+
+/* Byte-size of a regular file. Returns -1 if the path can't be
+ * stat'd or isn't a regular file. Used by `mod fs::size_bytes`;
+ * widens to int64_t so the fastC binding doesn't have to worry
+ * about libc off_t portability. */
+#include <sys/stat.h>
+static inline int64_t fc_fs_size_bytes(const uint8_t* path) {
+    struct stat st;
+    if (stat((const char*)path, &st) != 0) return -1;
+    /* Only count regular files; directories/sockets/etc are not
+     * what callers asking for a byte count want. */
+    if ((st.st_mode & S_IFMT) != S_IFREG) return -1;
+    return (int64_t)st.st_size;
+}
+
 /* Seedable linear-congruential PRNG. Single global state so the
  * fastC binding doesn't have to thread a struct around. Output is
  * uint32; callers can narrow as needed.
