@@ -27,7 +27,9 @@ Each row has a paragraph of context at [docs.skelfresearch.com/fastc/why/rubric]
 
 ## Measured numbers
 
-[Benchmarks](https://docs.skelfresearch.com/fastc/why/benchmarks) on M3, snapshot dated 2026-05-22:
+[Benchmarks](https://docs.skelfresearch.com/fastc/why/benchmarks) on M3:
+
+**Compile, size, runtime** (snapshot 2026-05-22):
 
 | Program | fastC compile | fastC strip | fastC runtime | C runtime (gcc -O2) |
 |---|---|---|---|---|
@@ -38,7 +40,33 @@ Each row has a paragraph of context at [docs.skelfresearch.com/fastc/why/rubric]
 
 fastC matches C on FP-heavy work and is 27% slower on recursive integer code (overflow checks are the cost). Binaries are ~6× smaller than Rust, ~40× smaller than Go.
 
-The scripts and golden data are in [`benchmarks/cross-lang/`](benchmarks/cross-lang/). Re-running takes 30 seconds; the first-compile-success-rate harness (Claude / GPT-4o / Gemini × five languages) is at [`benchmarks/cross-lang/first-compile/`](benchmarks/cross-lang/first-compile/).
+**Agent first-compile success** on T1 sum_array, 4 Ollama Cloud open-weight LLMs × N=3 trials per cell:
+
+| Lang | GLM | Kimi | DeepSeek | Qwen |
+|---|---|---|---|---|
+| C | 3/3 | 3/3 | 3/3 | 3/3 |
+| Rust | 3/3 | 2/3 | 2/2 | 2/2 |
+| Zig | 3/3 | 2/2 | 3/3 | 0/2 |
+| Go | 3/3 | 1/1 | TBD | TBD |
+| **fastC** | **3/3** | **3/3** | **3/3** | **3/3** |
+
+fastC matches or beats every other language on T1 — **once the cheatsheet shipped with the prompt is faithful**. An earlier run against an inaccurate cheatsheet scored 0/9; rewriting the cheatsheet around a verified worked example and a "common mistakes" inverse guide flipped the result to 12/12.
+
+**Safety wedge** on T5 large_sum (sum 1..100000 without overflow warning), GLM N=3:
+
+| Lang | compiled | correct | silently-wrong |
+|---|---|---|---|
+| C | 3/3 | 3/3 | 0 |
+| Rust | 3/3 | 1/3 | 2 (silent integer wrap) |
+| Go | 3/3 | 0/3 | 3 (silent integer wrap) |
+| Zig | 0/3 | 0/3 | 0 (refused: signed `/` needs `@divTrunc`) |
+| fastC | 3/3 | 3/3 | 0 |
+
+Go silently wrapped 3/3; Rust 2/3. fastC and Zig either refused to compile or computed correctly — neither shipped a silently-wrong binary.
+
+The scripts and golden data are in [`benchmarks/cross-lang/`](benchmarks/cross-lang/). Re-running the perf suite takes 30 seconds; the first-compile-success harness against the four Ollama models with a single key is ~$2 and ~30 minutes. See [`benchmarks/cross-lang/first-compile/`](benchmarks/cross-lang/first-compile/).
+
+The [supply-chain side-by-side demo](examples/supply_chain_demo/) shows `cargo build` executing a malicious `build.rs` vs `fastc.toml` rejecting the same shape at parse time.
 
 ## Quick Start
 

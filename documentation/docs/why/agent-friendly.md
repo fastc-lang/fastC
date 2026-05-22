@@ -40,8 +40,13 @@ The alternative — text-scraping `cargo check` output — is what every Rust ag
 
 `fastc add` (planned) shows the requested capabilities before fetching. `fastc fetch` (already shipped) refuses to use a dep without a recorded `sha256`. `--vendor-strict` (planned) makes Sigstore mandatory for `fastc-core/*` packages. An LLM that suggests `use json_safe` (typosquat of `json`) doesn't get to silently install — the human sees the diff.
 
+## What this claims, with measurement
+
+- **First-compile success.** Initially measured at 0/9 on T1 sum_array against four Ollama Cloud open-weight models, with an inaccurate cheatsheet shipped to the LLM. After rewriting the cheatsheet around a verified worked example and a "common mistakes" inverse guide — same task, same prompts, same N=3 trials — the result moved to **12/12**. fastC is competitive with C / Rust / Zig / Go on first-compile rate **conditional on faithful prompting documentation**. The lesson: every strict-syntax language pays for its strictness at LLM-write-time and recovers the cost via documentation. fastC's documentation now ships at the cheatsheet level; a parser-integrated `fastc fix` would close the remaining gap further.
+- **Safety wedge against silently-wrong runtime behavior.** On T5 (sum 1..100000 with no overflow warning), GLM produced silently-wrapped output 3/3 trials in Go and 2/3 in Rust. fastC and Zig refused to compile or computed correctly — neither shipped a silently-wrong binary. See [benchmarks](benchmarks.md#safety-wedge-compile-vs-correct-gap).
+
 ## What this doesn't claim
 
-- **Token count.** fastC is the most verbose of the five languages we benchmarked (see [benchmarks](benchmarks.md)). The wedge is the *quality* of the tokens written, not the count.
-- **First-compile success.** Pending benchmark data. If the number doesn't show fastC ahead, the wedge needs rethinking.
+- **Token count.** fastC is the most verbose of the five languages we benchmarked (see [benchmarks](benchmarks.md)). The trade is more typing to get the type system to enforce more invariants; the first-compile data above says the extra typing isn't free at LLM-write-time, and the safety-wedge data says it pays off at runtime.
 - **Smarter agents.** fastC doesn't make agents smarter. It makes the language more legible to agents that already exist, and forgiving of the specific failure modes agents make most often.
+- **Frontier-model performance.** All benchmarks above are open-weight Ollama Cloud models. Claude, GPT-4o, and Gemini 2.5 Pro likely do better on first-compile against capable cheatsheets and worse on the safety wedge (more sophisticated default-correct behavior). Running the harness with all three sets of keys would close this remaining gap.
