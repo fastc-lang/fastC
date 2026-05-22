@@ -1,0 +1,232 @@
+// Stage 1.1 slice 36: JSON tokenizer — the non-trivial program
+// that fulfills Stage 1.1's Definition-of-Done line for the
+// standard library.
+//
+// Takes a JSON-ish input string and produces a `Vec[Token]` where
+// `Token { kind: i32, value: Str }`. Kinds are encoded as small
+// integers (the prelude has no cross-mod enum syntax yet, so a
+// sentinel int is the simplest cross-helper representation):
+//
+//   1 = '{'         5 = ','       9  = number
+//   2 = '}'         6 = ':'       10 = identifier (true/false/null/...)
+//   3 = '['         7 = string
+//   4 = ']'
+//
+// The tokenizer body is split into per-case helpers so each fits
+// inside P10 Rule 4's function-length budget.
+
+use str::from_cstr;
+use str::byte_count;
+use str::byte_at;
+use str::push_byte;
+use str::make;
+use str::dispose;
+use vec::new;
+use vec::push;
+use vec::get;
+use vec::len;
+use vec::release;
+
+fn k_lbrace() -> i32 { return 1; }
+fn k_rbrace() -> i32 { return 2; }
+fn k_lbracket() -> i32 { return 3; }
+fn k_rbracket() -> i32 { return 4; }
+fn k_comma() -> i32 { return 5; }
+fn k_colon() -> i32 { return 6; }
+fn k_string() -> i32 { return 7; }
+fn k_number() -> i32 { return 9; }
+fn k_ident() -> i32 { return 10; }
+
+struct Token {
+    kind: i32,
+    value: Str,
+}
+
+struct Cursor {
+    buf: rawm(u8),
+    n: usize,
+    i: usize,
+}
+
+fn is_ws_byte(b: u8) -> bool {
+    if (b == cast(u8, 32)) { return true; }
+    if (b == cast(u8, 9)) { return true; }
+    if (b == cast(u8, 10)) { return true; }
+    if (b == cast(u8, 13)) { return true; }
+    return false;
+}
+
+fn is_digit_byte(b: u8) -> bool {
+    if (b < cast(u8, 48)) { return false; }
+    if (b > cast(u8, 57)) { return false; }
+    return true;
+}
+
+fn is_alpha_byte(b: u8) -> bool {
+    if (b >= cast(u8, 65)) {
+        if (b <= cast(u8, 90)) { return true; }
+    }
+    if (b >= cast(u8, 97)) {
+        if (b <= cast(u8, 122)) { return true; }
+    }
+    return false;
+}
+
+fn single(b: u8) -> Str {
+    let s: Str = make();
+    push_byte(addrm(s), b);
+    return s;
+}
+
+fn cur_byte(c: mref(Cursor)) -> u8 {
+    let buf: rawm(u8) = (deref(c)).buf;
+    unsafe {
+        return at(buf, (deref(c)).i);
+    }
+}
+
+fn cur_done(c: mref(Cursor)) -> bool {
+    return ((deref(c)).i >= (deref(c)).n);
+}
+
+fn cur_advance(c: mref(Cursor)) -> void {
+    (deref(c)).i = ((deref(c)).i + cast(usize, 1));
+}
+
+fn scan_string(c: mref(Cursor)) -> Str {
+    cur_advance(c);   // consume the leading '"'
+    let val: Str = make();
+    let scanning: bool = true;
+    while (scanning) {
+        if (cur_done(c)) {
+            scanning = false;
+        } else {
+            let ch: u8 = cur_byte(c);
+            if (ch == cast(u8, 34)) {
+                scanning = false;
+                cur_advance(c);
+            } else {
+                push_byte(addrm(val), ch);
+                cur_advance(c);
+            }
+        }
+    }
+    return val;
+}
+
+fn scan_while(c: mref(Cursor), is_member: fn(u8) -> bool) -> Str {
+    let val: Str = make();
+    let scanning: bool = true;
+    while (scanning) {
+        if (cur_done(c)) {
+            scanning = false;
+        } else {
+            let ch: u8 = cur_byte(c);
+            if (is_member(ch)) {
+                push_byte(addrm(val), ch);
+                cur_advance(c);
+            } else {
+                scanning = false;
+            }
+        }
+    }
+    return val;
+}
+
+fn punct_kind(b: u8) -> i32 {
+    if (b == cast(u8, 123)) { return k_lbrace(); }
+    if (b == cast(u8, 125)) { return k_rbrace(); }
+    if (b == cast(u8, 91)) { return k_lbracket(); }
+    if (b == cast(u8, 93)) { return k_rbracket(); }
+    if (b == cast(u8, 44)) { return k_comma(); }
+    if (b == cast(u8, 58)) { return k_colon(); }
+    return 0;
+}
+
+fn push_token(out: mref(Vec[Token]), kind: i32, value: Str) -> void {
+    push(out, Token { kind: kind, value: value });
+}
+
+fn tokenize_one(c: mref(Cursor), out: mref(Vec[Token])) -> void {
+    let b: u8 = cur_byte(c);
+    if (is_ws_byte(b)) {
+        cur_advance(c);
+        return;
+    }
+    let pk: i32 = punct_kind(b);
+    if (pk != 0) {
+        push_token(out, pk, single(b));
+        cur_advance(c);
+        return;
+    }
+    if (b == cast(u8, 34)) {
+        let val: Str = scan_string(c);
+        push_token(out, k_string(), val);
+        return;
+    }
+    if (is_digit_byte(b)) {
+        let val: Str = scan_while(c, is_digit_byte);
+        push_token(out, k_number(), val);
+        return;
+    }
+    if (is_alpha_byte(b)) {
+        let val: Str = scan_while(c, is_alpha_byte);
+        push_token(out, k_ident(), val);
+        return;
+    }
+    // Unknown byte: skip silently. A real parser would surface a
+    // res() error tagged with the position.
+    cur_advance(c);
+}
+
+fn tokenize(input: ref(Str)) -> Vec[Token] {
+    let out: Vec[Token] = new(Token { kind: 0, value: make() });
+    let c: Cursor = Cursor {
+        buf: (deref(input)).data.data,
+        n: byte_count(input),
+        i: cast(usize, 0),
+    };
+    while (!cur_done(addrm(c))) {
+        tokenize_one(addrm(c), addrm(out));
+    }
+    return out;
+}
+
+fn main() -> i32 {
+    let src: Str = from_cstr(cstr("{ \"name\": \"Alice\", \"age\": 30, \"tags\": [\"admin\", true] }"));
+    let tokens: Vec[Token] = tokenize(addr(src));
+    let n: i32 = cast(i32, len(addr(tokens)));   // expected 17 tokens
+
+    let t0: Token = get(addr(tokens), cast(usize, 0));   // { -> k_lbrace
+    let t1: Token = get(addr(tokens), cast(usize, 1));   // "name" -> k_string
+    let t2: Token = get(addr(tokens), cast(usize, 2));   // : -> k_colon
+    let t3: Token = get(addr(tokens), cast(usize, 3));   // "Alice" -> k_string
+    let t7: Token = get(addr(tokens), cast(usize, 7));   // 30 -> k_number
+
+    let k0: i32 = t0.kind;
+    let k1: i32 = t1.kind;
+    let k2: i32 = t2.kind;
+    let k3: i32 = t3.kind;
+    let k7: i32 = t7.kind;
+    let n1: i32 = cast(i32, byte_count(addr(t1.value)));   // 4 ("name")
+    let n3: i32 = cast(i32, byte_count(addr(t3.value)));   // 5 ("Alice")
+    let n7: i32 = cast(i32, byte_count(addr(t7.value)));   // 2 ("30")
+    let first_byte: i32 = cast(i32, byte_at(addr(t3.value), cast(usize, 0)));  // 'A' = 65
+
+    dispose(addrm(src));
+    release(addrm(tokens));
+
+    let total: i32 = 0;
+    if (n == 17) { total = (total + 1); }
+    if (k0 == 1) { total = (total + 2); }
+    if (k1 == 7) { total = (total + 4); }
+    if (k2 == 6) { total = (total + 8); }
+    if (k3 == 7) { total = (total + 16); }
+    if (k7 == 9) { total = (total + 32); }
+    if (n1 == 4) { total = (total + 64); }
+    if (n3 == 5) { total = (total + 1); }
+    if (n7 == 2) { total = (total + 2); }
+    if (first_byte == 65) { total = (total + 4); }
+    // 1+2+4+8+16+32+64+1+2+4 = 134
+    return total;
+}

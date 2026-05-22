@@ -1398,6 +1398,13 @@ fn approx_expr_type(
             }
             TypeExpr::Named(name.clone())
         }
+        // A struct literal `Foo { ... }` has type Named("Foo") (when
+        // non-generic) — important so `vec::new(Foo { ... })` infers
+        // `T=Foo` for an empty seed. For generic literals like
+        // `Pair { ... }` we don't know the type args here; fall back
+        // to a bare Named("Foo") which matches well enough that the
+        // struct-mono pass picks up the actual instantiation.
+        Expr::StructLit { name, .. } => TypeExpr::Named(name.clone()),
         // Look up a non-generic call's return type so `vec::new(make())`
         // can drive T-inference from the inner result. Generic callees
         // would need recursive inference here — skipped for v1 because

@@ -431,6 +431,17 @@ fn test_math_str_helpers_compiles() {
 }
 
 #[test]
+fn test_json_tokenizer_compiles() {
+    // Stage 1.1 slice 36: the Stage-1.1 Definition-of-Done demo.
+    // Tokenizes a JSON-ish string into `Vec[Token]` where Token has
+    // kind (sentinel i32) and value (Str). Exercises a non-trivial
+    // composition of vec / str / closures / fn pointers / struct
+    // literals. ~150 LoC fastC. First time the stdlib supports a
+    // real program end-to-end.
+    compile_and_verify("examples/json_tokenizer_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }
