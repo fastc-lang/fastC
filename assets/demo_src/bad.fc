@@ -1,0 +1,12 @@
+// fastC catches missing capabilities at compile time.
+use caps::init;
+
+fn read_clock() -> i64 {
+    // BUG: time::now needs a CapTimeRead, we forgot to pass one.
+    return time::now();
+}
+
+fn main() -> i32 {
+    let _t: i64 = read_clock();
+    return 0;
+}

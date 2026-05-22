@@ -1,0 +1,12 @@
+// fastC: capability is now passed in as a typed argument.
+use caps::init;
+
+fn read_clock(c: ref(CapTimeRead)) -> i64 {
+    return time::now(c);
+}
+
+fn main() -> i32 {
+    let bundle: Caps = init();
+    let _t: i64 = read_clock(addr(bundle.time_read));
+    return 0;
+}
