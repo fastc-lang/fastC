@@ -62,3 +62,41 @@ A stripped `hello` binary measured on M3 / macOS 25.4:
 fastC is in the C / Zig binary-size class. Rust is **6.4× larger**; Go is **45× larger**. The fastC vs C delta (~20 KB) is the runtime header that delivers fastC's safety guarantees in compiled output. The fastC vs Zig delta is single-digit kilobytes — essentially the same class.
 
 Why this column matters: container cold-start, embedded ceilings, distribution / audit costs all scale with binary size. fastC's structural choice to ship a tiny static-inline runtime in a single header (rather than a large standard library) is what makes 53 KB binaries achievable at all. See [benchmarks](benchmarks.md#binary-size-stripped--fastc-is-in-the-c--zig-class-not-the-rust--go-class) for the full per-program table and the ratio analysis.
+
+## fastC vs Zig specifically
+
+Zig is fastC's closest competitor by the empirical numbers — same binary-size class (~50 KB), same refusal to ship silently-wrong code (Zig's strict signed-division rule caught T5's overflow exactly as fastC's strict syntax caught it). The two languages will get compared side-by-side. The honest read on where each wins:
+
+### Where fastC wins over Zig
+
+1. **Capability-typed I/O.** A Zig function `pub fn process() void` can call `std.fs.cwd().openFile(...)`, `std.process.Child.spawn(...)`, or open a network socket, and its signature reveals nothing. fastC's `fn process(c: ref(CapFsRead)) -> i32` structurally cannot reach the filesystem without the cap declared at the type level. Zig has no equivalent and no plans to add one. This is the property the MANIFESTO leads with.
+
+2. **No executable build scripts.** Zig has `build.zig` — arbitrary code that runs at `zig build` time. The 2025–2026 supply-chain incident class (faster_log, async_println, evm-units, CVE-2026-28353) applies to Zig package authors who ship malicious `build.zig` files. fastC's `fastc.toml` is closed-schema TOML enforced by `#[serde(deny_unknown_fields)]` — there is no syntactic place to put executable code. See `examples/supply_chain_demo/` for the side-by-side demo.
+
+3. **Mandatory contracts on public APIs.** Zig has nothing comparable to `@requires` / `@ensures`. Assertions in Zig are runtime-only via `std.debug.assert`. fastC's contracts are compile-time obligations now and SMT-discharged in v2.1.
+
+4. **Compiles to portable C11.** Zig emits its own object format; fastC outputs readable C11. That means gdb, perf, valgrind, ASan, every C compiler optimization, and every C audit tool work on fastC binaries directly. You can drop fastC into a C-only codebase without an FFI shim — the output IS C. Zig requires you to live inside the Zig toolchain.
+
+5. **Mandatory module-header annotations.** `@owns` / `@arch` / `@depends` / `@threading` / `@invariants` are compiler-checked in fastC. Every module declares its architectural contract at the top of the file. Zig has no such convention; reviewers grep for context.
+
+6. **Vendor-first dependencies with Sigstore (scheduled).** Zig has the Zon registry. fastC has no central registry — every dep is git URL + commit + sha256 + Sigstore bundle. There's nothing to compromise on a registry server because there is no registry server.
+
+7. **Native MCP server.** Zig agent tools text-scrape `zig build` output. fastC ships `fastc-mcp` as a first-class agent interface — AST, types, caps, contracts served over Model Context Protocol without text parsing.
+
+8. **NASA/JPL Power-of-10 enforcement.** `fastc check --safety-level=critical` enforces no-recursion, no-allocation, bounded-loops, function-size limits. Zig has no equivalent CLI gate.
+
+### Where Zig wins over fastC
+
+1. **Compile time.** Zig 149 ms vs fastC 215 ms on the four-program benchmark — Zig is ~30% faster end-to-end. fastC's planned tcc dev-mode backend (stage 0.8) targets sub-200 ms but hasn't shipped.
+
+2. **Maturity.** Zig 0.16 is shipping with a real library ecosystem. fastC is pre-1.0 with a sub-thousand-package world.
+
+3. **C ingestion.** Zig's `@cImport` consumes any C header automatically. fastC requires hand-written `extern "C"` blocks. The deliberate trade is auditability (every external C symbol fastC touches is enumerated and reviewable), but it's a real ergonomic loss.
+
+4. **`comptime`.** Zig's compile-time metaprogramming is genuinely powerful — generic containers without monomorphization explosions, embedded DSLs, build-time codegen. fastC has no equivalent; we trade expressive power for predictable codegen and a smaller language surface.
+
+5. **Cross-compilation.** Zig is the best cross-compiler in the world out of the box. fastC doesn't ship cross-targets yet.
+
+### One-sentence positioning
+
+Zig and fastC made opposite choices about what to push to the language level. Zig prioritized performance and metaprogramming (`comptime`, cross-compilation, C ingestion). fastC prioritized safety and auditability (capability-typed I/O, declarative manifests, mandatory contracts, MCP-native diagnostics). On the dimensions both share — binary size, no-GC native code, refusing silent UB — they're tied. The wedge is everywhere else.
