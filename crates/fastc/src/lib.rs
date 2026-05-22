@@ -7,6 +7,7 @@
 pub mod ast;
 pub mod bench;
 pub mod build;
+pub mod cap_check;
 pub mod db;
 pub mod deps;
 pub mod desugar;

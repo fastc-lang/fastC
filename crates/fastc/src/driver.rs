@@ -155,6 +155,12 @@ pub fn compile_with_p10(
         typechecker.check(&ast)
     })?;
 
+    // Capability lint: prevents fabricating sealed `Cap*` values
+    // outside `mod caps`. Runs after typecheck so we already know
+    // every struct literal is well-typed; this pass only adds the
+    // policy check.
+    time_pass("cap_check", || crate::cap_check::check_caps(&ast, source))?;
+
     time_pass("p10", || {
         let p10_checker = P10Checker::new(p10_config);
         p10_checker.check_and_report(&ast, source)
@@ -247,6 +253,12 @@ pub fn compile_project(
         let mut typechecker = TypeChecker::new(source, symbols.clone());
         typechecker.check(&ast)
     })?;
+
+    // Capability lint: prevents fabricating sealed `Cap*` values
+    // outside `mod caps`. Runs after typecheck so we already know
+    // every struct literal is well-typed; this pass only adds the
+    // policy check.
+    time_pass("cap_check", || crate::cap_check::check_caps(&ast, source))?;
 
     time_pass("p10", || {
         let p10_checker = P10Checker::new(P10Config::standard());
