@@ -53,6 +53,8 @@ A fastC binary that does real work fits inside the cold-start budget of every co
 
 fastC compile time is ~30–40% faster than Rust to a release binary. Runtime matches C on FP-heavy work; 26% slower on recursive integer (overflow-check cost).
 
+For the inner edit/build/test loop, `fastc build --dev` swaps `cc -O2` for the fastest available C compiler at no-opt (`tcc` if installed, else `cc -O0`). Measured 252 ms → 160 ms on a hello project (36% faster) without tcc; on Linux/Intel-Mac with tcc available the C step drops to under 10 ms.
+
 **Agent first-compile success** on T1 sum_array, 4 Ollama Cloud open-weight LLMs × N=3 trials per cell:
 
 | Lang | GLM | Kimi | DeepSeek | Qwen |

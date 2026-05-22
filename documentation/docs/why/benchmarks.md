@@ -19,6 +19,19 @@ Snapshot from the M3 local run dated 2026-05-22:
 
 fastC's compile path is `fastc compile` + `cc -O2`. The fastc step alone is ~140ms; the rest is the C compile. fastC is roughly 30–40% faster than Rust to a release binary on these programs.
 
+#### Dev mode for inner-loop work
+
+`fastc build --dev` swaps `cc -O2` for the fastest available C compiler at no-optimization (`tcc` when present on PATH, else `cc -O0 -g`). For a small project locally:
+
+| Mode | Wall-clock (median, 5 runs) |
+|---|---|
+| `fastc build --cc --release` (cc -O2) | 252 ms |
+| `fastc build --cc --dev` (cc -O0) | **160 ms** |
+
+Dev mode is 36% faster on this hello workload. On Linux / Intel Mac with `tcc` installed (`brew install tcc`, `apt install tcc`), expect the C step to drop further from ~80 ms to under 10 ms — the wall-clock floor becomes whatever the fastc step itself takes. Use `--dev` for the edit/build/test inner loop; switch to `--release` for shippable binaries. The compile-time / binary-size / runtime numbers above are all `--release`.
+
+Platform note: tcc is unavailable on Apple Silicon as of 2026 (upstream formula refuses to build on macOS > Catalina). On M-series Macs the dev-mode fallback is `cc -O0 -g`; the 36% number above is that fallback case, not a tcc number.
+
 ### Binary size (stripped) — fastC is in the C / Zig class, not the Rust / Go class
 
 | Program | fastC | C | Rust | Zig | Go |
