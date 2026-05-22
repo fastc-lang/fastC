@@ -495,6 +495,17 @@ fn test_json_encoder_compiles() {
 }
 
 #[test]
+fn test_noalloc_demo_compiles() {
+    // Deferred-item 6: `@noalloc` enforcement lint. Functions
+    // marked `@noalloc` must not transitively reach the heap
+    // allocator; the lint walks every call edge and refuses to
+    // compile if the BFS hits `mem::alloc` / `mem::resize` /
+    // `mem::free_bytes` (or the libc externs they wrap). This
+    // demo ships heap-free arithmetic so the lint passes.
+    compile_and_verify("examples/noalloc_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

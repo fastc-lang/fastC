@@ -1,0 +1,31 @@
+// Stage 1.3 closing slice: `@noalloc` is now compiler-enforced.
+//
+// The lint walks every fn marked `@noalloc` and refuses to compile
+// if its transitive call set reaches the heap allocator
+// (`mem::alloc`, `mem::resize`, `mem::free_bytes`, or the libc
+// externs they wrap). Empty-cap functions can therefore declare
+// they are heap-free and have the compiler prove it.
+//
+// To see the lint fire, change `safe_math` below to call
+// `mem::alloc(cast(usize, 16))` — `fastc build` will reject the
+// program with a diagnostic naming the entry point and the
+// reached allocator function.
+
+@noalloc
+@nodiverg
+fn safe_math(x: i32, y: i32) -> i32 {
+    let sum: i32 = (x + y);
+    let diff: i32 = (x - y);
+    return (sum * diff);
+}
+
+@noalloc
+fn pythagoras_squared(a: i32, b: i32) -> i32 {
+    return ((a * a) + (b * b));
+}
+
+fn main() -> i32 {
+    let m: i32 = safe_math(7, 3);            // 40
+    let p: i32 = pythagoras_squared(3, 4);   // 25
+    return (m + p);                          // 65
+}

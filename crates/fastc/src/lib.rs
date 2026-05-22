@@ -17,6 +17,7 @@ pub mod fmt;
 pub mod lexer;
 pub mod lower;
 pub mod mono;
+pub mod noalloc_check;
 pub mod p10;
 pub mod parser;
 pub mod prelude;
