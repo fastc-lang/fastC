@@ -1,0 +1,26 @@
+# fastC cross-language token-count benchmark
+# Tokenizers: cl100k_base (GPT-4), o200k_base (GPT-4o)
+# Anthropic / Gemini tokenizers are closed-source; their
+# counts are approximated by cl100k within ~10% based on
+# Anthropic's published behavior, so we omit a separate column.
+program,language,source_bytes,source_lines,cl100k_tokens,o200k_tokens
+hello,fastc,81,6,25,25
+hello,c,72,6,21,21
+hello,rust,37,3,10,10
+hello,zig,116,7,38,38
+hello,go,66,7,17,17
+sum,fastc,303,10,105,105
+sum,c,165,9,58,58
+sum,rust,146,7,55,55
+sum,zig,165,8,65,65
+sum,go,145,11,52,52
+fib40,fastc,312,12,117,117
+fib40,c,188,11,69,69
+fib40,rust,156,8,66,66
+fib40,zig,159,9,63,63
+fib40,go,163,15,60,60
+mandelbrot,fastc,1760,51,547,537
+mandelbrot,c,817,28,260,254
+mandelbrot,rust,976,33,301,293
+mandelbrot,zig,999,30,346,341
+mandelbrot,go,668,41,267,269
