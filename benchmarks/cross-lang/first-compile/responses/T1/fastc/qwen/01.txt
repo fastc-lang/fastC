@@ -2,16 +2,19 @@
 use io::print_int;
 use io::put_char;
 
-fn sum_array(v: Vec[i32]) -> i64 {
-    let sum: i64 = 0;
-    let len: usize = vec::len(v);
-    for let i: usize = 0; (i < len); i = (i + 1) {
-        sum = (sum + cast(i64, v[i]));
+fn sum_array(nums: ref(Vec[i32])) -> i64 {
+    let total: i64 = cast(i64, 0);
+    let n: usize = vec::len(nums);
+    let i: usize = cast(usize, 0);
+    while (i < n) {
+        let val: i32 = vec::get(nums, i);
+        total = (total + cast(i64, val));
+        i = (i + cast(usize, 1));
     }
-    return (sum);
+    return total;
 }
 
-fn main() {
+fn main() -> i32 {
     let v: Vec[i32] = vec::new(0);
     vec::push(addrm(v), 1);
     vec::push(addrm(v), 2);
@@ -24,8 +27,9 @@ fn main() {
     vec::push(addrm(v), 9);
     vec::push(addrm(v), 10);
 
-    let result: i64 = sum_array(v);
+    let result: i64 = sum_array(addr(v));
     print_int(cast(i32, result));
     put_char(cast(i32, 10));
+    return 0;
 }
 ```
