@@ -63,19 +63,30 @@ The harness lives at `benchmarks/cross-lang/first-compile/`. Three tasks (sum_ar
 - **Ollama Cloud models (real data, this run)**: `glm` → glm-5.1, `kimi` → kimi-k2.6, `deepseek` → deepseek-v4-pro, `qwen` → qwen3.5. All four use `OLLAMA_API_KEY` against `https://ollama.com/api/chat`.
 - **Proprietary three (placeholder)**: Claude, GPT-4o, Gemini 2.5 Pro. The harness supports them via Anthropic / OpenAI / Google SDKs; this build environment didn't have keys for them, so the rows below show TBD. Re-run with the right env vars to populate.
 
-The full numbers ship in `benchmarks/cross-lang/first-compile/results.csv` with a date + provider header at the top. Headline table (mean across the three tasks, pass count over 3 trials per cell):
+The full numbers ship in `benchmarks/cross-lang/first-compile/results.csv` with a date + provider header at the top. Snapshot from the partial Ollama run (T1: sum_array, N=3 trials per cell — full grid is still in progress):
 
-| Lang | GLM | Kimi | DeepSeek | Qwen | Claude | GPT-4o | Gemini |
-|---|---|---|---|---|---|---|---|
-| C | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| Rust | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| Zig | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| Go | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| fastC | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Lang | GLM | Kimi | DeepSeek | Qwen |
+|---|---|---|---|---|
+| C | 3/3 | 3/3 | 3/3 | 3/3 |
+| Rust | 3/3 | 2/3 | 2/2 | 2/2 |
+| Zig | 3/3 | 2/2 | 3/3 | TBD |
+| Go | 3/3 | TBD | TBD | TBD |
+| **fastC** | **0/3** | **0/3** | **0/3** | **0/2** |
 
-Cells will be filled in once the run finishes. The wedge hypothesis is that fastC's row average is competitive with C / Rust / Zig despite the higher token count documented above. If fastC's mean first-compile rate is meaningfully below the others, the language design needs revisiting.
+**The headline finding is stark: across all four open-weight Ollama Cloud models, fastC has a 0% first-compile pass rate on T1 sum_array — the simplest task — while C / Rust / Zig / Go all land at or near 100%.**
 
-See `benchmarks/cross-lang/first-compile/README.md` for how to run the benchmark yourself. For Ollama-only runs use `OLLAMA_API_KEY`; for the proprietary three add `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`. Cost guide: Ollama Cloud subset at N=3 = ~$2–5; full grid at N=10 with all seven LLMs = ~$10–20 and 2.5–4 hours wall-clock.
+What's going wrong: every model produces fastC code that *looks* idiomatic but fails the compiler. Common errors observed in the response files at `benchmarks/cross-lang/first-compile/responses/T1/fastc/<llm>/`:
+
+- `arr[i]` indexing — fastC has no syntactic `[]` for vec; need `at(arr.data, i)` inside `unsafe`.
+- `vec::len(arr)` without `addr(...)` — `vec::len` takes `ref(Vec[T])`, not `Vec[T]` by value.
+- Integer literals without explicit cast — fastC won't unify `0` with `i64`; you need `cast(i64, 0)`.
+- Missing `(...)` around binary expressions — fastC has no precedence rules; chained binary ops must be explicitly parenthesized.
+
+These are exactly the strictnesses fastC adds for type-safety wins, and they translate directly into compile failures when an LLM (trained on the world's C / Rust / Zig / Go) applies its general-purpose intuition. The token-count benchmark above showed fastC is the most verbose language in this set; this benchmark shows the verbosity does *not* convert into more first-compile reliability for open-weight models. The wedge hypothesis — that strict syntax pays for itself in fewer compile cycles — is **not supported** by this data on open-weight models.
+
+Open question: do proprietary frontier models (Claude Opus, GPT-4o, Gemini 2.5 Pro) do meaningfully better on fastC? They have larger context windows, better instruction-following, and are more likely to ingest a long cheat sheet verbatim. The harness supports all three — set `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY` and re-run to populate. Until that data lands, the agent-friendliness claim only stands for frontier models.
+
+See `benchmarks/cross-lang/first-compile/README.md` for how to run. Cost guide: Ollama Cloud subset at N=3 = ~$2–5; full grid at N=10 with all seven LLMs = ~$10–20 and 2.5–4 hours wall-clock.
 
 ## Reproducing
 

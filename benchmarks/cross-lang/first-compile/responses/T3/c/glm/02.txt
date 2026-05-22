@@ -1,0 +1,60 @@
+```c
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+int main(void) {
+    char buf[65536];
+    if (fgets(buf, sizeof(buf), stdin) == NULL) return 0;
+
+    int len = (int)strlen(buf);
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
+        buf[--len] = '\0';
+
+    int i = 0;
+    while (i < len) {
+        while (i < len && isspace((unsigned char)buf[i]))
+            i++;
+        if (i >= len) break;
+
+        char c = buf[i];
+
+        if (c == '{') {
+            printf("LBRACE {\n");
+            i++;
+        } else if (c == '}') {
+            printf("RBRACE }\n");
+            i++;
+        } else if (c == ',') {
+            printf("COMMA ,\n");
+            i++;
+        } else if (c == ':') {
+            printf("COLON :\n");
+            i++;
+        } else if (c == '"') {
+            int start = i;
+            i++;
+            while (i < len && buf[i] != '"')
+                i++;
+            i++;
+            printf("STRING ");
+            for (int j = start; j < i; j++)
+                putchar(buf[j]);
+            putchar('\n');
+        } else if (c == '-' || isdigit((unsigned char)c)) {
+            int start = i;
+            if (c == '-') i++;
+            while (i < len && isdigit((unsigned char)buf[i]))
+                i++;
+            printf("NUMBER ");
+            for (int j = start; j < i; j++)
+                putchar(buf[j]);
+            putchar('\n');
+        } else {
+            i++;
+        }
+    }
+
+    return 0;
+}
+```

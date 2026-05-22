@@ -1,0 +1,62 @@
+```zig
+const std = @import("std");
+
+pub fn main() !void {
+    const stdout_file = std.io.getStdOut();
+    const writer = stdout_file.writer();
+
+    const stdin_file = std.io.getStdIn();
+    var buf: [65536]u8 = undefined;
+    const maybe_line = try stdin_file.reader().readUntilDelimiterOrEof(&buf, '\n');
+    const line = maybe_line orelse return;
+
+    var i: usize = 0;
+    while (i < line.len) {
+        const c = line[i];
+        if (c == ' ' or c == '\t' or c == '\r' or c == '\n') {
+            i += 1;
+            continue;
+        }
+        if (c == '{') {
+            try writer.print("LBRACE {{\n", .{});
+            i += 1;
+            continue;
+        }
+        if (c == '}') {
+            try writer.print("RBRACE }}\n", .{});
+            i += 1;
+            continue;
+        }
+        if (c == ':') {
+            try writer.print("COLON :\n", .{});
+            i += 1;
+            continue;
+        }
+        if (c == ',') {
+            try writer.print("COMMA ,\n", .{});
+            i += 1;
+            continue;
+        }
+        if (c == '"') {
+            const start = i;
+            i += 1;
+            while (i < line.len and line[i] != '"') {
+                i += 1;
+            }
+            if (i < line.len) i += 1;
+            try writer.print("STRING {s}\n", .{line[start..i]});
+            continue;
+        }
+        if (c == '-' or (c >= '0' and c <= '9')) {
+            const start = i;
+            if (c == '-') i += 1;
+            while (i < line.len and line[i] >= '0' and line[i] <= '9') {
+                i += 1;
+            }
+            try writer.print("NUMBER {s}\n", .{line[start..i]});
+            continue;
+        }
+        i += 1;
+    }
+}
+```

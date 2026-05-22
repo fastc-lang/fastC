@@ -1,0 +1,59 @@
+```go
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+)
+
+func main() {
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	if !scanner.Scan() {
+		return
+	}
+	line := scanner.Text()
+
+	i := 0
+	for i < len(line) {
+		ch := line[i]
+		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+			i++
+			continue
+		}
+		if ch == '{' {
+			fmt.Println("LBRACE {")
+			i++
+		} else if ch == '}' {
+			fmt.Println("RBRACE }")
+			i++
+		} else if ch == ',' {
+			fmt.Println("COMMA ,")
+			i++
+		} else if ch == ':' {
+			fmt.Println("COLON :")
+			i++
+		} else if ch == '"' {
+			start := i
+			i++
+			for i < len(line) && line[i] != '"' {
+				i++
+			}
+			i++
+			fmt.Printf("STRING %s\n", line[start:i])
+		} else if ch == '-' || (ch >= '0' && ch <= '9') {
+			start := i
+			if ch == '-' {
+				i++
+			}
+			for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+				i++
+			}
+			fmt.Printf("NUMBER %s\n", line[start:i])
+		} else {
+			i++
+		}
+	}
+}
+```

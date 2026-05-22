@@ -1,0 +1,25 @@
+```zig
+extern fn scanf(fmt: [*:0]const u8, ...) c_int;
+extern fn printf(fmt: [*:0]const u8, ...) c_int;
+
+fn is_prime(n: i32) bool {
+    if (n < 2) return false;
+    if (n == 2) return true;
+    if (n % 2 == 0) return false;
+    var i: i32 = 3;
+    while (@as(i64, i) * i <= @as(i64, n)) : (i += 2) {
+        if (n % i == 0) return false;
+    }
+    return true;
+}
+
+pub fn main() void {
+    var n: i32 = 0;
+    _ = scanf("%d", &n);
+    if (is_prime(n)) {
+        _ = printf("YES\n");
+    } else {
+        _ = printf("NO\n");
+    }
+}
+```

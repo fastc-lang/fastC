@@ -1,0 +1,11 @@
+```rust
+fn sum_array(arr: &[i32]) -> i64 {
+    arr.iter().map(|&x| x as i64).sum()
+}
+
+fn main() {
+    let arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let result = sum_array(&arr);
+    println!("{}", result);
+}
+```

@@ -1,0 +1,41 @@
+```fastc
+use io::println;
+use io::read_int;
+
+fn is_prime(n: i64) -> bool {
+    if (n < 2) {
+        return false;
+    }
+    if (n < 4) {
+        return true;
+    }
+    if (((n % 2) == 0)) {
+        return false;
+    }
+    if (((n % 3) == 0)) {
+        return false;
+    }
+    let mut i: i64 = 5;
+    while (((i * i) <= n)) {
+        if (((n % i) == 0)) {
+            return false;
+        }
+        if (((n % (i + 2)) == 0)) {
+            return false;
+        }
+        i = (i + 6);
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let n: i32 = read_int();
+    let n64: i64 = cast(i64, n);
+    if (is_prime(n64)) {
+        println(cstr("YES"));
+    } else {
+        println(cstr("NO"));
+    }
+    return 0;
+}
+```

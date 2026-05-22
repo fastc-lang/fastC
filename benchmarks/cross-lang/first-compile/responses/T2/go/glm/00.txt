@@ -1,0 +1,46 @@
+```go
+package main
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
+
+func isPrime(n int64) bool {
+	if n < 2 {
+		return false
+	}
+	if n == 2 {
+		return true
+	}
+	if n%2 == 0 {
+		return false
+	}
+	var i int64 = 3
+	for i*i <= n {
+		if n%i == 0 {
+			return false
+		}
+		i += 2
+	}
+	return true
+}
+
+func main() {
+	var input string
+	_, err := fmt.Scanln(&input)
+	if err != nil {
+		os.Exit(1)
+	}
+	n, err := strconv.ParseInt(input, 10, 64)
+	if err != nil {
+		os.Exit(1)
+	}
+	if isPrime(n) {
+		fmt.Println("YES")
+	} else {
+		fmt.Println("NO")
+	}
+}
+```

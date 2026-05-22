@@ -1,0 +1,14 @@
+```rust
+fn sum_array(arr: &[i32]) -> i64 {
+    let mut total: i64 = 0;
+    for &x in arr {
+        total += x as i64;
+    }
+    total
+}
+
+fn main() {
+    let arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    println!("{}", sum_array(&arr));
+}
+```

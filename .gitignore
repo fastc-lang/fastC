@@ -50,3 +50,10 @@ tarpaulin-report.html
 
 # fastC build/timing artifacts
 /.fastc/
+
+# Python bytecode (benchmark harnesses)
+__pycache__/
+*.pyc
+
+# Local agent state
+.claude/

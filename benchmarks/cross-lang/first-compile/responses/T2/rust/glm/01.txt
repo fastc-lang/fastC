@@ -1,0 +1,27 @@
+```rust
+fn main() -> std::io::Result<()> {
+    let mut s = String::new();
+    std::io::stdin().read_line(&mut s)?;
+    let n: u64 = s.trim().parse().unwrap();
+
+    if n < 2 {
+        println!("NO");
+    } else if n == 2 {
+        println!("YES");
+    } else if n % 2 == 0 {
+        println!("NO");
+    } else {
+        let mut is_prime = true;
+        let mut i: u64 = 3;
+        while i * i <= n {
+            if n % i == 0 {
+                is_prime = false;
+                break;
+            }
+            i += 2;
+        }
+        println!("{}", if is_prime { "YES" } else { "NO" });
+    }
+    Ok(())
+}
+```

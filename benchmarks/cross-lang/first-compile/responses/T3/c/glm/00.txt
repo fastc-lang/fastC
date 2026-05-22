@@ -1,0 +1,46 @@
+```c
+#include <stdio.h>
+#include <ctype.h>
+
+int main(void) {
+    char buf[65536];
+    if (fgets(buf, sizeof(buf), stdin) == NULL) return 0;
+
+    int i = 0;
+    while (buf[i] != '\0') {
+        if (isspace((unsigned char)buf[i])) {
+            i++;
+            continue;
+        }
+
+        if (buf[i] == '{') {
+            printf("LBRACE {\n");
+            i++;
+        } else if (buf[i] == '}') {
+            printf("RBRACE }\n");
+            i++;
+        } else if (buf[i] == ',') {
+            printf("COMMA ,\n");
+            i++;
+        } else if (buf[i] == ':') {
+            printf("COLON :\n");
+            i++;
+        } else if (buf[i] == '"') {
+            int start = i;
+            i++;
+            while (buf[i] != '"') i++;
+            i++;
+            printf("STRING %.*s\n", i - start, &buf[start]);
+        } else if (buf[i] == '-' || isdigit((unsigned char)buf[i])) {
+            int start = i;
+            if (buf[i] == '-') i++;
+            while (isdigit((unsigned char)buf[i])) i++;
+            printf("NUMBER %.*s\n", i - start, &buf[start]);
+        } else {
+            i++;
+        }
+    }
+
+    return 0;
+}
+```

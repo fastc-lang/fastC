@@ -1,0 +1,33 @@
+```fastC
+use io::print_int;
+use io::println;
+
+fn sum_array(arr: Vec[i32]) -> i64 {
+    let total: i64 = cast(i64, 0);
+    let len: usize = vec::len(arr);
+    for let i: usize = cast(usize, 0); (i < len); i = (i + cast(usize, 1)) {
+        let val: i32 = arr[i];
+        total = (total + cast(i64, val));
+    }
+    return total;
+}
+
+fn main() -> i32 {
+    let arr: Vec[i32] = vec::new(0);
+    vec::push(addrm(arr), 1);
+    vec::push(addrm(arr), 2);
+    vec::push(addrm(arr), 3);
+    vec::push(addrm(arr), 4);
+    vec::push(addrm(arr), 5);
+    vec::push(addrm(arr), 6);
+    vec::push(addrm(arr), 7);
+    vec::push(addrm(arr), 8);
+    vec::push(addrm(arr), 9);
+    vec::push(addrm(arr), 10);
+
+    let result: i64 = sum_array(arr);
+    print_int(cast(i32, result));
+    println(cstr(""));
+    return 0;
+}
+```

@@ -150,8 +150,15 @@ def call_gemini(prompt: str) -> str:
 
 def ollama_call(model_id: str, prompt: str) -> str:
     """POST to Ollama Cloud's /api/chat. Reads OLLAMA_API_KEY for
-    auth. Uses stdlib urllib so no SDK install is required."""
+    auth. Uses stdlib urllib so no SDK install is required.
+
+    Enforces a hard wall-clock cap via SIGALRM because urllib's
+    `timeout=` parameter only governs per-socket-read timeouts —
+    a slow-loris server that dribbles bytes can hang the call
+    indefinitely. SIGALRM kills the whole call after
+    OLLAMA_TIMEOUT_S regardless of socket behavior."""
     import urllib.request
+    import signal
 
     api_key = os.environ["OLLAMA_API_KEY"]
     payload = json.dumps({
@@ -168,8 +175,20 @@ def ollama_call(model_id: str, prompt: str) -> str:
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_S) as resp:
-        body = json.loads(resp.read().decode("utf-8"))
+
+    def _alarm_handler(signum, frame):
+        raise TimeoutError(
+            f"ollama_call wall-clock timeout after {OLLAMA_TIMEOUT_S}s"
+        )
+
+    prev_handler = signal.signal(signal.SIGALRM, _alarm_handler)
+    signal.alarm(OLLAMA_TIMEOUT_S)
+    try:
+        with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_S) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, prev_handler)
     # Ollama's non-streaming response: {"message": {"role":..., "content":...}, ...}
     return body["message"]["content"]
 

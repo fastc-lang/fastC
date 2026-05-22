@@ -1,9 +1,31 @@
 # fastC first-compile-success-rate benchmark
-# Generated: PLACEHOLDER — harness committed but not yet run.
-# To populate this file, run from this directory:
-#     ANTHROPIC_API_KEY=... OPENAI_API_KEY=... GOOGLE_API_KEY=... \
-#         python3 run.py --n 10
-# Cost: roughly $5-8 in LLM API charges. Time: ~60-90 minutes.
-# See README.md for full instructions, methodology, and how to
-# interpret the resulting numbers.
+# Generated: 2026-05-22T17:35:03Z (via summarize.py)
+# LLMs included: deepseek, glm, kimi, qwen
 task,language,llm,trials,passes,pass_rate
+T1,fastc,deepseek,3,0,0.00
+T1,fastc,glm,3,0,0.00
+T1,fastc,kimi,3,0,0.00
+T1,fastc,qwen,2,0,0.00
+T1,c,deepseek,3,3,1.00
+T1,c,glm,3,3,1.00
+T1,c,kimi,3,3,1.00
+T1,c,qwen,3,3,1.00
+T1,rust,deepseek,2,2,1.00
+T1,rust,glm,3,3,1.00
+T1,rust,kimi,3,2,0.67
+T1,rust,qwen,2,2,1.00
+T1,zig,deepseek,3,3,1.00
+T1,zig,glm,3,3,1.00
+T1,zig,kimi,2,2,1.00
+T1,zig,qwen,0,0,0.00
+T1,go,glm,3,3,1.00
+T2,fastc,glm,3,0,0.00
+T2,c,glm,3,3,1.00
+T2,rust,glm,3,3,1.00
+T2,zig,glm,3,0,0.00
+T2,go,glm,3,3,1.00
+T3,fastc,glm,0,0,0.00
+T3,c,glm,3,3,1.00
+T3,rust,glm,3,3,1.00
+T3,zig,glm,1,0,0.00
+T3,go,glm,3,3,1.00

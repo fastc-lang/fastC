@@ -1,0 +1,35 @@
+```fastc
+use io::print_int;
+use io::put_char;
+use mem::alloc;
+
+fn sum_array(arr: raw(i32), len: i64) -> i64 {
+    let sum: i64 = 0;
+    let p: raw(i32) = arr;
+    let i: i64 = 0;
+    while (i < len) {
+        sum = (sum + cast(i64, *p));
+        p = (p + 1);
+        i = (i + 1);
+    }
+    return sum;
+}
+
+fn main() -> i32 {
+    let n: i64 = 10;
+    let size: usize = cast(usize, 40);
+    let ptr: rawm(i32) = cast(rawm(i32), alloc(size));
+    let p: rawm(i32) = ptr;
+    let i: i64 = 0;
+    while (i < n) {
+        let val: i32 = cast(i32, (i + 1));
+        *p = val;
+        p = (p + 1);
+        i = (i + 1);
+    }
+    let sum: i64 = sum_array(cast(raw(i32), ptr), n);
+    print_int(cast(i32, sum));
+    put_char(cast(i32, 10));
+    return 0;
+}
+```

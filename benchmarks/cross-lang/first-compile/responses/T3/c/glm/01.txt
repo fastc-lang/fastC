@@ -1,0 +1,61 @@
+```c
+#include <stdio.h>
+#include <ctype.h>
+
+int main(void) {
+    char line[65536];
+    if (fgets(line, sizeof(line), stdin) == NULL) {
+        return 1;
+    }
+
+    int i = 0;
+    while (line[i] != '\0') {
+        if (isspace((unsigned char)line[i])) {
+            i++;
+            continue;
+        }
+
+        if (line[i] == '{') {
+            printf("LBRACE {\n");
+            i++;
+        } else if (line[i] == '}') {
+            printf("RBRACE }\n");
+            i++;
+        } else if (line[i] == ',') {
+            printf("COMMA ,\n");
+            i++;
+        } else if (line[i] == ':') {
+            printf("COLON :\n");
+            i++;
+        } else if (line[i] == '"') {
+            int start = i;
+            i++;
+            while (line[i] != '"') {
+                i++;
+            }
+            i++;
+            printf("STRING ");
+            for (int j = start; j < i; j++) {
+                putchar(line[j]);
+            }
+            putchar('\n');
+        } else if (isdigit((unsigned char)line[i]) ||
+                   (line[i] == '-' && isdigit((unsigned char)line[i + 1]))) {
+            int start = i;
+            if (line[i] == '-') i++;
+            while (isdigit((unsigned char)line[i])) {
+                i++;
+            }
+            printf("NUMBER ");
+            for (int j = start; j < i; j++) {
+                putchar(line[j]);
+            }
+            putchar('\n');
+        } else {
+            i++;
+        }
+    }
+
+    return 0;
+}
+```

@@ -1,0 +1,61 @@
+```go
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"unicode"
+)
+
+func main() {
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		return
+	}
+	line := scanner.Text()
+
+	i := 0
+	for i < len(line) {
+		ch := rune(line[i])
+		if unicode.IsSpace(ch) {
+			i++
+			continue
+		}
+		switch ch {
+		case '{':
+			fmt.Println("LBRACE {")
+			i++
+		case '}':
+			fmt.Println("RBRACE }")
+			i++
+		case ',':
+			fmt.Println("COMMA ,")
+			i++
+		case ':':
+			fmt.Println("COLON :")
+			i++
+		case '"':
+			j := i + 1
+			for j < len(line) && line[j] != '"' {
+				j++
+			}
+			j++ // include closing quote
+			fmt.Printf("STRING %s\n", line[i:j])
+			i = j
+		case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			j := i
+			if line[j] == '-' {
+				j++
+			}
+			for j < len(line) && line[j] >= '0' && line[j] <= '9' {
+				j++
+			}
+			fmt.Printf("NUMBER %s\n", line[i:j])
+			i = j
+		default:
+			i++
+		}
+	}
+}
+```

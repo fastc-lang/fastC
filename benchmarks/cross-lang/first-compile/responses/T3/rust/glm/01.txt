@@ -1,0 +1,60 @@
+```rust
+use std::io::{self, BufRead};
+
+fn main() -> io::Result<()> {
+    let stdin = io::stdin();
+    let line = stdin.lock().lines().next().unwrap()?;
+
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i].is_whitespace() {
+            i += 1;
+            continue;
+        }
+
+        match chars[i] {
+            '{' => {
+                println!("LBRACE {{");
+                i += 1;
+            }
+            '}' => {
+                println!("RBRACE }}");
+                i += 1;
+            }
+            ',' => {
+                println!("COMMA ,");
+                i += 1;
+            }
+            ':' => {
+                println!("COLON :");
+                i += 1;
+            }
+            '"' => {
+                let start = i;
+                i += 1;
+                while i < chars.len() && chars[i] != '"' {
+                    i += 1;
+                }
+                i += 1;
+                let s: String = chars[start..i].iter().collect();
+                println!("STRING {}", s);
+            }
+            _ => {
+                let start = i;
+                if i < chars.len() && chars[i] == '-' {
+                    i += 1;
+                }
+                while i < chars.len() && chars[i].is_ascii_digit() {
+                    i += 1;
+                }
+                let s: String = chars[start..i].iter().collect();
+                println!("NUMBER {}", s);
+            }
+        }
+    }
+
+    Ok(())
+}
+```

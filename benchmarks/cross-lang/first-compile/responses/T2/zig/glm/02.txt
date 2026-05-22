@@ -1,0 +1,31 @@
+```zig
+extern fn scanf(fmt: [*:0]const u8, ...) c_int;
+extern fn printf(fmt: [*:0]const u8, ...) c_int;
+
+pub fn main() void {
+    var n: i32 = undefined;
+    _ = scanf("%d", &n);
+
+    if (n < 2) {
+        _ = printf("NO\n");
+        return;
+    }
+    if (n == 2) {
+        _ = printf("YES\n");
+        return;
+    }
+    if (n % 2 == 0) {
+        _ = printf("NO\n");
+        return;
+    }
+
+    var i: i32 = 3;
+    while (i <= n / i) : (i += 2) {
+        if (n % i == 0) {
+            _ = printf("NO\n");
+            return;
+        }
+    }
+    _ = printf("YES\n");
+}
+```

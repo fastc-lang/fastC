@@ -1,0 +1,35 @@
+```rust
+use std::io;
+
+fn is_prime(n: i64) -> bool {
+    if n < 2 {
+        return false;
+    }
+    if n == 2 {
+        return true;
+    }
+    if n % 2 == 0 {
+        return false;
+    }
+    let mut i = 3i64;
+    while i * i <= n {
+        if n % i == 0 {
+            return false;
+        }
+        i += 2;
+    }
+    true
+}
+
+fn main() -> io::Result<()> {
+    let mut s = String::new();
+    io::stdin().read_line(&mut s)?;
+    let n: i64 = s.trim().parse().unwrap();
+    if is_prime(n) {
+        println!("YES");
+    } else {
+        println!("NO");
+    }
+    Ok(())
+}
+```

@@ -1,0 +1,22 @@
+```c
+#include <stdint.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <inttypes.h>
+
+int64_t sum_array(const int32_t *array, size_t length) {
+    int64_t sum = 0;
+    for (size_t i = 0; i < length; i++) {
+        sum += array[i];
+    }
+    return sum;
+}
+
+int main(void) {
+    int32_t numbers[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    size_t count = sizeof(numbers) / sizeof(numbers[0]);
+    int64_t result = sum_array(numbers, count);
+    printf("%" PRId64 "\n", result);
+    return 0;
+}
+```

@@ -1,0 +1,17 @@
+```zig
+extern fn printf(fmt: [*:0]const u8, ...) c_int;
+
+fn sum_array(arr: []const i32) i64 {
+    var sum: i64 = 0;
+    for (arr) |val| {
+        sum += @as(i64, val);
+    }
+    return sum;
+}
+
+pub fn main() void {
+    const arr = [_]i32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+    const result = sum_array(&arr);
+    _ = printf("%lld\n", @as(c_longlong, @intCast(result)));
+}
+```

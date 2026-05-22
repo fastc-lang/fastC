@@ -1,0 +1,43 @@
+```go
+package main
+
+import (
+	"fmt"
+	"math"
+	"os"
+	"strconv"
+	"strings"
+)
+
+func main() {
+	var line string
+	fmt.Scanln(&line)
+	line = strings.TrimSpace(line)
+	n, err := strconv.ParseInt(line, 10, 64)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	if n < 2 {
+		fmt.Println("NO")
+		return
+	}
+	if n == 2 {
+		fmt.Println("YES")
+		return
+	}
+	if n%2 == 0 {
+		fmt.Println("NO")
+		return
+	}
+
+	limit := int64(math.Sqrt(float64(n)))
+	for i := int64(3); i <= limit; i += 2 {
+		if n%i == 0 {
+			fmt.Println("NO")
+			return
+		}
+	}
+	fmt.Println("YES")
+}
+```

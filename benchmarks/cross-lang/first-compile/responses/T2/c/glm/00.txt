@@ -1,0 +1,33 @@
+```c
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    if (scanf("%d", &n) != 1) {
+        return 1;
+    }
+
+    if (n < 2) {
+        puts("NO");
+        return 0;
+    }
+    if (n == 2) {
+        puts("YES");
+        return 0;
+    }
+    if (n % 2 == 0) {
+        puts("NO");
+        return 0;
+    }
+
+    for (int i = 3; (long long)i * i <= n; i += 2) {
+        if (n % i == 0) {
+            puts("NO");
+            return 0;
+        }
+    }
+
+    puts("YES");
+    return 0;
+}
+```
