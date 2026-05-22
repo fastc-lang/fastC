@@ -1,0 +1,24 @@
+// Stage 1.3.0: function annotations.
+//
+// `@noalloc`, `@nodiverg`, and `@pure` are now recognized at the
+// parser level and attached to function declarations. v1 stores
+// them but doesn't enforce — the lint pass that checks `@noalloc`
+// fns don't call alloc/realloc/free_bytes ships in a follow-up
+// once the call-graph walker is ready.
+
+@noalloc
+@nodiverg
+fn add_pure(a: i32, b: i32) -> i32 {
+    return (a + b);
+}
+
+@pure
+fn times_two(x: i32) -> i32 {
+    return (x + x);
+}
+
+fn main() -> i32 {
+    let s: i32 = add_pure(3, 4);   // 7
+    let d: i32 = times_two(5);         // 10
+    return (s + d);                  // 17
+}

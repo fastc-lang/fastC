@@ -71,6 +71,11 @@ pub struct FnDecl {
     /// Doc comment lines (`///`) preceding this declaration, stripped of
     /// the `///` prefix and a single optional leading space.
     pub doc_comments: Vec<String>,
+    /// `@noalloc`, `@nodiverg`, `@pure` and future attribute names
+    /// attached to this function. Stored as plain strings so adding
+    /// a new attribute keyword in the lexer doesn't require touching
+    /// every AST walker.
+    pub annotations: Vec<String>,
 }
 
 /// A declared type parameter, e.g. the `T` in `fn id[T](x: T) -> T`.

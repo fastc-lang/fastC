@@ -221,6 +221,12 @@ pub enum Token {
     // Attribute
     #[token("@repr")]
     AtRepr,
+    #[token("@noalloc")]
+    AtNoalloc,
+    #[token("@nodiverg")]
+    AtNodiverg,
+    #[token("@pure")]
+    AtPure,
 
     // Operators
     #[token("+")]
@@ -436,6 +442,9 @@ impl fmt::Display for Token {
             Token::StringLit(s) => write!(f, "\"{}\"", s),
             Token::Ident(s) => write!(f, "{}", s),
             Token::AtRepr => write!(f, "@repr"),
+            Token::AtNoalloc => write!(f, "@noalloc"),
+            Token::AtNodiverg => write!(f, "@nodiverg"),
+            Token::AtPure => write!(f, "@pure"),
             Token::Plus => write!(f, "+"),
             Token::Minus => write!(f, "-"),
             Token::Star => write!(f, "*"),

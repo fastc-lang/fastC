@@ -95,6 +95,7 @@ mod tests {
             name: name.to_string(),
             generics: vec![],
             doc_comments: vec![],
+            annotations: vec![],
             params: vec![],
             return_type: TypeExpr::Void,
             body: Block {

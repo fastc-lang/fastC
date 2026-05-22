@@ -23,6 +23,12 @@ impl Parser<'_> {
             None
         };
 
+        // Function-level annotations (`@noalloc` / `@nodiverg` /
+        // `@pure`) precede `fn` and accumulate into a Vec attached
+        // to the FnDecl. Collected here so they survive a `pub`
+        // modifier or a leading `unsafe`.
+        let annotations = self.parse_fn_annotations();
+
         // Check for visibility modifier
         let is_pub = if self.check(&Token::Pub) {
             self.advance();
@@ -32,11 +38,17 @@ impl Parser<'_> {
         };
 
         let item = match self.current() {
-            Token::Fn => Item::Fn(self.parse_fn_decl(false)?),
+            Token::Fn => {
+                let mut f = self.parse_fn_decl(false)?;
+                f.annotations = merge_annotations(&annotations, &f.annotations);
+                Item::Fn(f)
+            }
             Token::Unsafe => {
                 self.advance();
                 if self.check(&Token::Fn) {
-                    Item::Fn(self.parse_fn_decl(true)?)
+                    let mut f = self.parse_fn_decl(true)?;
+                    f.annotations = merge_annotations(&annotations, &f.annotations);
+                    Item::Fn(f)
                 } else {
                     return Err(self.error("expected 'fn' after 'unsafe'"));
                 }
@@ -186,6 +198,9 @@ impl Parser<'_> {
     /// Parse function declaration
     fn parse_fn_decl(&mut self, is_unsafe: bool) -> Result<FnDecl, CompileError> {
         let start = self.current_span().start;
+        // Collect any `@noalloc` / `@nodiverg` / `@pure` annotations
+        // attached to the fn declaration. They precede `fn`.
+        let annotations = self.parse_fn_annotations();
         self.consume(&Token::Fn, "expected 'fn'")?;
         let name = self.expect_ident()?;
         let generics = self.parse_optional_type_params()?;
@@ -208,7 +223,35 @@ impl Parser<'_> {
             body,
             span: start..end,
             doc_comments: Vec::new(),
+            annotations,
         })
+    }
+
+    /// Parse zero-or-more `@flag` attributes that precede a fn decl.
+    /// Each well-known flag becomes a string in the returned vec;
+    /// unknown attributes are caller-rejected at the lexer level
+    /// because they show up as `Token::At` followed by something
+    /// the parser doesn't recognize here.
+    fn parse_fn_annotations(&mut self) -> Vec<String> {
+        let mut out = Vec::new();
+        loop {
+            match self.current() {
+                Token::AtNoalloc => {
+                    self.advance();
+                    out.push("noalloc".to_string());
+                }
+                Token::AtNodiverg => {
+                    self.advance();
+                    out.push("nodiverg".to_string());
+                }
+                Token::AtPure => {
+                    self.advance();
+                    out.push("pure".to_string());
+                }
+                _ => break,
+            }
+        }
+        out
     }
 
     /// Parse function prototype (no body)
@@ -636,4 +679,18 @@ fn attach_doc_comments(item: Item, docs: Vec<String>) -> Item {
         // Use/Opaque/Extern/Mod don't carry docs in v1.
         other => other,
     }
+}
+
+/// Merge two annotation vectors, keeping order and deduplicating
+/// case-sensitively. Used so `@pure` written before `pub fn` and
+/// `@noalloc` written between `pub` and `fn` both end up on the
+/// final FnDecl.annotations.
+fn merge_annotations(a: &[String], b: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(a.len() + b.len());
+    for x in a.iter().chain(b.iter()) {
+        if !out.iter().any(|s| s == x) {
+            out.push(x.clone());
+        }
+    }
+    out
 }

@@ -452,6 +452,17 @@ fn test_capabilities_compiles() {
 }
 
 #[test]
+fn test_annotations_compiles() {
+    // Stage 1.3.0: function annotations. `@noalloc`, `@nodiverg`,
+    // `@pure` are now first-class tokens that the parser collects
+    // and attaches to `FnDecl.annotations`. v1 stores them but
+    // doesn't enforce — the @noalloc lint that verifies the
+    // function body doesn't reach alloc/realloc/free_bytes ships
+    // with the next slice once the call-graph walker is in.
+    compile_and_verify("examples/annotations_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }
