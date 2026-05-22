@@ -58,19 +58,24 @@ How many LLM tokens does it take to write the same program in each language? Mea
 
 Does an LLM writing fastC produce code that compiles cleanly on the first try more reliably than the same LLM writing Rust or Zig? This is the most important benchmark for the agent-friendliness claim — it directly measures the wedge.
 
-The harness lives at `benchmarks/cross-lang/first-compile/`. Three tasks × five languages × three LLMs (Claude, GPT-4o, Gemini 2.5 Pro) × N=10 trials each.
+The harness lives at `benchmarks/cross-lang/first-compile/`. Three tasks (sum_array, is_prime, json_token) × five languages × N=3 trials per cell. Tested LLMs:
 
-The headline run hasn't been performed yet in this build environment (no API keys configured) — `results.csv` ships as a placeholder. Once it's populated, the table here will look like:
+- **Ollama Cloud models (real data, this run)**: `glm` → glm-5.1, `kimi` → kimi-k2.6, `deepseek` → deepseek-v4-pro, `qwen` → qwen3.5. All four use `OLLAMA_API_KEY` against `https://ollama.com/api/chat`.
+- **Proprietary three (placeholder)**: Claude, GPT-4o, Gemini 2.5 Pro. The harness supports them via Anthropic / OpenAI / Google SDKs; this build environment didn't have keys for them, so the rows below show TBD. Re-run with the right env vars to populate.
 
-| Task | Lang | Claude | GPT-4o | Gemini | Mean |
-|---|---|---|---|---|---|
-| sum_array | fastc | TBD | TBD | TBD | TBD |
-| sum_array | rust | TBD | TBD | TBD | TBD |
-| … | | | | | |
+The full numbers ship in `benchmarks/cross-lang/first-compile/results.csv` with a date + provider header at the top. Headline table (mean across the three tasks, pass count over 3 trials per cell):
 
-If fastC's mean first-compile rate is +15pp or more above Rust, the token-count cost pays for itself in fewer compile cycles. If it isn't, the language design needs revisiting.
+| Lang | GLM | Kimi | DeepSeek | Qwen | Claude | GPT-4o | Gemini |
+|---|---|---|---|---|---|---|---|
+| C | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Rust | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Zig | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Go | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| fastC | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
 
-See `benchmarks/cross-lang/first-compile/README.md` for how to run the benchmark yourself (~$5–8 in API costs, ~60–90 min wall-clock).
+Cells will be filled in once the run finishes. The wedge hypothesis is that fastC's row average is competitive with C / Rust / Zig despite the higher token count documented above. If fastC's mean first-compile rate is meaningfully below the others, the language design needs revisiting.
+
+See `benchmarks/cross-lang/first-compile/README.md` for how to run the benchmark yourself. For Ollama-only runs use `OLLAMA_API_KEY`; for the proprietary three add `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`. Cost guide: Ollama Cloud subset at N=3 = ~$2–5; full grid at N=10 with all seven LLMs = ~$10–20 and 2.5–4 hours wall-clock.
 
 ## Reproducing
 
@@ -85,10 +90,11 @@ python3 count_tokens.py                    # ~5 seconds
 
 # First-compile-success rate (requires API keys)
 cd ../first-compile
-ANTHROPIC_API_KEY=... \
-OPENAI_API_KEY=... \
-GOOGLE_API_KEY=... \
-python3 run.py --n 10                      # ~60-90 minutes
+# Ollama Cloud only (4 models from ollama_models.json):
+OLLAMA_API_KEY=... python3 run.py --n 3 --llms glm kimi deepseek qwen
+# Or full grid with Ollama + the proprietary three:
+ANTHROPIC_API_KEY=... OPENAI_API_KEY=... GOOGLE_API_KEY=... \
+OLLAMA_API_KEY=... python3 run.py --n 10     # ~2.5-4 hours
 ```
 
 All three scripts overwrite their own `results.csv` in place. The committed versions are the local-M3 golden runs with a date stamp at the top.

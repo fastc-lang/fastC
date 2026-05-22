@@ -67,7 +67,10 @@ LANGS = ["fastc", "c", "rust", "zig", "go"]
 LLMS = ["claude", "gpt", "gemini"]
 
 OLLAMA_API_URL = "https://ollama.com/api/chat"
-OLLAMA_TIMEOUT_S = 120
+# Long fastC cheatsheet + json_tokenizer task (T3) regularly pushes
+# Ollama Cloud's response time past 2 minutes. 5 min is generous
+# enough that genuine network/model failures still bubble up.
+OLLAMA_TIMEOUT_S = 300
 
 LANG_FILE_EXT = {
     "fastc": "fc",
