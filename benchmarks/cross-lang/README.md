@@ -39,22 +39,24 @@ cat results.csv
 
 The script tolerates a missing Go install (sets `N/A` in the Go row); for other languages, missing toolchains will cause hyperfine to fail loudly. Pass `GO_BIN=...` to override Go path; default auto-discovers brew installs.
 
-## Headline numbers (current local M3 run)
+## Headline numbers (current local M3 run, 2026-05-22)
 
 Picking representative rows from `results.csv`:
 
-| Program | Lang | Compile (ms) | Strip (bytes) | Runtime (ms) |
-|---|---|---|---|---|
-| hello | fastC | ~195 | 52,984 | ~2 |
-| hello | C | ~75 | 33,432 | ~2 |
-| hello | Rust | ~115 | 341,512 | ~3 |
-| hello | Zig | ~140 | 50,184 | ~3 |
-| hello | Go | ~150 | 2,384,424 | ~3 |
-| mandelbrot | fastC | ~200 | 52,992 | 60 |
-| mandelbrot | C | ~80 | 33,440 | 63 |
-| mandelbrot | Rust | ~160 | 341,808 | 55 |
-| mandelbrot | Zig | ~140 | 50,192 | 72 |
-| mandelbrot | Go | ~145 | 2,115,808 | 56 |
+| Program | Lang | Compile (ms) | Strip (bytes) | Size vs fastC | Runtime (ms) |
+|---|---|---|---|---|---|
+| hello | fastC | 215 | 53,080 | 1.00× | 1 |
+| hello | C | 76 | 33,432 | 0.63× | 2 |
+| hello | Rust | 118 | 341,512 | **6.43×** | 2 |
+| hello | Zig | 149 | 50,184 | 0.95× | 2 |
+| hello | Go | 164 | 2,384,424 | **44.92×** | 3 |
+| mandelbrot | fastC | 218 | 53,088 | 1.00× | 63 |
+| mandelbrot | C | 79 | 33,440 | 0.63× | 62 |
+| mandelbrot | Rust | 163 | 341,808 | **6.44×** | 56 |
+| mandelbrot | Zig | 156 | 50,192 | 0.95× | 77 |
+| mandelbrot | Go | 155 | 2,115,808 | **39.86×** | 57 |
+
+fastC's binary size sits in the C / Zig class — within 1 KB of Zig, ~50 KB above C (the cost of the safety runtime). Rust is 6.4× larger; Go is 40× larger. For container cold-start, embedded targets, and audit-by-disassembly workflows the order-of-magnitude advantage compounds.
 
 The full set lives in `results.csv` with a date stamp and host info at the top.
 

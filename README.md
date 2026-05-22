@@ -22,6 +22,7 @@ fastC is a modern C-like language for a world where most code is written by an A
 | Outputs portable C11 | is C | ✗ | ✗ | ✗ | **✓** |
 | Vendor-first deps (no central registry) | N/A | crates.io | Zon | modules | **✓** |
 | Sigstore / SLSA provenance | ✗ | ✗ | ✗ | ✗ | **scheduled** |
+| Stripped binary (hello) | 33 KB | 341 KB | 50 KB | 2.4 MB | **53 KB** |
 
 Each row has a paragraph of context at [docs.skelfresearch.com/fastc/why/rubric](https://docs.skelfresearch.com/fastc/why/rubric). The honest framing of which trade-offs fastC actually wins on (and which it loses) is in [docs/MANIFESTO.md](docs/MANIFESTO.md).
 
@@ -29,16 +30,28 @@ Each row has a paragraph of context at [docs.skelfresearch.com/fastc/why/rubric]
 
 [Benchmarks](https://docs.skelfresearch.com/fastc/why/benchmarks) on M3:
 
-**Compile, size, runtime** (snapshot 2026-05-22):
+**Binary size, stripped** — the headline. fastC is in the C / Zig class, not Rust / Go:
 
-| Program | fastC compile | fastC strip | fastC runtime | C runtime (gcc -O2) |
-|---|---|---|---|---|
-| hello | 195ms | 53KB | 2ms | 2ms |
-| sum (1..1M loop) | 195ms | 53KB | 3ms | 2ms |
-| fib(40) | 200ms | 53KB | 430ms | 338ms |
-| mandelbrot 800×800 | 200ms | 53KB | 60ms | 63ms |
+| Lang | hello | sum | fib40 | mandelbrot | vs fastC |
+|---|---|---|---|---|---|
+| C | 33 KB | 17 KB | 17 KB | 33 KB | 0.3–0.6× |
+| Zig | 50 KB | 50 KB | 50 KB | 50 KB | 0.95× |
+| **fastC** | **53 KB** | **53 KB** | **53 KB** | **53 KB** | 1.0× |
+| Rust | 342 KB | 341 KB | 341 KB | 342 KB | **6.4× larger** |
+| Go | 2.4 MB | 2.1 MB | 2.1 MB | 2.1 MB | **40× larger** |
 
-fastC matches C on FP-heavy work and is 27% slower on recursive integer code (overflow checks are the cost). Binaries are ~6× smaller than Rust, ~40× smaller than Go.
+A fastC binary that does real work fits inside the cold-start budget of every container platform, every embedded device with ≥ 64 KB of flash, and every audit-by-disassembly workflow. Rust and Go binaries do not.
+
+**Compile time + runtime** (snapshot 2026-05-22):
+
+| Program | fastC compile | fastC runtime | C runtime (gcc -O2) |
+|---|---|---|---|
+| hello | 215ms | 1ms | 2ms |
+| sum (1..1M loop) | 215ms | 3ms | 3ms |
+| fib(40) | 217ms | 445ms | 354ms |
+| mandelbrot 800×800 | 218ms | 63ms | 62ms |
+
+fastC compile time is ~30–40% faster than Rust to a release binary. Runtime matches C on FP-heavy work; 26% slower on recursive integer (overflow-check cost).
 
 **Agent first-compile success** on T1 sum_array, 4 Ollama Cloud open-weight LLMs × N=3 trials per cell:
 

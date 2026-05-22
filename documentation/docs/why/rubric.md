@@ -11,6 +11,7 @@
 | Sigstore / SLSA provenance | ✗ | ✗ | ✗ | ✗ | **✓ (scheduled)** |
 | Native MCP server | ✗ | ✗ | ✗ | ✗ | **✓ `fastc-mcp`** |
 | Mandatory module annotations | ✗ | ✗ | ✗ | ✗ | **✓ (`@owns` / `@arch` / …)** |
+| Binary size (stripped, hello) | 33 KB | 341 KB | 50 KB | 2.4 MB | **53 KB** |
 
 ## How to read this table
 
@@ -47,3 +48,17 @@ Crates.io, npm, and PyPI are the typosquat and phishing targets that have driven
 ### Mandatory module annotations
 
 Every fastC module declares `@owns`, `@arch`, `@depends`, `@threading`, `@invariants` in a header. The compiler checks these are present and consistent. An agent (or human) reading a fastC module gets the architectural context for free — no archaeology through git history required.
+
+### Binary size
+
+A stripped `hello` binary measured on M3 / macOS 25.4:
+
+- C: 33 KB (gcc -O2)
+- Zig: 50 KB (zig build-exe -O ReleaseFast -lc)
+- **fastC: 53 KB** (fastc compile + cc -O2)
+- Rust: 341 KB (rustc -O)
+- Go: 2.4 MB (go build)
+
+fastC is in the C / Zig binary-size class. Rust is **6.4× larger**; Go is **45× larger**. The fastC vs C delta (~20 KB) is the runtime header that delivers fastC's safety guarantees in compiled output. The fastC vs Zig delta is single-digit kilobytes — essentially the same class.
+
+Why this column matters: container cold-start, embedded ceilings, distribution / audit costs all scale with binary size. fastC's structural choice to ship a tiny static-inline runtime in a single header (rather than a large standard library) is what makes 53 KB binaries achievable at all. See [benchmarks](benchmarks.md#binary-size-stripped--fastc-is-in-the-c--zig-class-not-the-rust--go-class) for the full per-program table and the ratio analysis.
