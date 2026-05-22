@@ -541,6 +541,17 @@ fn test_time_cap_demo_compiles() {
 }
 
 #[test]
+fn test_env_rand_cap_demo_compiles() {
+    // Deferred-item 11: `mod env` + `mod rand` cap-typed I/O.
+    // `env::get(c: ref(CapEnvRead), key)` wraps libc `getenv` and
+    // `rand::seed` / `rand::next_u32` drive a v1 LCG PRNG. Both
+    // require the relevant cap; the demo mints the bundle in main
+    // and passes cap borrows down to the helpers, mirroring the
+    // `mod time` pattern.
+    compile_and_verify("examples/env_rand_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

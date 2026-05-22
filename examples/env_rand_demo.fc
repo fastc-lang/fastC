@@ -1,0 +1,56 @@
+// Deferred-item 11: `mod env` and `mod rand` cap-typed I/O.
+//
+// Two more capability-typed I/O surfaces alongside `mod time`:
+//
+//   - `env::get(c: ref(CapEnvRead), key) -> raw(u8)` looks up
+//     a libc env var. Without a `CapEnvRead`, code cannot read
+//     environment state — closes the timing-side-channel /
+//     credential-leak surface for libraries.
+//
+//   - `rand::seed(c: ref(CapRand), s)` and
+//     `rand::next_u32(c: ref(CapRand))` drive a v1 LCG PRNG.
+//     The cap is required for both, so any function that
+//     touches randomness has to declare it.
+//
+// All three (time, env, rand) follow the same shape: the cap is
+// minted in `main` via `caps::init()`, borrowed via `ref(...)`,
+// and passed downward through the call graph. A function that
+// never receives the cap cannot reach the I/O surface — the type
+// checker enforces it at every call site.
+
+use caps::init;
+
+// Use qualified-call syntax (Deferred-item 1) throughout so the
+// reader can see which module each I/O entry point belongs to —
+// and so we sidestep the bare-name collision between `env::get`
+// (concrete) and `vec::get` (generic) that mono v1 doesn't
+// disambiguate yet for `use`-imported aliases.
+
+fn read_path(c: ref(CapEnvRead)) -> raw(u8) {
+    return env::get(c, cstr("PATH"));
+}
+
+fn three_draws(c: ref(CapRand)) -> u32 {
+    let a: u32 = rand::next_u32(c);
+    let b: u32 = rand::next_u32(c);
+    let cc: u32 = rand::next_u32(c);
+    return (a ^ (b ^ cc));
+}
+
+fn main() -> i32 {
+    let bundle: Caps = init();
+
+    // env demo — PATH is set by every shell, so the pointer
+    // should be non-null. We don't have null-pointer comparison
+    // in the language yet, so we discard the result and rely on
+    // the call going through cleanly.
+    let path: raw(u8) = read_path(addr(bundle.env_read));
+    discard(path);
+
+    // rand demo — deterministic with a fixed seed.
+    rand::seed(addr(bundle.rand), cast(u32, 42));
+    let mixed: u32 = three_draws(addr(bundle.rand));
+    discard(mixed);
+
+    return 0;
+}

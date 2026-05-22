@@ -853,6 +853,61 @@ mod time {
     }
 }
 
+mod env {
+    extern "C" {
+        // `fc_env_get` wraps libc `getenv` and casts to `const
+        // uint8_t*` to match the fastC raw(u8) surface. Returns
+        // the raw pointer libc gives us, which may be NULL if
+        // the variable isn't set. Callers should check.
+        unsafe fn fc_env_get(key: raw(u8)) -> raw(u8);
+    }
+
+    /// Look up an environment variable. Returns the raw cstr
+    /// libc owns — do not free, do not retain past the next
+    /// modifying setenv/unsetenv call. Requires a `CapEnvRead`
+    /// capability so any module that reads env state has to
+    /// declare it in its type. v1 returns the raw pointer
+    /// directly; a follow-up will return `opt(raw(u8))` once
+    /// `mod env` proves out as a vendor-able fastc-core package.
+    pub fn get(_c: ref(CapEnvRead), key: raw(u8)) -> raw(u8) {
+        unsafe {
+            return fc_env_get(key);
+        }
+    }
+}
+
+mod rand {
+    extern "C" {
+        // `fc_rand_seed` / `fc_rand_u32` are defined in
+        // `fastc_runtime.h`. They wrap a single global LCG state
+        // (Numerical Recipes constants, full-period 2^32). This
+        // is a deliberate v1 choice — predictable, no platform
+        // dependency, golden-testable. A cryptographically-strong
+        // RNG follows once `mod crypto` lands in fastc-core.
+        unsafe fn fc_rand_seed(seed: u32) -> void;
+        unsafe fn fc_rand_u32() -> u32;
+    }
+
+    /// Re-seed the PRNG. Requires `CapRand` — re-seeding is a
+    /// privileged op because it can be used to make a stream
+    /// predictable. Typically called once at program start.
+    pub fn seed(_c: ref(CapRand), s: u32) -> void {
+        unsafe {
+            fc_rand_seed(s);
+        }
+    }
+
+    /// Draw the next uint32 from the PRNG stream. Requires
+    /// `CapRand`. The cap is borrowed (`ref`) so a single cap
+    /// can fuel many draws across many functions in the same
+    /// call graph.
+    pub fn next_u32(_c: ref(CapRand)) -> u32 {
+        unsafe {
+            return fc_rand_u32();
+        }
+    }
+}
+
 // --- Vec[T]: the first generic container ---
 //
 // Heap-backed dynamic array. v1 is fixed-capacity (no automatic growth);

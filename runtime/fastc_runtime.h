@@ -75,6 +75,38 @@ static inline int64_t fc_time_now(void) {
     return (int64_t)time(NULL);
 }
 
+/* Look up an environment variable by null-terminated key. Returns
+ * the raw byte pointer libc gives us (which may be NULL when the
+ * variable isn't set). Used by `mod env::get`; the cap check
+ * happens at the fastC level so this helper itself is unprivileged.
+ *
+ * `getenv` returns `char*`; we cast to `const uint8_t*` to match
+ * the fastC `raw(u8)` surface and avoid -Wpointer-sign noise. */
+static inline const uint8_t* fc_env_get(const uint8_t* key) {
+    return (const uint8_t*)getenv((const char*)key);
+}
+
+/* Seedable linear-congruential PRNG. Single global state so the
+ * fastC binding doesn't have to thread a struct around. Output is
+ * uint32; callers can narrow as needed.
+ *
+ * Constants are Numerical Recipes' values (a=1664525, c=1013904223),
+ * which give a full-period 2^32 cycle. This is a deliberate v1
+ * choice — predictable, no platform libc/jrand dependency, easy to
+ * golden-test. A cryptographically-strong RNG follows once `mod
+ * crypto` lands in fastc-core. The capability check is at the
+ * fastC level so this helper is unprivileged. */
+static uint32_t fc_rand_state = 1;
+
+static inline void fc_rand_seed(uint32_t seed) {
+    fc_rand_state = seed;
+}
+
+static inline uint32_t fc_rand_u32(void) {
+    fc_rand_state = fc_rand_state * 1664525u + 1013904223u;
+    return fc_rand_state;
+}
+
 /* Memory copy */
 static inline void fc_memcpy(void* dst, const void* src, size_t n) {
     unsigned char* d = (unsigned char*)dst;
