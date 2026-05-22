@@ -1,0 +1,44 @@
+// Stage 1.4 preview: capability-typed I/O — the strategic wedge.
+//
+// Every I/O entry point in the post-1.4 stdlib will take a cap
+// value as an explicit argument. Cap values can only be minted in
+// `main` via `caps::init()`; from there they flow downward through
+// call arguments until they reach the I/O syscall.
+//
+// v1 ships the shape without enforcement:
+// - `Cap*` are real struct types you can pass around.
+// - `caps::init()` returns a populated `Caps` bundle.
+// - Stage-1.4 adds the flow-analysis pass that errors when a
+//   function calls a cap-requiring callee without holding the cap.
+//
+// This demo shows the intended user-facing shape: main mints caps,
+// passes the file-read cap to a helper, the helper accepts it,
+// neither could fabricate it from thin air.
+
+use caps::init;
+
+// A future `fs::read_text(c: ref(CapFsRead), path) -> Str` would
+// require this cap. v1 demo just takes it and returns a constant
+// to prove the API shape compiles end-to-end. The cap parameter
+// is intentionally unused — stage-1.4 enforcement makes its
+// presence meaningful.
+fn count_files_read(c: ref(CapFsRead)) -> i32 {
+    discard(c);
+    return 42;
+}
+
+fn main() -> i32 {
+    let caps: Caps = init();
+
+    // Pass just the file-read capability down to a helper. The
+    // helper cannot fabricate this — the type system records that
+    // it borrowed the cap from us.
+    let n: i32 = count_files_read(addr(caps.fs_read));
+
+    // Other caps stay in main's scope.
+    let net_cap: CapNetConnect = caps.net_connect;
+    discard(net_cap);
+
+    // n=42, plus a sanity bit that the caps bundle materialized.
+    return n;
+}

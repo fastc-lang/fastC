@@ -442,6 +442,16 @@ fn test_json_tokenizer_compiles() {
 }
 
 #[test]
+fn test_capabilities_compiles() {
+    // Stage 1.4 preview: capability-typed I/O API shape. Cap types,
+    // `caps::init()`, and helpers that accept caps as ref arguments.
+    // v1 ships the shape without enforcement — Stage-1.4 proper adds
+    // the flow-analysis pass that errors when a function calls a
+    // cap-requiring callee without holding the cap.
+    compile_and_verify("examples/capabilities_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

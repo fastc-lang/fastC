@@ -488,6 +488,72 @@ mod io {
     }
 }
 
+// --- Capability stubs (stage 1.4 preview) ---
+//
+// Capability-typed I/O is fastC's strategic wedge — every I/O entry
+// point in the post-1.4 stdlib takes a capability value as an
+// explicit argument, so the type system tracks what a function is
+// allowed to do. Capability values can only be minted in `main` via
+// `caps::init()`; from there they flow downward through call args
+// until they reach the I/O syscall.
+//
+// v1 ships the *shape* of this API without the enforcement: the cap
+// types are real struct types you can pass around, and `caps::init`
+// returns a populated `Caps` bundle. Stage-1.4 will (a) add a
+// flow-analysis pass that errors when a function calls a cap-
+// requiring callee without holding the cap, and (b) rewrite the
+// existing `mod fs` / `mod net` (currently empty) to take caps.
+// Today the cap-aware helpers in this file are pure stubs — they
+// declare the right signature so dependent code compiles, but the
+// body just returns a placeholder.
+
+struct CapFsRead {}
+struct CapFsWrite {}
+struct CapNetConnect {}
+struct CapNetListen {}
+struct CapProcSpawn {}
+struct CapTimeRead {}
+struct CapRand {}
+struct CapEnvRead {}
+
+// Master capability bundle. Held only by `main` after `caps::init()`.
+struct Caps {
+    fs_read: CapFsRead,
+    fs_write: CapFsWrite,
+    net_connect: CapNetConnect,
+    net_listen: CapNetListen,
+    proc_spawn: CapProcSpawn,
+    time_read: CapTimeRead,
+    rand: CapRand,
+    env_read: CapEnvRead,
+}
+
+mod caps {
+    /// Mint the master capability bundle. Stage-1.4 enforcement
+    /// will allow this to be called from `main` only — every other
+    /// function has to receive caps as arguments.
+    pub fn init() -> Caps {
+        return Caps {
+            fs_read: CapFsRead {},
+            fs_write: CapFsWrite {},
+            net_connect: CapNetConnect {},
+            net_listen: CapNetListen {},
+            proc_spawn: CapProcSpawn {},
+            time_read: CapTimeRead {},
+            rand: CapRand {},
+            env_read: CapEnvRead {},
+        };
+    }
+
+    /// Drop a capability. Stage-1.4 enforcement will make a dropped
+    /// cap impossible to use (the value is consumed). v1 stub
+    /// just discards.
+    pub fn drop_fs_read(_c: CapFsRead) -> void {}
+    pub fn drop_fs_write(_c: CapFsWrite) -> void {}
+    pub fn drop_net_connect(_c: CapNetConnect) -> void {}
+    pub fn drop_net_listen(_c: CapNetListen) -> void {}
+}
+
 // --- Vec[T]: the first generic container ---
 //
 // Heap-backed dynamic array. v1 is fixed-capacity (no automatic growth);
