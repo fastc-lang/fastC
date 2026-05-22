@@ -1,0 +1,9 @@
+# fastC first-compile-success-rate benchmark
+# Generated: PLACEHOLDER — harness committed but not yet run.
+# To populate this file, run from this directory:
+#     ANTHROPIC_API_KEY=... OPENAI_API_KEY=... GOOGLE_API_KEY=... \
+#         python3 run.py --n 10
+# Cost: roughly $5-8 in LLM API charges. Time: ~60-90 minutes.
+# See README.md for full instructions, methodology, and how to
+# interpret the resulting numbers.
+task,language,llm,trials,passes,pass_rate
