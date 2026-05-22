@@ -231,3 +231,63 @@ The `unwrap_checked(o)` builtin is used only in `if let` conditions and performs
 - Unsigned overflow wraps.
 - Division by zero traps.
 - Shift counts outside the type width trap.
+
+## Generics
+
+- Generic functions: `fn name[T](args) -> T { ... }` and `fn name[T, U](...)`.
+- Generic structs: `struct Pair[A, B] { first: A, second: B }`.
+- Multiple type parameters in brackets, comma-separated.
+- Type-parameter bounds: `fn min[T: Ord](a: T, b: T) -> T { ... }`. Multiple bounds: `fn put[K: Hash + Eq, V](...) { ... }`.
+- Type arguments are inferred at call sites by unifying parameter types against actual argument types. Explicit type-args at call sites are not supported in v1.
+- Implementation: every generic is monomorphized — one specialized C function per unique combination of type arguments. The mangled name is `name_T1_T2_...`.
+
+## Traits
+
+- Trait declarations: `trait Foo { fn method(self: ref(Self), args) -> T; ... }`.
+- Implementations: `impl Foo for ConcreteType { fn method(...) { ... } }`.
+- Inherent impls (no trait): `impl ConcreteType { fn method(...) { ... } }`.
+- Method calls: `value.method(args)` resolves to `ConcreteType_method(addr(value), args)`. Receivers are auto-addressed when they are value types.
+- Built-in traits: `Eq`, `Ord`, `Copy`, `Drop`, `Hash`, `Clone`.
+  - Primitive types implement `Eq` and `Copy` (and `Ord` for numerics, `Hash` for integers).
+  - User types implement traits by writing an `impl` block.
+- `Self` inside a trait/impl method refers to the implementing type.
+
+## Closures
+
+- Capture-free anonymous functions: `|x: T, y: U| -> R { body }`.
+- Zero-argument form: `|| -> R { body }`.
+- Parameter types and return type are mandatory in v1 (no inference).
+- The compiler lifts each closure to a synthetic top-level function `__lambda_N` and rewrites the expression into a reference by name.
+- Captures-by-value are deferred — v1 closures only see their parameters and top-level names.
+
+## Capabilities (preview)
+
+- Capability types (`CapFsRead`, `CapFsWrite`, `CapNetConnect`, etc.) are opaque struct values.
+- Minted exclusively in `main` via `caps::init()`.
+- Pass downward through call arguments: a function that uses an I/O syscall must declare a `ref(CapXxx)` parameter.
+- v1 ships the shape; stage 1.4 adds the flow-analysis pass that enforces this at compile time.
+
+## Standard Library Summary
+
+The prelude (parsed into every compilation) ships:
+
+- **Traits**: `Eq`, `Ord`, `Copy`, `Drop`, `Hash`, `Clone`.
+- **Primitives**: `bool`, `i8`/`i16`/`i32`/`i64`, `u8`/`u16`/`u32`/`u64`, `f32`/`f64`, `usize`/`isize`.
+- **Pointers**: `ref(T)`, `mref(T)`, `raw(T)`, `rawm(T)`, `own(T)`.
+- **Options/results**: `opt(T)`, `res(T, E)`.
+- **Generic containers**: `Vec[T]` (growable array), `HashMap[K: Hash + Eq, V]` (open-addressing).
+- **String**: `Str` (heap-allocated byte string, wraps `Vec[u8]`).
+- **Modules**:
+  - `math`: `min` / `max` / `clamp` / `abs_*` / `pow_i32` / `gcd_i32`.
+  - `mem`: `alloc` / `resize` / `free_bytes`.
+  - `io`: `println` / `put_char` / `print_int`.
+  - `vec`: `new` / `with_capacity` / `push` / `pop` / `get` / `len` / `is_empty` / `clear` / `contains` / `find_index` / `swap` / `reverse` / `filter` / `map` / `reduce` / `sort` / `for_each` / `any` / `all` / `extend` / `concat` / `clone` / `min_of` / `max_of` / `release` / and more.
+  - `str`: `make` / `from_cstr` / `push_byte` / `push_cstr` / `byte_at` / `byte_count` / `eq` / `find` / `contains_str` / `starts_with` / `ends_with` / `split` / `lines` / `concat_str` / `trim` / `trim_start` / `trim_end` / `to_upper` / `repeat` / `write_line` / `byte_search` / `dispose`.
+  - `hashmap`: `new_map` / `with_cap_map` / `put` / `lookup` / `drop_key` / `has_key` / `count_map` / `empty_map` / `for_each_entry` / `clone_map` / `release_map`.
+  - `caps`: `init`, plus capability types under preview.
+
+Most stdlib names use suffixes (`_map`, `_str`, `_of`, `_i32`) because mono's `generic_fns` table is keyed by bare name; cross-module bare-name collisions force the disambiguation. Qualified-call resolution (`vec::len(...)` as call syntax) is a stage-1.5 cleanup that lets the suffixes drop.
+
+## Status
+
+This document tracks the state of the language as of stage 1.1 (standard library + closures). Stage 1.3 (annotations), 1.4 (capability enforcement), 1.5 (contracts), and beyond will extend this spec.
