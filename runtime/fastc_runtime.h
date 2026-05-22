@@ -63,6 +63,18 @@ static inline int fc_print_i32(int32_t n) {
     return written;
 }
 
+/* Current Unix epoch in seconds. Wraps libc `time(NULL)` so the
+ * fastC `time::now` binding doesn't need to construct a NULL raw
+ * pointer (which the type system doesn't expose cleanly today).
+ * Returns int64_t for cross-platform stability — libc `time_t` is
+ * platform-defined and we widen here. Used by `mod time` in the
+ * prelude; the capability check happens at the fastC level so this
+ * helper itself is unprivileged. */
+#include <time.h>
+static inline int64_t fc_time_now(void) {
+    return (int64_t)time(NULL);
+}
+
 /* Memory copy */
 static inline void fc_memcpy(void* dst, const void* src, size_t n) {
     unsigned char* d = (unsigned char*)dst;

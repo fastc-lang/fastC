@@ -816,6 +816,43 @@ mod caps {
     pub fn drop_net_listen(_c: CapNetListen) -> void {}
 }
 
+// --- time: the first capability-typed I/O surface ---
+//
+// `time::now` is the first real cap-typed I/O function in the
+// stdlib. It returns the current Unix epoch seconds via libc's
+// `time(NULL)` and requires a `ref(CapTimeRead)` argument — the
+// caller must hold a `CapTimeRead` capability, which only `main`
+// can mint via `caps::init()` and pass downward through the call
+// graph. A function that never receives a `CapTimeRead` cannot
+// call `time::now`, even transitively. This proves out the cap-
+// typed I/O wedge end-to-end: a side-effecting function that
+// requires an explicit capability token to invoke.
+//
+// The bare libc symbol is wrapped inside an `extern "C"` block so
+// the only way to reach it from user code is through `time::now`,
+// which can't be called without the cap.
+
+mod time {
+    extern "C" {
+        // `fc_time_now` is defined in `fastc_runtime.h`. It wraps
+        // libc `time(NULL)` and widens to int64_t so the fastC
+        // signature doesn't have to construct a NULL raw pointer
+        // (the type system doesn't expose that cleanly today).
+        unsafe fn fc_time_now() -> i64;
+    }
+
+    /// Return the current Unix epoch in seconds. Requires a
+    /// `CapTimeRead` capability — the type signature makes the
+    /// side effect visible at every call site. The cap is
+    /// borrowed (`ref`) not consumed, so a single capability can
+    /// be reused across many calls.
+    pub fn now(_c: ref(CapTimeRead)) -> i64 {
+        unsafe {
+            return fc_time_now();
+        }
+    }
+}
+
 // --- Vec[T]: the first generic container ---
 //
 // Heap-backed dynamic array. v1 is fixed-capacity (no automatic growth);

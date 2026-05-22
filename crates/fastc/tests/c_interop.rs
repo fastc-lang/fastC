@@ -528,6 +528,19 @@ fn test_ensures_demo_compiles() {
 }
 
 #[test]
+fn test_time_cap_demo_compiles() {
+    // Deferred-item 10: `mod time` — the first capability-typed I/O
+    // surface. `time::now` reads the system clock via libc's
+    // `time(NULL)` but is reachable only by code that holds a
+    // `ref(CapTimeRead)`. The capability is minted in `main` via
+    // `caps::init()` and passed down explicitly to every reader.
+    // Proves the cap-typed I/O wedge end to end: a side-effecting
+    // function whose side effect shows up in the type signature
+    // and cannot be reached without an explicit cap argument.
+    compile_and_verify("examples/time_cap_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

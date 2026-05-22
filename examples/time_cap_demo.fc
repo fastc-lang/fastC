@@ -1,0 +1,34 @@
+// Deferred-item 10: `mod time` — first capability-typed I/O surface.
+//
+// `time::now` reads the system clock via libc's `time(NULL)` but
+// is reachable only by code that holds a `ref(CapTimeRead)`. The
+// capability is minted in `main` via `caps::init()` (the only
+// legitimate mint site — see Deferred-item 8) and passed down
+// explicitly to every function that needs to read time.
+//
+// This is the wedge made concrete: a side-effecting function that
+// shows its effect in the type signature, can be statically
+// audited from the call graph, and cannot be reached by code that
+// hasn't been given the cap.
+//
+// Try removing the `cap` argument from `seconds_since_epoch` and
+// the compile breaks at the `time::now(cap)` call — the cap-typed
+// argument is the only way in.
+
+use caps::init;
+use time::now;
+
+fn seconds_since_epoch(cap: ref(CapTimeRead)) -> i64 {
+    return now(cap);
+}
+
+fn main() -> i32 {
+    let bundle: Caps = init();
+    let secs: i64 = seconds_since_epoch(addr(bundle.time_read));
+    // A unix timestamp post-2001-09-09 is > 1_000_000_000. Anything
+    // less means the libc bridge isn't returning sensible data.
+    if (secs > cast(i64, 1000000000)) {
+        return 0;
+    }
+    return 1;
+}
