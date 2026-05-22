@@ -485,6 +485,16 @@ fn test_qualified_calls_compiles() {
 }
 
 #[test]
+fn test_json_encoder_compiles() {
+    // Deferred-item 3: `mod json` — JSON encoder builder API.
+    // Preview of what `fastc-core/json` will ship as a vendor-
+    // able package post-stage-1.7. v1 covers obj/arr/key/str/
+    // int/bool/null primitives; escaping and decoding come with
+    // the fastc-core graduation.
+    compile_and_verify("examples/json_encoder_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

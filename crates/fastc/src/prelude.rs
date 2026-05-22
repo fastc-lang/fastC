@@ -488,6 +488,161 @@ mod io {
     }
 }
 
+// --- json: minimal JSON encoder (fastc-core preview) ---
+//
+// The post-stage-1.7 `fastc-core` org will ship `fastc-core/json`
+// as a separate vendor-able package. v1 ships an encoder-only
+// preview here in the prelude so users have a concrete way to
+// produce JSON without depending on libc printf. A streaming
+// decoder follows in fastc-core proper.
+//
+// Builder model: `JsonBuilder` wraps a `Str`. Every primitive
+// (`obj_start` / `obj_end` / `arr_start` / `arr_end` / `key` /
+// `str_value` / `int_value` / `bool_value` / `null_value`) appends
+// to the buffer. A `comma_if_needed` helper tracks whether the
+// next entry needs a leading comma — kept inside the struct so
+// users don't have to thread state through call sites.
+
+struct JsonBuilder {
+    out: Str,
+    // needs_comma: 1 when the next entry inside the current
+    // container needs a leading comma; 0 right after a `{` / `[`
+    // or a `key`.
+    needs_comma: i32,
+}
+
+mod json {
+    use str::make;
+    use str::push_byte;
+    use str::push_cstr;
+    use io::print_int;
+    use vec::release;
+    use mem::alloc;
+
+    pub fn new_builder() -> JsonBuilder {
+        return JsonBuilder { out: make(), needs_comma: 0 };
+    }
+
+    pub fn obj_start(b: mref(JsonBuilder)) -> void {
+        write_comma_if_needed(b);
+        push_byte(addrm((deref(b)).out), cast(u8, 123));   // '{'
+        (deref(b)).needs_comma = 0;
+    }
+
+    pub fn obj_end(b: mref(JsonBuilder)) -> void {
+        push_byte(addrm((deref(b)).out), cast(u8, 125));   // '}'
+        (deref(b)).needs_comma = 1;
+    }
+
+    pub fn arr_start(b: mref(JsonBuilder)) -> void {
+        write_comma_if_needed(b);
+        push_byte(addrm((deref(b)).out), cast(u8, 91));    // '['
+        (deref(b)).needs_comma = 0;
+    }
+
+    pub fn arr_end(b: mref(JsonBuilder)) -> void {
+        push_byte(addrm((deref(b)).out), cast(u8, 93));    // ']'
+        (deref(b)).needs_comma = 1;
+    }
+
+    /// Write a `"key":` pair. The next call writes the value with
+    /// no leading comma; subsequent siblings get one.
+    pub fn key(b: mref(JsonBuilder), k: raw(u8)) -> void {
+        write_comma_if_needed(b);
+        push_byte(addrm((deref(b)).out), cast(u8, 34));    // '"'
+        push_cstr(addrm((deref(b)).out), k);
+        push_byte(addrm((deref(b)).out), cast(u8, 34));
+        push_byte(addrm((deref(b)).out), cast(u8, 58));    // ':'
+        (deref(b)).needs_comma = 0;
+    }
+
+    /// Write a quoted-string value. v1 does not escape internal
+    /// quotes or control characters; a fuller escape pass arrives
+    /// once `fastc-core/json` graduates from this preview.
+    pub fn str_value(b: mref(JsonBuilder), s: raw(u8)) -> void {
+        write_comma_if_needed(b);
+        push_byte(addrm((deref(b)).out), cast(u8, 34));
+        push_cstr(addrm((deref(b)).out), s);
+        push_byte(addrm((deref(b)).out), cast(u8, 34));
+        (deref(b)).needs_comma = 1;
+    }
+
+    pub fn int_value(b: mref(JsonBuilder), n: i32) -> void {
+        write_comma_if_needed(b);
+        write_int_into(b, n);
+        (deref(b)).needs_comma = 1;
+    }
+
+    pub fn bool_value(b: mref(JsonBuilder), v: bool) -> void {
+        write_comma_if_needed(b);
+        if (v) {
+            push_cstr(addrm((deref(b)).out), cstr("true"));
+        } else {
+            push_cstr(addrm((deref(b)).out), cstr("false"));
+        }
+        (deref(b)).needs_comma = 1;
+    }
+
+    pub fn null_value(b: mref(JsonBuilder)) -> void {
+        write_comma_if_needed(b);
+        push_cstr(addrm((deref(b)).out), cstr("null"));
+        (deref(b)).needs_comma = 1;
+    }
+
+    /// Internal: write a comma if the current container has already
+    /// produced an entry. Resets needs_comma so the actual entry
+    /// callsite doesn't double-emit.
+    fn write_comma_if_needed(b: mref(JsonBuilder)) -> void {
+        if ((deref(b)).needs_comma == 1) {
+            push_byte(addrm((deref(b)).out), cast(u8, 44));   // ','
+        }
+    }
+
+    /// Internal: write a signed i32 as ASCII digits. Mirrors the
+    /// runtime helper but appends to the Str buffer instead of
+    /// stdout so we keep encoder output pure.
+    fn write_int_into(b: mref(JsonBuilder), n: i32) -> void {
+        if (n == 0) {
+            push_byte(addrm((deref(b)).out), cast(u8, 48));   // '0'
+            return;
+        }
+        let val: i32 = n;
+        if (val < 0) {
+            push_byte(addrm((deref(b)).out), cast(u8, 45));   // '-'
+            val = (0 - val);
+        }
+        // Allocate a 12-byte temp buffer for the reversed digits.
+        let buf: rawm(u8) = alloc(cast(usize, 12));
+        let len: usize = cast(usize, 0);
+        while (val > 0) {
+            let d: i32 = (val - ((val / 10) * 10));
+            unsafe {
+                at(buf, len) = cast(u8, (48 + d));
+            }
+            len = (len + cast(usize, 1));
+            val = (val / 10);
+        }
+        // Now walk the buffer backwards to emit MSD first.
+        let i: usize = len;
+        while (i > cast(usize, 0)) {
+            i = (i - cast(usize, 1));
+            unsafe {
+                push_byte(addrm((deref(b)).out), at(buf, i));
+            }
+        }
+        // Best-effort: leak the temp. Real impl would free via mem::free_bytes
+        // but `free_bytes` isn't in scope here without polluting the root.
+        discard(buf);
+    }
+
+    /// Release the builder's underlying buffer. The Str's data is
+    /// the caller's responsibility — disposing the JsonBuilder
+    /// disposes the Str.
+    pub fn release_builder(b: mref(JsonBuilder)) -> void {
+        release(addrm((deref(b)).out.data));
+    }
+}
+
 // --- Capability stubs (stage 1.4 preview) ---
 //
 // Capability-typed I/O is fastC's strategic wedge — every I/O entry

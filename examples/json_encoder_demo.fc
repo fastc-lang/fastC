@@ -1,0 +1,54 @@
+// Deferred-item 3: JSON encoder (fastc-core/json preview).
+//
+// Builds `{"name":"Alice","age":30,"admin":true,"score":-7,"tags":["a","b"]}`
+// using the `json` module's builder API, then prints the result
+// to stdout (so it's visible to a human running the demo) and
+// returns a checksum of the byte values at specific positions
+// (so the c_interop test can also verify the output structure).
+
+use json::new_builder;
+use json::obj_start;
+use json::obj_end;
+use json::arr_start;
+use json::arr_end;
+use json::key;
+use json::str_value;
+use json::int_value;
+use json::bool_value;
+use json::release_builder;
+use str::byte_count;
+use str::byte_at;
+use str::write_line;
+
+fn main() -> i32 {
+    let b: JsonBuilder = new_builder();
+    obj_start(addrm(b));
+    key(addrm(b), cstr("name"));
+    str_value(addrm(b), cstr("Alice"));
+    key(addrm(b), cstr("age"));
+    int_value(addrm(b), 30);
+    key(addrm(b), cstr("admin"));
+    bool_value(addrm(b), true);
+    key(addrm(b), cstr("score"));
+    int_value(addrm(b), 0 - 7);
+    key(addrm(b), cstr("tags"));
+    arr_start(addrm(b));
+    str_value(addrm(b), cstr("a"));
+    str_value(addrm(b), cstr("b"));
+    arr_end(addrm(b));
+    obj_end(addrm(b));
+
+    write_line(addr(b.out));
+
+    let n: i32 = cast(i32, byte_count(addr(b.out)));
+    let first: i32 = cast(i32, byte_at(addr(b.out), cast(usize, 0)));
+    let last: i32 = cast(i32, byte_at(addr(b.out), cast(usize, (n - 1))));
+
+    release_builder(addrm(b));
+
+    let total: i32 = 0;
+    if (first == 123) { total = (total + 1); }    // '{'
+    if (last == 125) { total = (total + 2); }     // '}'
+    if (n > 50) { total = (total + 4); }
+    return total;
+}
