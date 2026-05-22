@@ -2428,6 +2428,16 @@ mod str {
 /// Parse the prelude into a `Vec<Item>` ready to be prepended to a user
 /// file. Parse errors here are programmer bugs in this file — they panic
 /// rather than surface as user diagnostics.
+///
+/// Caching note: an earlier experiment cached the parsed `Vec<Item>`
+/// behind a `OnceLock`. Empirically the AST clone (walks ~100 items
+/// with deeply nested children, reallocates every string) is *more*
+/// expensive than re-parsing for the current ~76 KB `PRELUDE_SRC`. The
+/// cache regressed hello.fc compile time from 17.1ms±2.6 to 32.0ms±20
+/// over hyperfine N=10. Revisit once (a) the prelude grows past
+/// ~200 KB, (b) the daemon (stage A6) is the primary caller, or
+/// (c) we move caching to the query layer via Salsa rather than the
+/// function layer.
 pub fn prelude_items() -> Vec<crate::ast::Item> {
     let file = crate::driver::parse(PRELUDE_SRC, "<prelude>")
         .expect("prelude must always parse — fix prelude.rs");
