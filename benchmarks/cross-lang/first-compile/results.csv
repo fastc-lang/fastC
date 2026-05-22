@@ -1,5 +1,5 @@
 # fastC first-compile-success-rate benchmark
-# Generated: 2026-05-22T17:35:03Z (via summarize.py)
+# Generated: 2026-05-22T17:44:09Z (via summarize.py)
 # LLMs included: deepseek, glm, kimi, qwen
 task,language,llm,trials,passes,pass_rate
 T1,fastc,deepseek,3,0,0.00
@@ -17,8 +17,9 @@ T1,rust,qwen,2,2,1.00
 T1,zig,deepseek,3,3,1.00
 T1,zig,glm,3,3,1.00
 T1,zig,kimi,2,2,1.00
-T1,zig,qwen,0,0,0.00
+T1,zig,qwen,2,0,0.00
 T1,go,glm,3,3,1.00
+T1,go,kimi,1,1,1.00
 T2,fastc,glm,3,0,0.00
 T2,c,glm,3,3,1.00
 T2,rust,glm,3,3,1.00

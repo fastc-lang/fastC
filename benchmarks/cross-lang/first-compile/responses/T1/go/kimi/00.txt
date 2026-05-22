@@ -1,0 +1,18 @@
+```go
+package main
+
+import "fmt"
+
+func sumArray(arr [10]int32) int64 {
+	var sum int64
+	for _, v := range arr {
+		sum += int64(v)
+	}
+	return sum
+}
+
+func main() {
+	arr := [10]int32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	fmt.Println(sumArray(arr))
+}
+```
