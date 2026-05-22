@@ -1,26 +1,26 @@
 # fastC cross-language benchmark
-# Generated: 2026-05-22T22:32:26Z
+# Generated: 2026-05-22T23:33:55Z
 # Host: Darwin DS-MBP.local 25.4.0 arm64
 # Methodology: hyperfine --warmup 1 --runs 3 for compile, --runs 5 for runtime.
 # Compile time includes source -> stripped binary. fastC compile = fastc + cc -O2.
 program,language,compile_ms_median,strip_bytes,runtime_ms_median
-hello,fastc,215,53080,1
-hello,c,76,33432,2
-hello,rust,118,341512,2
-hello,zig,149,50184,2
-hello,go,164,2384424,3
-sum,fastc,215,53080,3
-sum,c,74,16824,3
-sum,rust,120,341016,3
-sum,zig,151,50136,1
-sum,go,145,2115224,4
-fib40,fastc,217,53096,445
-fib40,c,77,16824,354
-fib40,rust,125,341016,349
-fib40,zig,149,50136,349
-fib40,go,149,2115224,391
-mandelbrot,fastc,218,53088,63
-mandelbrot,c,79,33440,62
-mandelbrot,rust,163,341808,56
-mandelbrot,zig,156,50192,77
-mandelbrot,go,155,2115808,57
+hello,fastc,218,53080,4
+hello,c,85,33432,2
+hello,rust,132,341512,2
+hello,zig,168,50184,2
+hello,go,162,2384424,4
+sum,fastc,228,53080,5
+sum,c,77,16824,1
+sum,rust,138,341016,8
+sum,zig,243,50136,47
+sum,go,297,2115224,2
+fib40,fastc,216,53096,477
+fib40,c,80,16824,408
+fib40,rust,137,341016,388
+fib40,zig,152,50136,402
+fib40,go,199,2115224,394
+mandelbrot,fastc,276,53088,60
+mandelbrot,c,110,33440,66
+mandelbrot,rust,179,341808,66
+mandelbrot,zig,265,50192,77
+mandelbrot,go,199,2115808,64
