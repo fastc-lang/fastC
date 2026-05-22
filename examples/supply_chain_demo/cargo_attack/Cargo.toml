@@ -1,0 +1,10 @@
+[workspace]
+# Stand-alone — not part of the outer fastC cargo workspace.
+
+[package]
+name = "cargo_attack"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]

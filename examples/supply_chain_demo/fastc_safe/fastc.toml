@@ -1,0 +1,41 @@
+# fastC manifest. Compare to ../cargo_attack/Cargo.toml.
+#
+# Things you can declare:
+#   - [package] metadata (name, version, type)
+#   - [build] flags (include_dirs, link_libs)
+#   - [dependencies] git-pinned, content-hashed entries
+#
+# Things you CANNOT declare:
+#   - A build script. There is no `build = "..."` key. Try adding
+#     one; `fastc build` will reject it with "unknown key 'build'"
+#     because the manifest schema (crates/fastc/src/deps/manifest.rs)
+#     has no field for it. Manifests are pure data; the compiler
+#     never invokes user code at install / build time.
+#   - A postinstall hook. Same reason — no field.
+#   - An arbitrary script path. The package format is a TOML schema
+#     with a closed set of fields, validated by serde.
+#
+# This is the supply-chain wedge: every key in this file is data
+# the compiler reads, not code the compiler runs. A malicious
+# dependency cannot ship a `build.rs`-equivalent because the
+# language gives it no place to land.
+#
+# To demonstrate, try uncommenting the `build = "build.fc"` line
+# below and running `fastc build` from this directory. The build
+# will fail with a schema error, NOT with the build.fc executing.
+
+[package]
+name = "fastc_safe"
+version = "0.1.0"
+type = "binary"
+
+# build = "build.fc"     # ← Uncomment to see schema rejection.
+
+[build]
+# Only includes / libs, never code.
+include_dirs = []
+link_libs = []
+
+[dependencies]
+# Every dependency is a git URL + commit hash + content sha256 +
+# (optionally) Sigstore bundle. No place for executable hooks.

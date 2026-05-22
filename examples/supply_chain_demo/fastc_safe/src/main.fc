@@ -1,0 +1,6 @@
+use io::println;
+
+fn main() -> i32 {
+    println(cstr("fastC program ran; no build-time code execution"));
+    return 0;
+}

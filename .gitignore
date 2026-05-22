@@ -58,3 +58,5 @@ __pycache__/
 # Local agent state
 .claude/
 /benchmarks/cross-lang/first-compile/prog
+examples/supply_chain_demo/cargo_attack/target/
+examples/supply_chain_demo/cargo_attack/Cargo.lock

@@ -4,8 +4,15 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
 
-/// A FastC project manifest (fastc.toml)
+/// A FastC project manifest (fastc.toml).
+///
+/// `deny_unknown_fields` is load-bearing for the supply-chain
+/// story: a malicious dependency cannot smuggle an executable
+/// `build = "build.rs"` key (or any other novel hook) past the
+/// parser. Every legal field is enumerated below; anything else
+/// is rejected with a clear error pointing at the offending key.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub package: Package,
     #[serde(default)]
@@ -16,6 +23,7 @@ pub struct Manifest {
 
 /// Package metadata
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Package {
     pub name: String,
     #[serde(default = "default_version")]
@@ -40,6 +48,7 @@ pub enum ProjectType {
 
 /// Build configuration
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BuildConfig {
     #[serde(default)]
     pub include_dirs: Vec<String>,
