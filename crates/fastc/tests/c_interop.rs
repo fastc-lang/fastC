@@ -463,6 +463,16 @@ fn test_annotations_compiles() {
 }
 
 #[test]
+fn test_contracts_compiles() {
+    // Stage 1.5.0: `@requires(cond)` runtime preconditions lowered
+    // to `if (!cond) fc_trap();` at function entry. Multiple
+    // requires clauses run in declaration order. SMT discharge
+    // replaces the runtime trap in stage 2.1; the runtime tier is
+    // always available as the guaranteed fallback.
+    compile_and_verify("examples/contracts_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

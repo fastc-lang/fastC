@@ -189,6 +189,7 @@ mod tests {
             generics: vec![],
             doc_comments: vec![],
             annotations: vec![],
+            requires: vec![],
             params: vec![],
             return_type: TypeExpr::Void,
             body: Block {

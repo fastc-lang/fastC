@@ -98,6 +98,7 @@ impl ClosureLifter {
             generics: f.generics.clone(),
             doc_comments: f.doc_comments.clone(),
             annotations: f.annotations.clone(),
+            requires: f.requires.iter().map(|e| self.rewrite_expr(e)).collect(),
             params: f.params.clone(),
             return_type: f.return_type.clone(),
             body: self.rewrite_block(&f.body),
@@ -287,6 +288,7 @@ impl ClosureLifter {
                     generics: Vec::new(),
                     doc_comments: Vec::new(),
                     annotations: Vec::new(),
+                    requires: Vec::new(),
                     params: params.clone(),
                     return_type: ret.clone(),
                     body: new_body,
@@ -400,6 +402,7 @@ fn lift_method(block: &ImplBlock, method: &FnDecl) -> FnDecl {
         generics: method.generics.clone(),
         doc_comments: method.doc_comments.clone(),
         annotations: method.annotations.clone(),
+        requires: method.requires.clone(),
         params: method
             .params
             .iter()
@@ -769,6 +772,7 @@ mod tests {
                 generics: vec![],
                 doc_comments: vec![],
                 annotations: vec![],
+                requires: vec![],
                 params: vec![Param {
                     name: "self".to_string(),
                     ty: TypeExpr::Ref(Box::new(TypeExpr::Named("Self".to_string()))),
@@ -814,6 +818,7 @@ mod tests {
                 generics: vec![],
                 doc_comments: vec![],
                 annotations: vec![],
+                requires: vec![],
                 params: vec![],
                 return_type: TypeExpr::Void,
                 body: Block {

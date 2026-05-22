@@ -76,6 +76,11 @@ pub struct FnDecl {
     /// a new attribute keyword in the lexer doesn't require touching
     /// every AST walker.
     pub annotations: Vec<String>,
+    /// `@requires(expr)` runtime preconditions. Each entry is the
+    /// boolean expression the caller must satisfy. Lowered to
+    /// `if (!cond) fc_trap();` at the function-body prologue. SMT
+    /// discharge replaces the runtime trap in stage 2.1.
+    pub requires: Vec<super::Expr>,
 }
 
 /// A declared type parameter, e.g. the `T` in `fn id[T](x: T) -> T`.

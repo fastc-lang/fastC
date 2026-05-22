@@ -302,6 +302,7 @@ fn rewrite_fn_struct_refs(
         generics: f.generics,
         doc_comments: f.doc_comments,
         annotations: f.annotations,
+        requires: f.requires,
         params: f
             .params
             .into_iter()
@@ -1492,6 +1493,7 @@ fn specialize_fn(
         generics: Vec::new(),
         doc_comments: generic_fn.doc_comments.clone(),
         annotations: generic_fn.annotations.clone(),
+        requires: generic_fn.requires.clone(),
         params: generic_fn
             .params
             .iter()
@@ -1520,6 +1522,7 @@ fn rewrite_fn(f: &FnDecl, subst: &HashMap<String, TypeExpr>, ctx: &MonoCtx) -> F
         generics: f.generics.clone(),
         doc_comments: f.doc_comments.clone(),
         annotations: f.annotations.clone(),
+        requires: f.requires.clone(),
         params: f.params.clone(),
         return_type: f.return_type.clone(),
         body: rewrite_block(&f.body, subst, ctx, &mut env, &mut drop_stack),

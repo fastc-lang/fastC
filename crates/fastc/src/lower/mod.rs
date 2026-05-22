@@ -733,7 +733,38 @@ impl Lower {
             })
             .collect();
 
-        let body = self.lower_block(&fn_decl.body);
+        // Lower the body, then prepend `@requires(cond)` checks as
+        // runtime asserts: `if (!cond) { fc_trap(); }`. Order is
+        // preserved so the first declared requires checks first.
+        let mut body = self.lower_block(&fn_decl.body);
+        if !fn_decl.requires.is_empty() {
+            let mut prologue: Vec<CStmt> = Vec::with_capacity(fn_decl.requires.len() * 2);
+            for cond in fn_decl.requires.iter().rev() {
+                let mut pre: Vec<CStmt> = Vec::new();
+                let c_cond = self.lower_expr(cond, &mut pre);
+                // Pre-stmts (e.g. temps) come first, then the actual check.
+                let negated = CExpr::Unary {
+                    op: CUnaryOp::Not,
+                    operand: Box::new(c_cond),
+                };
+                let check = CStmt::If {
+                    cond: negated,
+                    then: vec![CStmt::Expr(CExpr::Call {
+                        func: Box::new(CExpr::Ident("fc_trap".to_string())),
+                        args: Vec::new(),
+                    })],
+                    else_: None,
+                };
+                // Insert this clause at the front so earlier clauses
+                // stay earlier when we reverse the iteration order.
+                let mut combined = pre;
+                combined.push(check);
+                combined.extend(prologue);
+                prologue = combined;
+            }
+            prologue.extend(body);
+            body = prologue;
+        }
 
         // Mangle function name, except `main` in root scope
         let c_name = if fn_decl.name == "main" && self.module_path.is_empty() {

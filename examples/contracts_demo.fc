@@ -1,0 +1,28 @@
+// Stage 1.5.0: `@requires(cond)` runtime contracts.
+//
+// Lowered to `if (!cond) fc_trap();` at function entry. Multiple
+// requires clauses run in declaration order; the first to fail
+// wins. Stage 2.1 will swap the runtime trap for SMT discharge
+// where possible — but the runtime layer is always available as a
+// guaranteed fallback.
+
+@requires(divisor != 0)
+@requires(divisor > 0)
+fn safe_div(value: i32, divisor: i32) -> i32 {
+    return (value / divisor);
+}
+
+@requires(((i >= 0) && (i < 100)))
+fn bounded_index(i: i32) -> i32 {
+    return (i + 1);
+}
+
+fn main() -> i32 {
+    let a: i32 = safe_div(100, 4);    // 25
+    let b: i32 = safe_div(50, 5);     // 10
+    let c: i32 = bounded_index(7);    // 8
+    // Calling safe_div(_, 0) or safe_div(_, -1) would trap at
+    // runtime. Calling bounded_index(-1) or bounded_index(100)
+    // would too. We deliberately stay inside the contract.
+    return ((a + b) + c);   // 43
+}

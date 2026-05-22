@@ -26,8 +26,24 @@ impl Parser<'_> {
         // Function-level annotations (`@noalloc` / `@nodiverg` /
         // `@pure`) precede `fn` and accumulate into a Vec attached
         // to the FnDecl. Collected here so they survive a `pub`
-        // modifier or a leading `unsafe`.
+        // modifier or a leading `unsafe`. Same treatment for the
+        // `@requires(...)` runtime precondition syntax.
         let annotations = self.parse_fn_annotations();
+        let requires = self.parse_fn_requires()?;
+        // Allow interleaved order — annotations then requires, or the
+        // reverse. Loop until both stabilize so a `@pure @requires(x>0)
+        // @noalloc` chain parses regardless of token order.
+        let mut annotations = annotations;
+        let mut requires = requires;
+        loop {
+            let more_ann = self.parse_fn_annotations();
+            let more_req = self.parse_fn_requires()?;
+            if more_ann.is_empty() && more_req.is_empty() {
+                break;
+            }
+            annotations.extend(more_ann);
+            requires.extend(more_req);
+        }
 
         // Check for visibility modifier
         let is_pub = if self.check(&Token::Pub) {
@@ -41,6 +57,9 @@ impl Parser<'_> {
             Token::Fn => {
                 let mut f = self.parse_fn_decl(false)?;
                 f.annotations = merge_annotations(&annotations, &f.annotations);
+                let mut rs = requires.clone();
+                rs.extend(f.requires);
+                f.requires = rs;
                 Item::Fn(f)
             }
             Token::Unsafe => {
@@ -48,6 +67,9 @@ impl Parser<'_> {
                 if self.check(&Token::Fn) {
                     let mut f = self.parse_fn_decl(true)?;
                     f.annotations = merge_annotations(&annotations, &f.annotations);
+                    let mut rs = requires.clone();
+                    rs.extend(f.requires);
+                    f.requires = rs;
                     Item::Fn(f)
                 } else {
                     return Err(self.error("expected 'fn' after 'unsafe'"));
@@ -201,6 +223,10 @@ impl Parser<'_> {
         // Collect any `@noalloc` / `@nodiverg` / `@pure` annotations
         // attached to the fn declaration. They precede `fn`.
         let annotations = self.parse_fn_annotations();
+        // Collect any `@requires(...)` runtime preconditions. These
+        // can interleave with the bool-flag annotations above; both
+        // are accumulated independently and merged onto the FnDecl.
+        let requires = self.parse_fn_requires()?;
         self.consume(&Token::Fn, "expected 'fn'")?;
         let name = self.expect_ident()?;
         let generics = self.parse_optional_type_params()?;
@@ -224,7 +250,23 @@ impl Parser<'_> {
             span: start..end,
             doc_comments: Vec::new(),
             annotations,
+            requires,
         })
+    }
+
+    /// Parse zero-or-more `@requires(<expr>)` clauses. Each clause's
+    /// expression is the boolean condition the caller must satisfy.
+    /// Lower turns each into `if (!cond) fc_trap();` at body entry.
+    fn parse_fn_requires(&mut self) -> Result<Vec<crate::ast::Expr>, CompileError> {
+        let mut out = Vec::new();
+        while matches!(self.current(), Token::AtRequires) {
+            self.advance();
+            self.consume(&Token::LParen, "expected '(' after '@requires'")?;
+            let cond = self.parse_expr()?;
+            self.consume(&Token::RParen, "expected ')' to close '@requires'")?;
+            out.push(cond);
+        }
+        Ok(out)
     }
 
     /// Parse zero-or-more `@flag` attributes that precede a fn decl.
