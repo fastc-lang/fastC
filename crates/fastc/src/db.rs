@@ -71,6 +71,30 @@ struct DbInner {
     misses: u64,
 }
 
+// --- Planned but not yet implemented ---
+//
+// Stages A5b/c of the compile-time roadmap call for these query slots:
+//   parse_cache:     HashMap<InputHash, Arc<crate::ast::File>>
+//   resolve_cache:   HashMap<InputHash, Arc<SymbolTable>>
+//   typecheck_cache: HashMap<InputHash, Arc<TypeCheckResult>>
+//
+// All four (lex + the three above) want an on-disk counterpart at
+// `.fastc/cache/queries/<query>/<hash>.bin`. The disk cache is the
+// value-producing slice — it survives across CLI invocations, turning
+// cold compiles into warm compiles for unchanged source.
+//
+// Held-back work, in dependency order:
+//   1. AST refactor to share storage via Arc<...> without per-call clones
+//      that empirically regress single-shot CLI compile (see the A1
+//      prelude-caching experiment in commit history for the measurement).
+//   2. Serialize / Deserialize derives on every AST node + bincode for
+//      the on-disk format.
+//   3. Per-query cache directory layout under .fastc/cache/queries/<name>/.
+//   4. Salsa-style red/green dependency tracking so a change to one input
+//      invalidates only downstream queries, not the whole cache.
+//   5. The fastc-daemon (stage A6) becomes the primary consumer of the
+//      hot in-memory cache; the CLI consumes the cold on-disk cache.
+
 /// SHA-256 hash of a query's input bytes. 32 bytes, fixed-size, cheap to
 /// hash and compare. Kept as its own type so a query that accidentally hands
 /// `String` to another query won't typecheck.
