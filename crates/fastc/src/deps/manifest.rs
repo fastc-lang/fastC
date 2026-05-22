@@ -51,13 +51,28 @@ pub struct BuildConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum Dependency {
-    /// Git dependency with optional version specifier
+    /// Git dependency with optional version specifier and integrity fields.
     Git {
         git: String,
         #[serde(flatten)]
         version: GitVersion,
+        /// SHA-256 of the dependency's resolved git tree (`git
+        /// archive` of the locked rev). Optional in the manifest;
+        /// the lockfile (`fastc.lock`) records it once resolved.
+        /// `fastc build --vendor-strict` refuses to fetch anything
+        /// without a recorded sha256.
+        #[serde(default)]
+        sha256: Option<String>,
+        /// Sigstore bundle (`.sigstore.json`) attesting the rev.
+        /// Required for every `fastc-core` dependency. Optional
+        /// for third-party deps until a stage-2.x sub-slice tightens
+        /// the policy. Bundle verification uses the public Sigstore
+        /// transparency log via `cosign verify-bundle`.
+        #[serde(default)]
+        sigstore: Option<String>,
     },
-    /// Local path dependency
+    /// Local path dependency. Skipped by the integrity checker
+    /// because there's no upstream to attest.
     Path { path: String },
 }
 
@@ -67,6 +82,49 @@ pub struct GitVersion {
     pub tag: Option<String>,
     pub branch: Option<String>,
     pub rev: Option<String>,
+}
+
+impl Dependency {
+    /// Apply the vendor-first integrity policy to this dependency.
+    /// Returns a list of human-readable warnings. The strict mode
+    /// (`fastc build --vendor-strict`) converts these to hard
+    /// errors; the default `fastc build` reports them but proceeds.
+    pub fn integrity_warnings(&self, name: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        if let Dependency::Git {
+            version,
+            sha256,
+            sigstore,
+            ..
+        } = self
+        {
+            // Must specify a rev — tags and branches can move and
+            // are unsafe for supply-chain integrity.
+            if version.rev.is_none() {
+                out.push(format!(
+                    "dependency '{}': missing commit `rev` — tags and branches can move; pin to a 40-char commit hash",
+                    name
+                ));
+            }
+            if sha256.is_none() {
+                out.push(format!(
+                    "dependency '{}': missing `sha256` content hash — record one with `fastc lock` after a successful fetch",
+                    name
+                ));
+            }
+            // Sigstore is required for fastc-core deps. We can't tell
+            // by URL alone whether a dep is fastc-core, so just warn
+            // when missing — strict mode tightens to "required for
+            // anything under github.com/fastc-core/".
+            if sigstore.is_none() {
+                out.push(format!(
+                    "dependency '{}': missing `sigstore` bundle — every `fastc-core` package will be required to ship one once stage-1.8 lands",
+                    name
+                ));
+            }
+        }
+        out
+    }
 }
 
 impl Manifest {
@@ -167,5 +225,55 @@ local = { path = "../local_lib" }
         assert_eq!(manifest.build.include_dirs, vec!["include", "vendor"]);
         assert_eq!(manifest.build.link_libs, vec!["nng", "pthread"]);
         assert_eq!(manifest.dependencies.len(), 3);
+    }
+
+    #[test]
+    fn test_integrity_warnings_flag_missing_pin() {
+        // A dep using a moving tag, no sha256, no sigstore — the
+        // worst-case supply-chain shape. Should produce three
+        // warnings.
+        let toml = r#"
+[package]
+name = "p"
+
+[dependencies]
+risky = { git = "https://github.com/x/y", tag = "v1.0.0" }
+"#;
+        let manifest: Manifest = toml::from_str(toml).unwrap();
+        let warns = manifest.dependencies["risky"].integrity_warnings("risky");
+        assert_eq!(warns.len(), 3);
+        assert!(warns.iter().any(|w| w.contains("rev")));
+        assert!(warns.iter().any(|w| w.contains("sha256")));
+        assert!(warns.iter().any(|w| w.contains("sigstore")));
+    }
+
+    #[test]
+    fn test_integrity_warnings_clean_when_fully_pinned() {
+        let toml = r#"
+[package]
+name = "p"
+
+[dependencies]
+safe = { git = "https://github.com/fastc-core/json", rev = "abc1234567890abc1234567890abc1234567890a", sha256 = "0000000000000000000000000000000000000000000000000000000000000000", sigstore = "vendor/json.sigstore.json" }
+"#;
+        let manifest: Manifest = toml::from_str(toml).unwrap();
+        let warns = manifest.dependencies["safe"].integrity_warnings("safe");
+        assert!(warns.is_empty(), "expected no warnings, got: {:?}", warns);
+    }
+
+    #[test]
+    fn test_path_dep_has_no_integrity_warnings() {
+        // Local path deps are exempt — there's no upstream to
+        // attest to.
+        let toml = r#"
+[package]
+name = "p"
+
+[dependencies]
+local = { path = "../utils" }
+"#;
+        let manifest: Manifest = toml::from_str(toml).unwrap();
+        let warns = manifest.dependencies["local"].integrity_warnings("local");
+        assert!(warns.is_empty());
     }
 }

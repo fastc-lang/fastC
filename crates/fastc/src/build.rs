@@ -175,7 +175,7 @@ impl BuildContext {
 
             // Get source + resolved commit for lockfile
             let (source, resolved) = match dep {
-                crate::deps::Dependency::Git { git, version } => {
+                crate::deps::Dependency::Git { git, version, .. } => {
                     let resolved = crate::deps::Fetcher::head_commit(&path).ok();
                     let source = resolved
                         .as_ref()
@@ -236,6 +236,8 @@ impl BuildContext {
                     rev: Some(rev),
                     ..Default::default()
                 },
+                sha256: None,
+                sigstore: None,
             }
         } else {
             dep.clone()
@@ -258,7 +260,7 @@ impl BuildContext {
     fn dependency_dirs(&self) -> Vec<(String, std::path::PathBuf)> {
         let mut dirs = Vec::new();
         for (name, dep) in &self.manifest.dependencies {
-            if let crate::deps::Dependency::Git { git, version } = dep {
+            if let crate::deps::Dependency::Git { git, version, .. } = dep {
                 let version_str = if let Some(tag) = &version.tag {
                     format!("tag-{}", tag)
                 } else if let Some(branch) = &version.branch {
@@ -479,7 +481,7 @@ impl BuildContext {
 
         for (name, dep) in &self.manifest.dependencies {
             // Try to find the cached path
-            if let crate::deps::Dependency::Git { git, version } = dep {
+            if let crate::deps::Dependency::Git { git, version, .. } = dep {
                 let version_str = if let Some(tag) = &version.tag {
                     format!("tag-{}", tag)
                 } else if let Some(branch) = &version.branch {

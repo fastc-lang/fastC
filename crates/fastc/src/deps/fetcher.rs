@@ -32,7 +32,7 @@ impl Fetcher {
     /// Returns the path to the fetched dependency
     pub fn fetch(&self, name: &str, dep: &Dependency) -> Result<std::path::PathBuf, FetchError> {
         match dep {
-            Dependency::Git { git, version } => self.fetch_git(name, git, version),
+            Dependency::Git { git, version, .. } => self.fetch_git(name, git, version),
             Dependency::Path { path } => {
                 // Local paths don't need fetching
                 let path = std::path::PathBuf::from(path);
