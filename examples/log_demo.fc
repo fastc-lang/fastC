@@ -1,0 +1,32 @@
+// Deferred-item 7: `mod log` — fastc-core preview.
+//
+// Mirrors what `fastc-core/log` will ship as a vendor-able package
+// post-stage-1.7. v1 covers debug/info/warn/error + kv_int for
+// quick structured key/value pairs. The level filter is currently
+// hardcoded to `DEBUG` (everything emits); a future sub-slice will
+// wire it to a module-scope `static mut` once that lands.
+//
+// All log calls write to stdout. They allocate nothing — the level
+// prefixes are static cstrs and the message walks the bytes by
+// hand — so log is safe from inside `@noalloc` functions.
+
+use log::debug;
+use log::info;
+use log::warn;
+use log::error;
+use log::kv_int;
+
+fn main() -> i32 {
+    debug(cstr("starting up"));
+    info(cstr("ready to accept requests"));
+    warn(cstr("disk usage is high"));
+    error(cstr("upstream timeout"));
+
+    // Structured kv pairs share a line, then a normal log call
+    // terminates it.
+    kv_int(cstr("requests"), 42);
+    kv_int(cstr("errors"), 1);
+    info(cstr("hourly stats"));
+
+    return 0;
+}

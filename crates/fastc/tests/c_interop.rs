@@ -506,6 +506,16 @@ fn test_noalloc_demo_compiles() {
 }
 
 #[test]
+fn test_log_demo_compiles() {
+    // Deferred-item 7: `mod log` — leveled logging in the prelude
+    // as a `fastc-core/log` preview. Allocation-free (level
+    // prefixes are static cstrs, message walks bytes by hand)
+    // so log calls are safe from inside `@noalloc` functions.
+    // Covers debug/info/warn/error + kv_int for structured pairs.
+    compile_and_verify("examples/log_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

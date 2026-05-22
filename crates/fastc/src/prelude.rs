@@ -488,6 +488,113 @@ mod io {
     }
 }
 
+// --- log: leveled logging (fastc-core preview) ---
+//
+// The post-stage-1.7 `fastc-core` org will ship `fastc-core/log` as
+// a separate vendor-able package. v1 ships a stdout-only preview
+// here in the prelude so users have a concrete way to emit leveled
+// log lines without depending on libc printf. A pluggable sink
+// (file / syslog / structured / capability-typed) follows in
+// fastc-core proper.
+//
+// Today every call writes to stdout with a `[LEVEL]` prefix, a
+// space, the message, and a newline. The level filter lives in a
+// module-local `current_level` — anything below it is dropped at
+// runtime by a single integer comparison. There is no allocation:
+// the prefixes are static C strings emitted via `io::println` /
+// `io::put_char`. This means log calls are safe from inside
+// `@noalloc` functions.
+
+mod log {
+    use io::println;
+    use io::put_char;
+    use io::print_int;
+
+    /// Log level constants. Higher numbers are more severe; the
+    /// `current_level` filter drops calls below the configured
+    /// threshold. The default threshold is `INFO` (= 1).
+    pub fn level_debug() -> i32 { return 0; }
+    pub fn level_info()  -> i32 { return 1; }
+    pub fn level_warn()  -> i32 { return 2; }
+    pub fn level_error() -> i32 { return 3; }
+
+    // Mutable module-scope storage isn't supported yet, so the
+    // current level is a callable that returns the threshold. A
+    // future sub-slice (once `static mut` or a thread-local lands)
+    // will let callers raise/lower the filter at runtime; for now
+    // every log call below INFO is emitted.
+    fn current_level() -> i32 { return 0; }
+
+    fn write_prefix(tag: raw(u8)) -> void {
+        put_char(91);            // '['
+        // `tag` is a cstr; we have no Str-from-raw helper in the
+        // prelude, so we lean on println's null-termination by
+        // emitting the prefix as its own line-less call. fc_puts_u8
+        // appends a newline so we instead emit bytes via put_char
+        // through a tiny helper.
+        write_cstr_no_newline(tag);
+        put_char(93);            // ']'
+        put_char(32);            // ' '
+    }
+
+    /// Internal: write a null-terminated cstr to stdout without
+    /// appending a newline. Walks the bytes one at a time. Used by
+    /// `write_prefix` so the level tag and the message share a line.
+    fn write_cstr_no_newline(s: raw(u8)) -> void {
+        let i: usize = cast(usize, 0);
+        while (true) {
+            unsafe {
+                let b: u8 = at(s, i);
+                if (b == cast(u8, 0)) { return; }
+                put_char(cast(i32, b));
+            }
+            i = (i + cast(usize, 1));
+        }
+    }
+
+    /// Emit a debug-level line. Dropped when the current threshold
+    /// is above DEBUG.
+    pub fn debug(msg: raw(u8)) -> void {
+        if (current_level() > level_debug()) { return; }
+        write_prefix(cstr("DEBUG"));
+        println(msg);
+    }
+
+    /// Emit an info-level line. The default threshold lets these
+    /// through.
+    pub fn info(msg: raw(u8)) -> void {
+        if (current_level() > level_info()) { return; }
+        write_prefix(cstr("INFO"));
+        println(msg);
+    }
+
+    /// Emit a warn-level line.
+    pub fn warn(msg: raw(u8)) -> void {
+        if (current_level() > level_warn()) { return; }
+        write_prefix(cstr("WARN"));
+        println(msg);
+    }
+
+    /// Emit an error-level line.
+    pub fn error(msg: raw(u8)) -> void {
+        if (current_level() > level_error()) { return; }
+        write_prefix(cstr("ERROR"));
+        println(msg);
+    }
+
+    /// Structured key=value pair on the current line, for quick
+    /// metric-style logging without going through the JSON encoder.
+    /// Caller is responsible for line termination — emit a normal
+    /// log call (`info` / `warn` / etc) afterwards, or use
+    /// `put_char(10)` directly.
+    pub fn kv_int(key: raw(u8), value: i32) -> void {
+        write_cstr_no_newline(key);
+        put_char(61);            // '='
+        print_int(value);
+        put_char(32);            // ' '
+    }
+}
+
 // --- json: minimal JSON encoder (fastc-core preview) ---
 //
 // The post-stage-1.7 `fastc-core` org will ship `fastc-core/json`
