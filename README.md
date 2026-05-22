@@ -227,6 +227,33 @@ fastc p10-rules --safety-level=critical
 
 See the [Power of 10 Guide](https://docs.skelfresearch.com/fastc/reference/power-of-10/) for detailed documentation.
 
+## Status
+
+fastC is currently in active development toward a v1.0 launch. As of the latest commit:
+
+- **Stage 1.1 (Standard Library & Closures) — complete.** 205 tests pass (142 unit + 52 c_interop + 7 determinism + 4 error golden). Budget green on every target.
+- **Stage 1.3 (Annotations) — initial.** `@noalloc` / `@nodiverg` / `@pure` parse and survive the pipeline; the call-graph lint that enforces `@noalloc` is the next slice.
+- **Stage 1.4 (Capabilities) — preview.** `Cap*` types, `caps::init()`, and the Caps bundle exist as opaque struct values. Flow-analysis enforcement ships in the proper Stage 1.4 slice.
+- **Stage 1.5 (Contracts, runtime tier) — complete.** `@requires(cond)` lowers to `if (!cond) fc_trap();` at function entry, one block per declared clause. SMT discharge is stage 2.1.
+- **Stage 1.6 (Agent features) — initial.** `fastc explain <file>` emits machine-readable JSON of every function's signature, annotations, and requires clauses — the artifact the future `fastc-mcp` server will surface over the Model Context Protocol.
+
+**What's already real:**
+- A growable `Vec[T]`, a hash-keyed `HashMap[K: Hash + Eq, V]`, owned `Str` strings built on `Vec[u8]`, and capture-free closures (`|x: T| -> R { ... }`).
+- Built-in traits: `Eq`, `Ord`, `Copy`, `Drop`, `Hash`, `Clone`.
+- ~40 stdlib functions across `vec` / `str` / `hashmap` / `math` / `mem` / `io` / `caps`.
+- A JSON tokenizer demo (`examples/json_tokenizer_demo.fc`, ~150 LoC of real fastC) that exercises every stdlib module composed end-to-end — the Stage 1.1 Definition-of-Done deliverable.
+
+**What's deferred to later stages:**
+- Closures with captured values (env-struct + dispatch convention). Stage 1.1 ships capture-free only.
+- Qualified-call syntax (`vec::len(...)` as an expression). Current stdlib uses `_str` / `_map` / `_of` suffixes to disambiguate same-named functions across modules; mono already has the multi-candidate machinery, the parser/resolver still rejects two `use` imports of the same bare name.
+- Capability flow-analysis enforcement (Stage 1.4 proper). v1 ships the API shape.
+- SMT-backed contract discharge (Stage 2.1). v1 runs every `@requires` at runtime.
+- Vendor-first package system with Sigstore signing (Stage 1.7).
+- `fastc-mcp` MCP server (Stage 1.6 follow-up; `fastc explain` is the JSON precursor).
+- `fastc-core` curated stdlib extensions: http / json / toml / log / cli (Stage 1.8).
+
+See [`docs/roadmap.md`](docs/roadmap.md) for the slice-by-slice history.
+
 ## FAQ
 
 ### Why not opinionated Rust with cargo-vet, no proc macros, no `build.rs`, no async?
