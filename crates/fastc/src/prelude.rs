@@ -459,6 +459,9 @@ mod io {
         unsafe fn fc_puts_u8(s: raw(u8)) -> i32;
         unsafe fn fc_putchar(c: i32) -> i32;
         unsafe fn fc_print_i32(n: i32) -> i32;
+        unsafe fn fc_print_i64(n: i64) -> i32;
+        unsafe fn fc_read_i32() -> i32;
+        unsafe fn fc_read_i64() -> i64;
     }
 
     /// Write a null-terminated C string to stdout followed by a newline.
@@ -484,6 +487,36 @@ mod io {
     pub fn print_int(n: i32) -> void {
         unsafe {
             discard(fc_print_i32(n));
+        }
+    }
+
+    /// Write a signed 64-bit integer in base 10. Use this when the
+    /// value might exceed INT32_MAX (e.g., sums of many integers).
+    /// Like `print_int`, no trailing newline.
+    pub fn print_i64(n: i64) -> void {
+        unsafe {
+            discard(fc_print_i64(n));
+        }
+    }
+
+    /// Read a signed 32-bit integer from stdin (skips leading
+    /// whitespace; stops at first non-digit). Returns 0 on parse
+    /// failure — indistinguishable from a literal "0" input, which
+    /// callers needing the difference should treat with care. This
+    /// is cap-free in v1 because stdin is the same kind of ambient
+    /// resource stdout is via `println`; a future `CapStdinRead`
+    /// could tighten this if the cap story justifies it.
+    pub fn read_int() -> i32 {
+        unsafe {
+            return fc_read_i32();
+        }
+    }
+
+    /// Read a signed 64-bit integer from stdin. Same semantics as
+    /// `read_int`, wider type.
+    pub fn read_i64() -> i64 {
+        unsafe {
+            return fc_read_i64();
         }
     }
 }

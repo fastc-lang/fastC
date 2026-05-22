@@ -516,6 +516,16 @@ fn test_log_demo_compiles() {
 }
 
 #[test]
+fn test_io_stdin_demo_compiles() {
+    // Stage 1.1 closing slice: stdin reading lands in the prelude
+    // via `io::read_int` / `io::read_i64` and the `fc_read_i32` /
+    // `fc_read_i64` runtime wrappers. Closes the gap that
+    // prevented the first-compile benchmark's T2 (is_prime) and
+    // T3 (json_token) from being solvable in fastC at all.
+    compile_and_verify("examples/io_stdin_demo.fc");
+}
+
+#[test]
 fn test_ensures_demo_compiles() {
     // Deferred-item 9: `@ensures(<expr>)` runtime postconditions.
     // Companion to `@requires`. Each clause runs at every `return`

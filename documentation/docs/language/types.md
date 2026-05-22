@@ -106,10 +106,13 @@ let d: f64 = cast(f64, a);      // Int to float
 
 ### Arrays
 
-Fixed-size arrays with compile-time known length:
+`arr(T, N)` is a fixed-size array type. **fastC v1 does not have an array literal syntax** — `[1, 2, 3, 4, 5]` does not parse. Construct `arr(T, N)` values via FFI (e.g. a C function that returns one) or via `unsafe` element-wise assignment. For inline collections, prefer `Vec[T]`:
 
 ```c
-let arr: arr(i32, 5) = [1, 2, 3, 4, 5];
+let v: Vec[i32] = vec::new(0);
+vec::push(addrm(v), 1);
+vec::push(addrm(v), 2);
+// ...
 ```
 
 See [Arrays & Slices](arrays-slices.md) for details.

@@ -63,6 +63,57 @@ static inline int fc_print_i32(int32_t n) {
     return written;
 }
 
+/* Format and write a signed 64-bit integer in base 10. Same shape
+ * as fc_print_i32 but wide enough for sums that exceed INT32_MAX
+ * (e.g. the T4 / T5 cross-language overflow benchmark). */
+static inline int fc_print_i64(int64_t n) {
+    if (n == 0) {
+        putchar('0');
+        return 1;
+    }
+    int written = 0;
+    int64_t v = n;
+    if (v < 0) {
+        putchar('-');
+        written++;
+        v = -v;
+    }
+    char buf[24]; /* INT64_MIN absolute value is 19 digits + sign */
+    int len = 0;
+    while (v > 0) {
+        buf[len++] = (char)('0' + (v % 10));
+        v /= 10;
+    }
+    while (len > 0) {
+        putchar(buf[--len]);
+        written++;
+    }
+    return written;
+}
+
+/* Read a signed 32-bit integer from stdin via libc scanf. Returns 0
+ * on parse failure (which is indistinguishable from a successful "0"
+ * read — callers needing finer granularity should use the
+ * `fc_read_i32_ok` variant below). Closes the v1 gap that prevented
+ * the benchmark's T2 (is_prime) and T3 (json_token) from being
+ * solvable in fastC at all. Cap-free because stdin is treated as the
+ * same kind of ambient resource as stdout via `io::println`. A
+ * follow-up sub-slice will introduce `CapStdinRead` if the
+ * capability story tightens. */
+static inline int32_t fc_read_i32(void) {
+    int32_t n = 0;
+    if (scanf("%d", &n) != 1) return 0;
+    return n;
+}
+
+/* Read a signed 64-bit integer from stdin. Same cap-free policy as
+ * fc_read_i32. */
+static inline int64_t fc_read_i64(void) {
+    long long n = 0;
+    if (scanf("%lld", &n) != 1) return 0;
+    return (int64_t)n;
+}
+
 /* Current Unix epoch in seconds. Wraps libc `time(NULL)` so the
  * fastC `time::now` binding doesn't need to construct a NULL raw
  * pointer (which the type system doesn't expose cleanly today).

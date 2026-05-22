@@ -1,0 +1,25 @@
+// Stage 1.1 closing slice: stdin reading lands in the prelude.
+//
+// `io::read_int` and `io::read_i64` close the gap that prevented
+// the first-compile benchmark's T2 (is_prime) and T3 (json_token)
+// from being solvable in fastC at all. Both are cap-free in v1 —
+// stdin is treated as the same kind of ambient resource that
+// stdout is via `io::println`. A future `CapStdinRead` could
+// tighten this if the capability story justifies it.
+//
+// Same shape as the existing print helpers: thin static-inline
+// runtime wrappers (`fc_read_i32`, `fc_read_i64`) hand the
+// scanf() calls back to fastC as plain i32 / i64.
+
+use io::read_int;
+use io::print_i64;
+use io::put_char;
+
+fn main() -> i32 {
+    let n: i32 = read_int();
+    let widened: i64 = cast(i64, n);
+    let doubled: i64 = (widened + widened);
+    print_i64(doubled);
+    put_char(10);
+    return 0;
+}

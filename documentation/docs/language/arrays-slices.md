@@ -1,16 +1,21 @@
 # Arrays and Slices
 
-FastC provides two collection types: fixed-size arrays and dynamic slices.
+FastC provides two collection types: fixed-size arrays and dynamic slices. For inline collections written from scratch, prefer `Vec[T]` — fastC v1 does not yet expose an array literal syntax.
 
 ## Arrays - arr(T, N)
 
-Arrays have a fixed size known at compile time.
+Arrays have a fixed size known at compile time. The type is `arr(T, N)`.
 
 ### Declaration
 
+> **v1 limitation:** fastC has no array literal syntax. `let a: arr(i32, 5) = [1, 2, 3, 4, 5];` does not parse. `arr(T, N)` values come from FFI calls, `unsafe` element-wise stores, or are stack-allocated and zero-initialized by the runtime. The fragments below describe the **type system** for completeness, not idiomatic v1 construction. For collections written from scratch in user code, use `Vec[T]`:
+
 ```c
-let numbers: arr(i32, 5) = [1, 2, 3, 4, 5];
-let zeros: arr(i32, 10) = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+// Idiomatic v1 — Vec[T] for inline collections:
+let v: Vec[i32] = vec::new(0);
+vec::push(addrm(v), 1);
+vec::push(addrm(v), 2);
+let total: i32 = vec::get(addr(v), 0);
 ```
 
 ### Size in Type
