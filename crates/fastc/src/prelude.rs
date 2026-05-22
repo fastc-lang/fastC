@@ -351,6 +351,38 @@ mod math {
         return x;
     }
 
+    /// Integer power: `base ^ exp`. Returns 1 for exp = 0 (including
+    /// 0 ^ 0 = 1, per the IEEE-754 / Knuth convention). Negative
+    /// `exp` is not supported — caller must check. Specialized for
+    /// `i32`; a bounded-generic `pow[T: Mul]` waits until a numeric
+    /// Mul trait lands.
+    pub fn pow_i32(base: i32, exp: i32) -> i32 {
+        if (exp <= 0) {
+            return 1;
+        }
+        let result: i32 = 1;
+        let i: i32 = 0;
+        while (i < exp) {
+            result = (result * base);
+            i = (i + 1);
+        }
+        return result;
+    }
+
+    /// Greatest common divisor via the Euclidean algorithm. Operates
+    /// on absolute values, so `gcd(-12, 8) = 4`. Returns 0 only when
+    /// both inputs are zero — matches Python's convention.
+    pub fn gcd_i32(a: i32, b: i32) -> i32 {
+        let x: i32 = abs_i32(a);
+        let y: i32 = abs_i32(b);
+        while (y != 0) {
+            let r: i32 = (x - ((x / y) * y));   // x % y
+            x = y;
+            y = r;
+        }
+        return x;
+    }
+
     // Bounded-generic helpers built on the prelude `Ord` trait. These work
     // for every numeric primitive automatically.
     pub fn min[T: Ord](a: T, b: T) -> T {
@@ -1550,6 +1582,30 @@ mod str {
             found = (idx >= cast(usize, 0));
         }
         return found;
+    }
+
+    /// True when `haystack` ends with `needle`'s bytes. Empty needle
+    /// returns true vacuously. Mirror of `starts_with` walking from
+    /// the end.
+    pub fn ends_with(haystack: ref(Str), needle: ref(Str)) -> bool {
+        let hn: usize = len(addr((deref(haystack)).data));
+        let nn: usize = len(addr((deref(needle)).data));
+        if (nn > hn) {
+            return false;
+        }
+        let offset: usize = (hn - nn);
+        let hbuf: rawm(u8) = (deref(haystack)).data.data;
+        let nbuf: rawm(u8) = (deref(needle)).data.data;
+        let i: usize = cast(usize, 0);
+        while (i < nn) {
+            unsafe {
+                if (at(hbuf, (offset + i)) != at(nbuf, i)) {
+                    return false;
+                }
+            }
+            i = (i + cast(usize, 1));
+        }
+        return true;
     }
 
     /// True when `haystack` begins with `needle`'s bytes. An empty

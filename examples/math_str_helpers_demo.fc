@@ -1,0 +1,49 @@
+// Stage 1.1 slice 34: `math::pow_i32`, `math::gcd_i32`,
+// `str::ends_with`. Pure stdlib additions.
+
+use math::pow_i32;
+use math::gcd_i32;
+use str::from_cstr;
+use str::ends_with;
+use str::dispose;
+
+fn main() -> i32 {
+    let p_zero: i32 = pow_i32(7, 0);   // 1
+    let p_one: i32 = pow_i32(7, 1);    // 7
+    let p_two: i32 = pow_i32(7, 2);    // 49
+    let p_three: i32 = pow_i32(2, 8);  // 256
+
+    let g_12_8: i32 = gcd_i32(12, 8);     // 4
+    let g_neg: i32 = gcd_i32(0 - 12, 8);  // 4
+    let g_zero: i32 = gcd_i32(0, 5);      // 5
+    let g_both_zero: i32 = gcd_i32(0, 0); // 0
+
+    let haystack: Str = from_cstr(cstr("hello world"));
+    let suffix: Str = from_cstr(cstr("world"));
+    let other_suffix: Str = from_cstr(cstr("planet"));
+    let too_long: Str = from_cstr(cstr("hello world!!!"));
+
+    let ends_world: bool = ends_with(addr(haystack), addr(suffix));        // true
+    let ends_planet: bool = ends_with(addr(haystack), addr(other_suffix)); // false
+    let ends_overlong: bool = ends_with(addr(haystack), addr(too_long));   // false
+
+    dispose(addrm(haystack));
+    dispose(addrm(suffix));
+    dispose(addrm(other_suffix));
+    dispose(addrm(too_long));
+
+    let total: i32 = 0;
+    if (p_zero == 1) { total = (total + 1); }
+    if (p_one == 7) { total = (total + 2); }
+    if (p_two == 49) { total = (total + 4); }
+    if (p_three == 256) { total = (total + 8); }
+    if (g_12_8 == 4) { total = (total + 16); }
+    if (g_neg == 4) { total = (total + 1); }
+    if (g_zero == 5) { total = (total + 2); }
+    if (g_both_zero == 0) { total = (total + 4); }
+    if (ends_world) { total = (total + 32); }
+    if (!ends_planet) { total = (total + 8); }
+    if (!ends_overlong) { total = (total + 16); }
+    // 1+2+4+8+16+1+2+4+32+8+16 = 94
+    return total;
+}

@@ -424,6 +424,13 @@ fn test_concat_lines_findidx_compiles() {
 }
 
 #[test]
+fn test_math_str_helpers_compiles() {
+    // Stage 1.1 slice 34: `math::pow_i32(base, exp)`, `math::gcd_i32`
+    // (Euclidean), and `str::ends_with` (mirror of starts_with).
+    compile_and_verify("examples/math_str_helpers_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }
