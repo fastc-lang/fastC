@@ -67,54 +67,64 @@ def extract_code(text: str) -> str | None:
 
 
 def build_and_run(code: str, lang: str, stdin: str | None,
-                  workdir: Path) -> tuple[bool, bool, str, int]:
-    """Returns (compiled, ran, stdout_or_err, exit_code).
+                  workdir: Path) -> tuple[bool, bool, str, int, int]:
+    """Returns (compiled, ran, stdout_or_err, exit_code, compile_ms).
 
     `ran` is True if the binary was launched (regardless of exit).
+    `compile_ms` is wall-clock duration of the source-to-binary
+    pipeline in milliseconds. Useful when first-compile-success
+    rate is low but iteration cost is small — the total cost of
+    "fix-and-retry" is `compile_ms * expected_attempts`.
     Caller decides whether the exit code + output count as
     "correct" — different tasks weight these differently."""
+    import time as _time
     ext = LANG_FILE_EXT[lang]
     src = workdir / f"prog.{ext}"
     src.write_text(code)
     out = workdir / "prog"
 
-    # Compile step (per-language).
+    # Compile step (per-language). Track wall-clock around the
+    # compile pipeline to report compile_ms regardless of pass/fail.
+    t_start = _time.perf_counter()
+    compile_ok = False
+    err_text = ""
     if lang == "fastc":
         cout = workdir / "prog.c"
         r = subprocess.run(
             [str(FASTC), "compile", str(src), "-o", str(cout)],
             capture_output=True, text=True, timeout=30,
         )
-        if r.returncode != 0:
-            return False, False, r.stderr, -1
-        r = subprocess.run(
-            ["cc", "-O2", f"-I{RUNTIME}", str(cout), "-o", str(out)],
-            capture_output=True, text=True, timeout=30,
-        )
-        if r.returncode != 0:
-            return False, False, r.stderr, -1
+        if r.returncode == 0:
+            r = subprocess.run(
+                ["cc", "-O2", f"-I{RUNTIME}", str(cout), "-o", str(out)],
+                capture_output=True, text=True, timeout=30,
+            )
+            compile_ok = r.returncode == 0
+            err_text = r.stderr if not compile_ok else ""
+        else:
+            err_text = r.stderr
     elif lang == "c":
         r = subprocess.run(
             ["gcc", "-O2", str(src), "-o", str(out)],
             capture_output=True, text=True, timeout=30,
         )
-        if r.returncode != 0:
-            return False, False, r.stderr, -1
+        compile_ok = r.returncode == 0
+        err_text = r.stderr if not compile_ok else ""
     elif lang == "rust":
         r = subprocess.run(
             ["rustc", "-O", str(src), "-o", str(out)],
             capture_output=True, text=True, timeout=60,
         )
-        if r.returncode != 0:
-            return False, False, r.stderr, -1
+        compile_ok = r.returncode == 0
+        err_text = r.stderr if not compile_ok else ""
     elif lang == "zig":
         r = subprocess.run(
             ["zig", "build-exe", "-O", "ReleaseFast", "-lc",
              "--name", "prog", str(src)],
             cwd=str(workdir), capture_output=True, text=True, timeout=60,
         )
-        if r.returncode != 0:
-            return False, False, r.stderr, -1
+        compile_ok = r.returncode == 0
+        err_text = r.stderr if not compile_ok else ""
     elif lang == "go":
         go_bin = "/opt/homebrew/Cellar/go/1.26.3/bin/go"
         gosrc = workdir / "main.go"
@@ -123,21 +133,26 @@ def build_and_run(code: str, lang: str, stdin: str | None,
             [go_bin, "build", "-o", str(out), str(gosrc)],
             cwd=str(workdir), capture_output=True, text=True, timeout=60,
         )
-        if r.returncode != 0:
-            return False, False, r.stderr, -1
+        compile_ok = r.returncode == 0
+        err_text = r.stderr if not compile_ok else ""
     else:
-        return False, False, f"unknown lang {lang}", -1
+        return False, False, f"unknown lang {lang}", -1, 0
 
-    # Run step.
+    compile_ms = int((_time.perf_counter() - t_start) * 1000)
+
+    if not compile_ok:
+        return False, False, err_text, -1, compile_ms
+
+    # Run step (compile time only — runtime tracked separately).
     try:
         r = subprocess.run(
             [str(out)], input=stdin if stdin else "",
             capture_output=True, text=True, timeout=10,
         )
     except subprocess.TimeoutExpired:
-        return True, False, "runtime timeout", -1
+        return True, False, "runtime timeout", -1, compile_ms
 
-    return True, True, r.stdout, r.returncode
+    return True, True, r.stdout, r.returncode, compile_ms
 
 
 def check_output(stdout: str, expected) -> bool:
@@ -174,7 +189,12 @@ def main() -> int:
                     if args.llms and llm not in args.llms:
                         continue
                     key = (task, lang, llm)
-                    cells[key] = {"trials": 0, "compiled": 0, "correct": 0}
+                    cells[key] = {
+                        "trials": 0,
+                        "compiled": 0,
+                        "correct": 0,
+                        "compile_ms_list": [],
+                    }
                     for resp_file in sorted((cell_root / llm).glob("*.txt")):
                         text = resp_file.read_text()
                         if text.startswith("# ERROR:"):
@@ -185,9 +205,10 @@ def main() -> int:
                         cells[key]["trials"] += 1
                         wd = work_root / f"{task}_{lang}_{llm}_{resp_file.stem}"
                         wd.mkdir(parents=True, exist_ok=True)
-                        compiled, ran, output, exit_code = build_and_run(
+                        compiled, ran, output, exit_code, compile_ms = build_and_run(
                             code, lang, stdin, wd,
                         )
+                        cells[key]["compile_ms_list"].append(compile_ms)
                         if compiled:
                             cells[key]["compiled"] += 1
                         if compiled and ran:
@@ -208,15 +229,18 @@ def main() -> int:
                                 cells[key]["correct"] += 1
 
     # Print summary table.
-    print(f"{'cell':<32} {'trials':>6} {'compiled':>8} {'correct':>7} {'safety_gap':>10}")
-    print("-" * 70)
+    print(f"{'cell':<32} {'trials':>6} {'compiled':>8} {'correct':>7} {'gap':>4} {'compile_ms_med':>14}")
+    print("-" * 86)
     for (task, lang, llm), c in sorted(cells.items()):
         t, comp, corr = c["trials"], c["compiled"], c["correct"]
         gap = (comp - corr) if t else 0
+        cms = c["compile_ms_list"]
+        med = sorted(cms)[len(cms) // 2] if cms else 0
         cell_id = f"{task}/{lang}/{llm}"
-        print(f"{cell_id:<32} {t:>6} {comp:>8} {corr:>7} {gap:>10}")
-    print("-" * 70)
-    print("safety_gap = compiled - correct: trials that compiled but produced wrong output")
+        print(f"{cell_id:<32} {t:>6} {comp:>8} {corr:>7} {gap:>4} {med:>14}")
+    print("-" * 86)
+    print("gap = compiled - correct: trials that compiled but produced wrong output")
+    print("compile_ms_med = median wall-clock compile time across this cell's trials")
     return 0
 
 
