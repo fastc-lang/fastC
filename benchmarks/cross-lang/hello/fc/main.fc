@@ -1,0 +1,6 @@
+use io::println;
+
+fn main() -> i32 {
+    println(cstr("Hello"));
+    return 0;
+}

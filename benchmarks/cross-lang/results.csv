@@ -1,0 +1,26 @@
+# fastC cross-language benchmark
+# Generated: 2026-05-22T12:37:25Z
+# Host: Darwin DS-MBP.local 25.4.0 arm64
+# Methodology: hyperfine --warmup 1 --runs 3 for compile, --runs 5 for runtime.
+# Compile time includes source -> stripped binary. fastC compile = fastc + cc -O2.
+program,language,compile_ms_median,strip_bytes,runtime_ms_median
+hello,fastc,193,52984,2
+hello,c,74,33432,2
+hello,rust,113,341512,3
+hello,zig,139,50184,3
+hello,go,164,2384424,3
+sum,fastc,194,52984,3
+sum,c,72,16824,2
+sum,rust,116,341016,3
+sum,zig,140,50136,2
+sum,go,144,2115224,4
+fib40,fastc,199,52984,430
+fib40,c,69,16824,338
+fib40,rust,114,341016,341
+fib40,zig,141,50136,340
+fib40,go,147,2115224,400
+mandelbrot,fastc,198,52992,60
+mandelbrot,c,81,33440,63
+mandelbrot,rust,159,341808,55
+mandelbrot,zig,142,50192,72
+mandelbrot,go,145,2115808,56

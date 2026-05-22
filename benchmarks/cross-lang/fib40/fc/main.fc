@@ -1,0 +1,12 @@
+fn fib(n: i64) -> i64 {
+    if (n < cast(i64, 2)) {
+        return n;
+    }
+    return (fib((n - cast(i64, 1))) + fib((n - cast(i64, 2))));
+}
+
+fn main() -> i32 {
+    let result: i64 = fib(cast(i64, 40));
+    // fib(40) = 102334155; return mod 256 as exit code.
+    return cast(i32, (result & cast(i64, 255)));
+}

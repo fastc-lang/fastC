@@ -1,0 +1,51 @@
+use io::put_char;
+
+// 800x800 mandelbrot to stdout.
+// Workaround: fastC v1's lower pass silently drops `break`/`continue`
+// inside while-loops (the catch-all `_ => vec![]` arm in
+// `lower_stmt` swallows them). Tracked as a compiler bug. Here we
+// use a sentinel iteration count to terminate the inner loop
+// instead of break — the inner body becomes structurally
+// equivalent to other languages' break + i==max_iter check.
+
+fn main() -> i32 {
+    let width: i32 = 800;
+    let height: i32 = 800;
+    let max_iter: i32 = 100;
+
+    let y: i32 = 0;
+    while (y < height) {
+        let x: i32 = 0;
+        while (x < width) {
+            let cx: f64 = (((cast(f64, x) / cast(f64, width)) * cast(f64, 3.5)) - cast(f64, 2.5));
+            let cy: f64 = (((cast(f64, y) / cast(f64, height)) * cast(f64, 2.0)) - cast(f64, 1.0));
+            let zx: f64 = cast(f64, 0.0);
+            let zy: f64 = cast(f64, 0.0);
+            let i: i32 = 0;
+            let escaped: i32 = 0;
+            while (i < max_iter) {
+                let zx2: f64 = (zx * zx);
+                let zy2: f64 = (zy * zy);
+                if (((zx2 + zy2) > cast(f64, 4.0))) {
+                    escaped = 1;
+                    i = max_iter;
+                } else {
+                    let new_zx: f64 = ((zx2 - zy2) + cx);
+                    let new_zy: f64 = (((cast(f64, 2.0) * zx) * zy) + cy);
+                    zx = new_zx;
+                    zy = new_zy;
+                    i = (i + 1);
+                }
+            }
+            if (escaped == 0) {
+                put_char(42);   // '*'
+            } else {
+                put_char(32);   // ' '
+            }
+            x = (x + 1);
+        }
+        put_char(10);   // '\n'
+        y = (y + 1);
+    }
+    return 0;
+}

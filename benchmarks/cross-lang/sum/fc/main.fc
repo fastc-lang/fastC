@@ -1,0 +1,10 @@
+fn main() -> i32 {
+    let total: i64 = cast(i64, 0);
+    let i: i64 = cast(i64, 1);
+    while (i <= cast(i64, 1000000)) {
+        total = (total + i);
+        i = (i + cast(i64, 1));
+    }
+    // Return last 8 bits so process exit code stays in range.
+    return cast(i32, (total & cast(i64, 255)));
+}
