@@ -1,0 +1,30 @@
+```
+use io::put_char;
+
+fn sum_to_n(n: i32) -> i64 {
+    let nn: i64 = cast(i64, n);
+    return ((nn * (nn + cast(i64, 1))) / cast(i64, 2));
+}
+
+fn print_i64_inner(n: i64) -> void {
+    if n >= cast(i64, 10) {
+        print_i64_inner(n / cast(i64, 10));
+    }
+    put_char(cast(i32, ((n % cast(i64, 10)) + cast(i64, 48))));
+}
+
+fn print_i64(n: i64) -> void {
+    if n < cast(i64, 0) {
+        put_char(45);
+        print_i64_inner((cast(i64, 0) - n));
+    } else {
+        print_i64_inner(n);
+    }
+}
+
+fn main() -> void {
+    let result: i64 = sum_to_n(100000);
+    print_i64(result);
+    put_char(10);
+}
+```

@@ -1,0 +1,14 @@
+```rust
+fn sum_to_n(n: i32) -> i64 {
+    let mut sum: i64 = 0;
+    for i in 1..=n {
+        sum += i as i64;
+    }
+    sum
+}
+
+fn main() {
+    let result = sum_to_n(100000);
+    println!("{}", result);
+}
+```

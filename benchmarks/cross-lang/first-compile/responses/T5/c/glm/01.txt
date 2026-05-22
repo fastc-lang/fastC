@@ -1,0 +1,16 @@
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+int64_t sum_to_n(int32_t n) {
+    return (int64_t)n * (n + 1) / 2;
+}
+
+int main(void) {
+    int32_t n = 100000;
+    int64_t result = sum_to_n(n);
+    printf("%" PRId64 "\n", result);
+    return 0;
+}
+```

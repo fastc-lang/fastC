@@ -57,3 +57,4 @@ __pycache__/
 
 # Local agent state
 .claude/
+/benchmarks/cross-lang/first-compile/prog

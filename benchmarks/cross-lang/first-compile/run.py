@@ -60,7 +60,7 @@ REPO = BASE.parent.parent.parent
 RUNTIME = REPO / "runtime"
 FASTC = REPO / "target" / "release" / "fastc"
 
-TASKS = ["T1", "T2", "T3"]
+TASKS = ["T1", "T2", "T3", "T4", "T5"]
 LANGS = ["fastc", "c", "rust", "zig", "go"]
 # Built-in providers; Ollama Cloud models from ollama_models.json
 # are appended after the file loads.

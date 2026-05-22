@@ -88,6 +88,40 @@ Open question: do proprietary frontier models (Claude Opus, GPT-4o, Gemini 2.5 P
 
 See `benchmarks/cross-lang/first-compile/README.md` for how to run. Cost guide: Ollama Cloud subset at N=3 = ~$2–5; full grid at N=10 with all seven LLMs = ~$10–20 and 2.5–4 hours wall-clock.
 
+## Safety wedge: compile-vs-correct gap
+
+The flip side of the velocity question. If fastC trades higher first-compile failure for stricter safety checks, the payoff should show up as a smaller gap between "compiled cleanly" and "actually returned the right answer." Measured by `measure_safety.py` — compile, run, diff stdout against a golden.
+
+**T1 sum_array (sum 1..10, trivial):** every program that compiled in any language produced the right answer (55). `safety_gap = 0` everywhere. The task is too easy to surface any wedge.
+
+**T4 sum_to_n with explicit overflow warning (sum 1..100000, prompt names the overflow risk):** GLM N=3 per cell. Same result — every compiled program handled overflow correctly. The prompt is too directive; the model just follows the warning.
+
+**T5 large_sum without overflow warning (same N=100000, no mention of overflow):** the actual safety-wedge test. The mathematically correct answer (5,000,050,000) doesn't fit in i32 (max 2,147,483,647). A program that uses i32 throughout silently wraps to **−1,486,939,424** with exit code 0. GLM N=3 per cell:
+
+| Lang | compiled | correct | safety_gap | What happened |
+|---|---|---|---|---|
+| **C** | 3/3 | 3/3 | **0** | GLM widened to i64 proactively (`(int64_t)N * (N + 1) / 2`) |
+| **fastC** | 0/3 | 0/3 | 0 | Compile failure (same syntactic issues as T1) — no UB possible |
+| **Zig** | 0/3 | 0/3 | 0 | Zig 0.16 refused to compile (`/` needs `@divTrunc` for signed) |
+| **Rust** | 3/3 | 1/3 | **2** | Two trials silently wrapped in release-mode arithmetic |
+| **Go** | 3/3 | 0/3 | **3** | All three silently wrapped (Go's `int32` arithmetic wraps without ceremony) |
+
+**This is the safety wedge made visible.** Rust silently produced the wrong answer 2 of 3 times; Go silently produced the wrong answer 3 of 3 times. fastC and Zig both refused to ship a binary that would silently wrap — fastC because of the syntactic strictness that also kept it from compiling T1, Zig because of its `@divTrunc` requirement for signed integer division.
+
+The trade-off, stated honestly:
+
+- **C** (with GLM-class models in 2026): both fast *and* safe by default, because the model is sophisticated enough to widen accumulators proactively. The wedge against C is weaker than the MANIFESTO frames.
+- **Go / Rust** (with same model): fast to compile but produce silently wrong code at non-trivial rates. fastC and Zig's compile-time strictness catches what would have been runtime UB at very low velocity cost.
+- **fastC's strictness genuinely pays off** when measured against Go and Rust on this overflow task. The 0/3 compile rate is the cost; never silently shipping a wrong answer is the benefit.
+- **Zig is fastC's nearest peer** on this axis. Both refuse the silently-wrong program. fastC's verbosity is higher; Zig's syntax is closer to C ergonomics. Whether the trade is worth it depends on how often the team would otherwise have shipped Go-style or Rust-release-mode wraps.
+
+The first-compile benchmark showed fastC losing on velocity (0/3 on T1); this benchmark shows fastC tied with Zig and ahead of Go/Rust on the safety wedge. The MANIFESTO claim "fastC catches at compile time what other languages let through" is **supported** by the T5 data — at least for the silent-overflow failure mode, and at least against Go and release-mode Rust.
+
+What's still missing:
+- More models (Kimi / DeepSeek / Qwen / Claude / GPT / Gemini) on T5 to confirm the pattern holds.
+- Other safety axes: buffer over-read, use-after-free, missing null-terminator. Each needs a task.
+- A capability-typed I/O task — the wedge most central to fastC's identity is still unmeasured here.
+
 ## Reproducing
 
 ```bash

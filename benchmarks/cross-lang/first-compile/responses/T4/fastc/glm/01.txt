@@ -1,0 +1,43 @@
+```fastc
+use io::put_char;
+
+fn sum_to_n(n: i32) -> i64 {
+    let n64: i64 = cast(i64, n);
+    return ((n64 * (n64 + 1)) / 2);
+}
+
+fn print_i64(n: i64) -> () {
+    let m: i64 = n;
+    if (m < 0) {
+        put_char(45);
+        m = (cast(i64, 0) - m);
+    }
+    if (m == 0) {
+        put_char(48);
+        return;
+    }
+    let temp: i64 = m;
+    let nd: i32 = 0;
+    while (temp > 0) {
+        nd = (nd + 1);
+        temp = (temp / 10);
+    }
+    let div: i64 = 1;
+    for let i: i32 = 1; (i < nd); i = (i + 1) {
+        div = (div * 10);
+    }
+    while (div > 0) {
+        let d: i64 = (m / div);
+        put_char(cast(i32, (d + cast(i64, 48))));
+        m = (m % div);
+        div = (div / 10);
+    }
+}
+
+fn main() -> i32 {
+    let result: i64 = sum_to_n(100000);
+    print_i64(result);
+    put_char(10);
+    return 0;
+}
+```

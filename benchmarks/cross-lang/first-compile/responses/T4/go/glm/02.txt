@@ -1,0 +1,18 @@
+```go
+package main
+
+import "fmt"
+
+func sum_to_n(n int32) int64 {
+	var sum int64
+	for i := int32(1); i <= n; i++ {
+		sum += int64(i)
+	}
+	return sum
+}
+
+func main() {
+	result := sum_to_n(100000)
+	fmt.Println(result)
+}
+```

@@ -1,0 +1,17 @@
+```zig
+fn sum_to_n(n: i32) i64 {
+    var sum: i64 = 0;
+    var i: i32 = 1;
+    while (i <= n) : (i += 1) {
+        sum += @as(i64, i);
+    }
+    return sum;
+}
+
+pub fn main() void {
+    const result = sum_to_n(100000);
+    _ = printf("%lld\n", result);
+}
+
+extern fn printf(fmt: [*:0]const u8, ...) c_int;
+```

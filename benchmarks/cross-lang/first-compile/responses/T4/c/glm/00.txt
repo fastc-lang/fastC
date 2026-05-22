@@ -1,0 +1,23 @@
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+int64_t sum_to_n(int32_t n) {
+    int64_t sum = 0;
+    for (int32_t i = 1; i <= n; i++) {
+        sum += i;
+    }
+    return sum;
+}
+
+int main(void) {
+    int64_t result = sum_to_n(100000);
+    if (result > INT32_MAX || result < INT32_MIN) {
+        printf("OVERFLOW\n");
+    } else {
+        printf("%" PRId32 "\n", (int32_t)result);
+    }
+    return 0;
+}
+```

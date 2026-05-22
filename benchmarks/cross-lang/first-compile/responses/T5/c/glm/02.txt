@@ -1,0 +1,12 @@
+```c
+#include <stdio.h>
+
+long long sum_to_n(int n) {
+    return (long long)n * (n + 1) / 2;
+}
+
+int main(void) {
+    printf("%lld\n", sum_to_n(100000));
+    return 0;
+}
+```

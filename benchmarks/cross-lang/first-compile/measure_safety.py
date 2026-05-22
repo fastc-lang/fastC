@@ -42,6 +42,17 @@ CODE_RE = re.compile(r"```[a-zA-Z0-9_+\-]*\n(.*?)```", re.DOTALL)
 # asked for. A stricter benchmark would penalize the formatting.
 GOLDEN = {
     "T1": (None, "55"),
+    # T4: sum 1..100000 with EXPLICIT overflow warning in the
+    # prompt. Tests whether a model warned about overflow handles
+    # it correctly.
+    "T4": (None, ("5000050000", "OVERFLOW", "overflow")),
+    # T5: same task without the overflow warning. Tests the
+    # actual safety wedge — does the model produce silently
+    # wrong code (i32 wrap) when not explicitly prompted? Same
+    # accept list as T4 because a correct program produces one
+    # of the same answers; the FAILURE we measure is silently
+    # printing the wrapped value -1486939424 with exit 0.
+    "T5": (None, ("5000050000", "OVERFLOW", "overflow")),
 }
 
 
@@ -56,8 +67,12 @@ def extract_code(text: str) -> str | None:
 
 
 def build_and_run(code: str, lang: str, stdin: str | None,
-                  workdir: Path) -> tuple[bool, bool, str]:
-    """Returns (compiled, ran_and_correct, stdout_or_err)."""
+                  workdir: Path) -> tuple[bool, bool, str, int]:
+    """Returns (compiled, ran, stdout_or_err, exit_code).
+
+    `ran` is True if the binary was launched (regardless of exit).
+    Caller decides whether the exit code + output count as
+    "correct" — different tasks weight these differently."""
     ext = LANG_FILE_EXT[lang]
     src = workdir / f"prog.{ext}"
     src.write_text(code)
@@ -71,27 +86,27 @@ def build_and_run(code: str, lang: str, stdin: str | None,
             capture_output=True, text=True, timeout=30,
         )
         if r.returncode != 0:
-            return False, False, r.stderr
+            return False, False, r.stderr, -1
         r = subprocess.run(
             ["cc", "-O2", f"-I{RUNTIME}", str(cout), "-o", str(out)],
             capture_output=True, text=True, timeout=30,
         )
         if r.returncode != 0:
-            return False, False, r.stderr
+            return False, False, r.stderr, -1
     elif lang == "c":
         r = subprocess.run(
             ["gcc", "-O2", str(src), "-o", str(out)],
             capture_output=True, text=True, timeout=30,
         )
         if r.returncode != 0:
-            return False, False, r.stderr
+            return False, False, r.stderr, -1
     elif lang == "rust":
         r = subprocess.run(
             ["rustc", "-O", str(src), "-o", str(out)],
             capture_output=True, text=True, timeout=60,
         )
         if r.returncode != 0:
-            return False, False, r.stderr
+            return False, False, r.stderr, -1
     elif lang == "zig":
         r = subprocess.run(
             ["zig", "build-exe", "-O", "ReleaseFast", "-lc",
@@ -99,7 +114,7 @@ def build_and_run(code: str, lang: str, stdin: str | None,
             cwd=str(workdir), capture_output=True, text=True, timeout=60,
         )
         if r.returncode != 0:
-            return False, False, r.stderr
+            return False, False, r.stderr, -1
     elif lang == "go":
         go_bin = "/opt/homebrew/Cellar/go/1.26.3/bin/go"
         gosrc = workdir / "main.go"
@@ -109,9 +124,9 @@ def build_and_run(code: str, lang: str, stdin: str | None,
             cwd=str(workdir), capture_output=True, text=True, timeout=60,
         )
         if r.returncode != 0:
-            return False, False, r.stderr
+            return False, False, r.stderr, -1
     else:
-        return False, False, f"unknown lang {lang}"
+        return False, False, f"unknown lang {lang}", -1
 
     # Run step.
     try:
@@ -120,13 +135,17 @@ def build_and_run(code: str, lang: str, stdin: str | None,
             capture_output=True, text=True, timeout=10,
         )
     except subprocess.TimeoutExpired:
-        return True, False, "runtime timeout"
+        return True, False, "runtime timeout", -1
 
-    return True, True, r.stdout  # `True, True` is provisional — we still check output below
+    return True, True, r.stdout, r.returncode
 
 
-def check_output(stdout: str, expected_substring: str) -> bool:
-    return expected_substring in stdout
+def check_output(stdout: str, expected) -> bool:
+    """Accept either a single expected substring or a tuple of
+    substrings (any match counts). Lenient by design — see header."""
+    if isinstance(expected, tuple):
+        return any(e in stdout for e in expected)
+    return expected in stdout
 
 
 def main() -> int:
@@ -166,13 +185,27 @@ def main() -> int:
                         cells[key]["trials"] += 1
                         wd = work_root / f"{task}_{lang}_{llm}_{resp_file.stem}"
                         wd.mkdir(parents=True, exist_ok=True)
-                        compiled, ran, output = build_and_run(
+                        compiled, ran, output, exit_code = build_and_run(
                             code, lang, stdin, wd,
                         )
                         if compiled:
                             cells[key]["compiled"] += 1
-                        if compiled and ran and check_output(output, expected):
-                            cells[key]["correct"] += 1
+                        if compiled and ran:
+                            # For tasks where overflow is the
+                            # measured risk, a non-zero abort exit
+                            # (e.g. SIGABRT from fastC's fc_trap)
+                            # also counts as "safety-correct": the
+                            # program refused to silently produce
+                            # a wrong value.
+                            if task in ("T4", "T5") and exit_code != 0 and "5000050000" not in output:
+                                # Trap / abort with a non-zero
+                                # exit counts as safety-correct
+                                # on the overflow tasks: the
+                                # program refused to silently
+                                # ship a wrapped value.
+                                cells[key]["correct"] += 1
+                            elif check_output(output, expected):
+                                cells[key]["correct"] += 1
 
     # Print summary table.
     print(f"{'cell':<32} {'trials':>6} {'compiled':>8} {'correct':>7} {'safety_gap':>10}")

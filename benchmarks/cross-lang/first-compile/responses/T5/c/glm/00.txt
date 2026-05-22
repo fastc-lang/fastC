@@ -1,0 +1,13 @@
+```c
+#include <stdio.h>
+#include <stdint.h>
+
+int64_t sum_to_n(int32_t N) {
+    return (int64_t)N * (N + 1) / 2;
+}
+
+int main(void) {
+    printf("%lld\n", sum_to_n(100000));
+    return 0;
+}
+```

@@ -1,0 +1,13 @@
+```zig
+extern fn printf(fmt: [*:0]const u8, ...) c_int;
+
+fn sum_to_n(n: i32) i64 {
+    const n64: i64 = n;
+    return n64 * (n64 + 1) / 2;
+}
+
+pub fn main() void {
+    const result = sum_to_n(100000);
+    _ = printf("%lld\n", result);
+}
+```
