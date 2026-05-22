@@ -1,0 +1,33 @@
+```fastc
+use io::put_char;
+
+fn sum_to_n(n: i32) -> i64 {
+    let nn: i64 = cast(i64, n);
+    return (((nn * (nn + cast(i64, 1))) / cast(i64, 2)));
+}
+
+fn print_i64(n: i64) {
+    if (n == cast(i64, 0)) {
+        put_char(cast(i32, 48));
+        return;
+    }
+    let divisor: i64 = cast(i64, 1);
+    while (((divisor * cast(i64, 10)) <= n)) {
+        divisor = (divisor * cast(i64, 10));
+    }
+    while ((divisor > cast(i64, 0))) {
+        let digit: i64 = (n / divisor);
+        let ch: i32 = (cast(i32, digit) + cast(i32, 48));
+        put_char(ch);
+        n = (n - (digit * divisor));
+        divisor = (divisor / cast(i64, 10));
+    }
+}
+
+fn main() -> i32 {
+    let sum: i64 = sum_to_n(100000);
+    print_i64(sum);
+    put_char(cast(i32, 10));
+    return 0;
+}
+```

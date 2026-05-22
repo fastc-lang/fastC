@@ -1,0 +1,20 @@
+```fastc
+use io::print_int;
+
+fn sum_to_n(n: i32) -> i32 {
+    let total: i64 = cast(i64, 0);
+    let i: i64 = cast(i64, 1);
+    let n64: i64 = cast(i64, n);
+    while (i <= n64) {
+        total = (total + i);
+        i = (i + cast(i64, 1));
+    }
+    return cast(i32, total);
+}
+
+fn main() -> i32 {
+    let result: i32 = sum_to_n(cast(i32, 100000));
+    print_int(result);
+    return 0;
+}
+```

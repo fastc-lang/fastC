@@ -1,0 +1,40 @@
+```fastc
+use io::put_char;
+
+fn print_i64(x: i64) -> i32 {
+    if (x == cast(i64, 0)) {
+        put_char(cast(i32, 48));
+        put_char(cast(i32, 10));
+    } else {
+        let digits: Vec[u8] = vec::new(cast(u8, 0));
+        let n: i64 = x;
+        while (n > cast(i64, 0)) {
+            let digit: i64 = (n % cast(i64, 10));
+            let ch: u8 = cast(u8, (digit + cast(i64, 48)));
+            vec::push(addrm(digits), ch);
+            n = (n / cast(i64, 10));
+        }
+        let len: usize = vec::len(addr(digits));
+        let i: usize = cast(usize, 0);
+        while (i < len) {
+            let idx: usize = ((len - cast(usize, 1)) - i);
+            let b: u8 = vec::get(addr(digits), idx);
+            put_char(cast(i32, b));
+            i = (i + cast(usize, 1));
+        }
+        put_char(cast(i32, 10));
+    }
+    return 0;
+}
+
+fn sum_to_n(n: i32) -> i64 {
+    let n64: i64 = cast(i64, n);
+    return ((n64 * (n64 + cast(i64, 1))) / cast(i64, 2));
+}
+
+fn main() -> i32 {
+    let result: i64 = sum_to_n(100000);
+    print_i64(result);
+    return 0;
+}
+```
