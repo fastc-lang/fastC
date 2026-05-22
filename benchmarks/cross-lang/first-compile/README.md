@@ -32,8 +32,12 @@ Prompts live in `prompts/`. The `{LANG}` placeholder is substituted at runtime s
 export ANTHROPIC_API_KEY=...
 export OPENAI_API_KEY=...
 export GOOGLE_API_KEY=...
+# Ollama Cloud (GLM, Kimi, DeepSeek, Qwen, ...) goes through one key:
+export OLLAMA_API_KEY=...    # https://ollama.com/settings/keys
 
 # 2. Install the per-provider SDKs (only the ones you'll use).
+#    Ollama Cloud does NOT need an SDK — the harness calls the HTTP
+#    endpoint via stdlib urllib.
 pip install anthropic openai google-genai
 
 # 3. Build fastc in release mode.
@@ -42,6 +46,33 @@ cargo build --release -p fastc
 # 4. Run.
 cd benchmarks/cross-lang/first-compile
 python3 run.py --n 10
+```
+
+### Ollama Cloud models
+
+The Ollama Cloud catalog is large and changes fast. The harness reads its model list from `ollama_models.json` next to the script:
+
+```json
+{
+  "glm": "glm-5.1",
+  "kimi": "kimi-k2.6",
+  "deepseek": "deepseek-v4-pro",
+  "qwen": "qwen3.5"
+}
+```
+
+Each entry registers one logical LLM (the JSON key, e.g. `glm`) backed by the Ollama Cloud model ID (the value). The logical name appears in `--llms` flags, in `results.csv`, and under `responses/<task>/<lang>/<llm>/`. Edit the JSON to add, remove, or update models — no Python changes needed. Comments live as `_comment_*` keys, which the loader strips.
+
+To verify the full provider list the harness sees:
+
+```bash
+python3 run.py --dry-run --tasks T1 --langs fastc --llms claude gpt gemini glm kimi deepseek qwen
+```
+
+To run *only* a couple of Ollama models against the C variant:
+
+```bash
+OLLAMA_API_KEY=... python3 run.py --llms glm kimi --langs c --n 5
 ```
 
 For a quick sanity check use:
@@ -60,11 +91,24 @@ python3 run.py --tasks T1 --langs fastc --llms claude --n 5
 
 | Mode | Cells | Trials | API cost | Wall-clock |
 |---|---|---|---|---|
-| Full grid, N=10, 3 LLMs | 3 × 5 × 3 = 45 | 450 | ~$5–8 | ~60–90 min |
-| Single LLM, N=10 | 3 × 5 × 1 = 15 | 150 | ~$2 | ~20 min |
-| Sanity run, --dry-run | n/a | 0 | 0 | < 1 sec |
+| Stdlib three, N=10 (claude / gpt / gemini) | 3 × 5 × 3 = 45 | 450 | ~$5–8 | ~60–90 min |
+| Stdlib + 4 Ollama models, N=10 | 3 × 5 × 7 = 105 | 1050 | ~$10–20 | ~2.5–4 hr |
+| Single LLM, N=10 | 3 × 5 × 1 = 15 | 150 | ~$0.50–$2 | ~15–25 min |
+| Sanity run, --dry-run | n/a | 0 | $0 | < 1 sec |
+
+Ollama Cloud pricing is per-model and not fixed in this doc — check [ollama.com](https://ollama.com/) for current rates. The "~$10–20" figure assumes mid-range pricing across the four default Ollama models.
 
 The harness is **idempotent on responses**: if a trial's response file already exists, the LLM is not re-called. This lets you resume a partial run without paying twice and lets you re-compile (e.g., after fixing a compiler bug) without re-prompting.
+
+### Rate-limit throttle
+
+Ollama Cloud doesn't publish a per-key rate limit in the public docs. If you hit `HTTPError 429` (or similar) during a run, throttle with:
+
+```bash
+python3 run.py --llms glm kimi --sleep-ms 500
+```
+
+`--sleep-ms` pauses N milliseconds between LLM calls. Per-trial response files are still written for errored trials (with a `# ERROR:` header) so you can `cat responses/T1/c/glm/03.txt` to see exactly which trial failed and why. Re-running with `--sleep-ms` set higher will pick up where the previous run left off — error-marked files don't count as "already done", so they'll be retried.
 
 ## Honest framing
 
@@ -73,6 +117,7 @@ The harness is **idempotent on responses**: if a trial's response file already e
 - **Prompt design matters.** We give every language the same task description plus a one-screen cheat sheet at the end. Cheat sheets are normalized for length and depth across languages so no language is unfairly helped or starved.
 - **Cheat sheet quality directly affects pass rate.** A bad cheat sheet for fastC would tank its number unfairly. The current cheat sheets are the best honest summary we can write; if you spot a bug or missing detail, fix the cheat sheet in `cheatsheets/<lang>.md` and re-run.
 - **LLM nondeterminism.** Two runs of the same cell can produce different pass rates. The committed `results.csv` is one run's golden data, with date and provider list at the top. Re-running gives results within ±20pp per cell.
+- **Ollama Cloud latency variance.** The four default Ollama models (GLM, Kimi, DeepSeek, Qwen) are open-weight and routed through a shared inference fleet. Per-request latency varies more than the proprietary three; the harness uses a 2-minute per-request timeout, after which the trial counts as a failure rather than hanging the run. If a single model is consistently timing out, exclude it via `--llms` or check its dedicated status page.
 
 ## Current results
 

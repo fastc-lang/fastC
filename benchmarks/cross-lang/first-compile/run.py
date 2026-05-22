@@ -11,6 +11,11 @@ providers with unset keys):
 - Claude via ANTHROPIC_API_KEY (uses anthropic SDK)
 - GPT-4o via OPENAI_API_KEY (uses openai SDK)
 - Gemini 2.5 Pro via GOOGLE_API_KEY (uses google-genai SDK)
+- Ollama Cloud models (GLM, Kimi, DeepSeek, Qwen, ...) via
+  OLLAMA_API_KEY — one logical LLM per model, registered in
+  `ollama_models.json` next to this script. No SDK install needed;
+  the harness uses urllib.request to POST to
+  https://ollama.com/api/chat.
 
 Install:
     pip install anthropic openai google-genai
@@ -19,11 +24,18 @@ Run:
     ANTHROPIC_API_KEY=... python3 run.py --n 10
     # Or just a subset:
     python3 run.py --tasks T1 --langs fastc --llms claude --n 3
+    # Or Ollama-only:
+    OLLAMA_API_KEY=... python3 run.py --llms glm kimi --n 5
 
-Cost guide for N=10, all 3 LLMs, all 3 tasks, all 5 languages:
+Cost guide for N=10, all proprietary LLMs, all 3 tasks, all 5 langs:
 - 450 completions total
-- ~$5-8 in API charges
+- ~$5-8 in API charges (Anthropic + OpenAI + Google)
 - ~60-90 minutes wall-clock
+
+Ollama Cloud pricing varies per model. With four default Ollama
+models (glm / kimi / deepseek / qwen) added to the grid, total
+completions roughly triple (1050) and time roughly triples. Check
+ollama.com for current rates.
 
 Dry-run (no API calls, just exercises the plumbing):
     python3 run.py --dry-run
@@ -50,7 +62,12 @@ FASTC = REPO / "target" / "release" / "fastc"
 
 TASKS = ["T1", "T2", "T3"]
 LANGS = ["fastc", "c", "rust", "zig", "go"]
+# Built-in providers; Ollama Cloud models from ollama_models.json
+# are appended after the file loads.
 LLMS = ["claude", "gpt", "gemini"]
+
+OLLAMA_API_URL = "https://ollama.com/api/chat"
+OLLAMA_TIMEOUT_S = 120
 
 LANG_FILE_EXT = {
     "fastc": "fc",
@@ -128,11 +145,70 @@ def call_gemini(prompt: str) -> str:
     return resp.text
 
 
+def ollama_call(model_id: str, prompt: str) -> str:
+    """POST to Ollama Cloud's /api/chat. Reads OLLAMA_API_KEY for
+    auth. Uses stdlib urllib so no SDK install is required."""
+    import urllib.request
+
+    api_key = os.environ["OLLAMA_API_KEY"]
+    payload = json.dumps({
+        "model": model_id,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        OLLAMA_API_URL,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_S) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+    # Ollama's non-streaming response: {"message": {"role":..., "content":...}, ...}
+    return body["message"]["content"]
+
+
+def make_ollama_caller(model_id: str) -> Callable[[str], str]:
+    """Factory that binds a model ID into a `call(prompt)` closure
+    matching the PROVIDERS callable signature."""
+    def call(prompt: str) -> str:
+        return ollama_call(model_id, prompt)
+    return call
+
+
 PROVIDERS: dict[str, Callable[[str], str]] = {
     "claude": call_claude,
     "gpt": call_gpt,
     "gemini": call_gemini,
 }
+
+
+# ----- Ollama model registry -------------------------------------------------
+
+
+def load_ollama_models() -> dict[str, str]:
+    """Read ollama_models.json next to this script. Each non-underscore
+    key is a logical LLM name (appears in --llms / results.csv /
+    responses/); the value is the Ollama Cloud model ID sent in the
+    API request body. Returns {} if the file is missing — no Ollama
+    models is a valid configuration."""
+    cfg = BASE / "ollama_models.json"
+    if not cfg.exists():
+        return {}
+    raw = json.loads(cfg.read_text())
+    # Strip comment keys (any key starting with `_`) so users can leave
+    # notes in the JSON file without polluting the provider list.
+    return {k: v for k, v in raw.items() if not k.startswith("_")}
+
+
+OLLAMA_MODELS = load_ollama_models()
+for _logical, _model_id in OLLAMA_MODELS.items():
+    PROVIDERS[_logical] = make_ollama_caller(_model_id)
+    if _logical not in LLMS:
+        LLMS.append(_logical)
 
 
 # ----- Code extraction -------------------------------------------------------
@@ -235,7 +311,8 @@ class CellResult:
 
 
 def run_cell(task: str, lang: str, llm: str, n: int,
-             dry_run: bool, work_root: Path) -> CellResult:
+             dry_run: bool, work_root: Path,
+             sleep_ms: int = 0) -> CellResult:
     print(f"  {task} / {lang} / {llm}: ", end="", flush=True)
     prompt = build_prompt(task, lang)
     passes = 0
@@ -247,7 +324,10 @@ def run_cell(task: str, lang: str, llm: str, n: int,
         if dry_run:
             print(".", end="", flush=True)
             continue
-        if resp_file.exists():
+        # Treat error-marked response files as cache misses so a
+        # rerun with --sleep-ms (or after a key swap) picks them up.
+        cached = resp_file.exists() and not resp_file.read_text().startswith("# ERROR:")
+        if cached:
             response = resp_file.read_text()
         else:
             try:
@@ -255,8 +335,12 @@ def run_cell(task: str, lang: str, llm: str, n: int,
             except Exception as e:
                 print(f"!", end="", flush=True)
                 resp_file.write_text(f"# ERROR: {type(e).__name__}: {e}\n")
+                if sleep_ms > 0:
+                    time.sleep(sleep_ms / 1000.0)
                 continue
             resp_file.write_text(response)
+            if sleep_ms > 0:
+                time.sleep(sleep_ms / 1000.0)
         code = extract_code(response, lang)
         if code is None:
             print("-", end="", flush=True)
@@ -284,16 +368,26 @@ def main() -> int:
     ap.add_argument("--llms", nargs="*", default=LLMS)
     ap.add_argument("--dry-run", action="store_true",
                     help="exercise the plumbing without calling LLMs")
+    ap.add_argument("--sleep-ms", type=int, default=0,
+                    help="sleep this many milliseconds between LLM calls "
+                         "(useful for rate-limited providers like Ollama Cloud)")
     args = ap.parse_args()
 
-    # Skip providers that don't have keys configured.
+    # Skip providers that don't have keys configured. Built-in
+    # providers have their own per-provider env var; every Ollama
+    # logical name defaults to OLLAMA_API_KEY.
+    PROVIDER_KEY = {
+        "claude": "ANTHROPIC_API_KEY",
+        "gpt": "OPENAI_API_KEY",
+        "gemini": "GOOGLE_API_KEY",
+    }
     available_llms = []
     for llm in args.llms:
-        key_var = {
-            "claude": "ANTHROPIC_API_KEY",
-            "gpt": "OPENAI_API_KEY",
-            "gemini": "GOOGLE_API_KEY",
-        }[llm]
+        if llm not in PROVIDERS:
+            print(f"error: unknown LLM '{llm}'. Known: {', '.join(sorted(PROVIDERS))}",
+                  file=sys.stderr)
+            return 1
+        key_var = PROVIDER_KEY.get(llm, "OLLAMA_API_KEY")
         if args.dry_run or os.environ.get(key_var):
             available_llms.append(llm)
         else:
@@ -316,7 +410,8 @@ def main() -> int:
         for lang in args.langs:
             for llm in available_llms:
                 cell = run_cell(task, lang, llm, args.n, args.dry_run,
-                                work_root / task / lang / llm)
+                                work_root / task / lang / llm,
+                                sleep_ms=args.sleep_ms)
                 results.append(cell)
 
     if args.dry_run:

@@ -1,0 +1,7 @@
+{
+  "_comment_": "Logical name -> Ollama Cloud model ID. Logical names appear in results.csv and responses/ paths and on the --llms CLI flag, so keep them short and single-segment. Model IDs come from https://ollama.com/search?c=cloud — edit this file to add or swap models without touching run.py.",
+  "glm": "glm-5.1",
+  "kimi": "kimi-k2.6",
+  "deepseek": "deepseek-v4-pro",
+  "qwen": "qwen3.5"
+}
