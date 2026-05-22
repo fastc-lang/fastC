@@ -420,6 +420,7 @@ mod tests {
                     doc_comments: vec![],
                     annotations: vec![],
                     requires: vec![],
+                    ensures: vec![],
                     params: vec![],
                     return_type: TypeExpr::Void,
                     body: Block {

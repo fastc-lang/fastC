@@ -1,0 +1,39 @@
+// Deferred-item 9: `@ensures` runtime postconditions.
+//
+// Companion to `@requires` (which checks at function entry). Each
+// `@ensures(<expr>)` clause runs at every `return` site; the
+// identifier `result` is bound to the value the function is about
+// to return. v1 lowers to runtime asserts (`if (!cond) fc_trap()`);
+// v2.1 will pipe these through the SMT discharger.
+//
+// `abs` declares that its result is always non-negative. The lint
+// fires on every return path — the early `return (0 - x);` and the
+// fall-through `return x;` both capture `result` into a temp and
+// assert before returning. Calling `abs(-7)` succeeds and exits
+// with 7; if a bug ever broke the invariant the program would
+// trap at return time, not silently corrupt the call site.
+
+@ensures(result >= 0)
+fn abs(x: i32) -> i32 {
+    if (x < 0) {
+        return (0 - x);
+    }
+    return x;
+}
+
+// Multiple ensures clauses on the same function: stack them. Both
+// run on every return.
+@ensures(result >= a)
+@ensures(result >= b)
+fn pick_larger(a: i32, b: i32) -> i32 {
+    if (a > b) {
+        return a;
+    }
+    return b;
+}
+
+fn main() -> i32 {
+    let m: i32 = pick_larger(3, 11);   // 11
+    let n: i32 = abs(0 - 4);      // 4
+    return (m - n);               // 7
+}

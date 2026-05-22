@@ -24,6 +24,16 @@ pub struct Lower {
     /// temp generation (`__tmp0 = some_fn(...)`) gets the right type
     /// instead of falling back to `int32_t`.
     fn_return_types: HashMap<String, CType>,
+    /// The current function's `@ensures` clauses. Cloned in at
+    /// `lower_fn` entry and cleared on exit. Every `Stmt::Return`
+    /// captured during body lowering injects an assert for each
+    /// clause before the `return`; the magic identifier `result`
+    /// inside each clause is rewritten to the captured return
+    /// value's temp name.
+    current_ensures: Vec<ast::Expr>,
+    /// Return type of the function currently being lowered. Used
+    /// to type the `__ensures_result` capture variable.
+    current_return_type: Option<CType>,
 }
 
 impl Lower {
@@ -38,6 +48,8 @@ impl Lower {
             module_path: Vec::new(),
             import_map: HashMap::new(),
             fn_return_types: HashMap::new(),
+            current_ensures: Vec::new(),
+            current_return_type: None,
         }
     }
 
@@ -740,10 +752,24 @@ impl Lower {
             })
             .collect();
 
+        // Stash the function's @ensures clauses + return type so
+        // every Return statement inside the body can inject the
+        // postcondition checks. Cleared on exit so siblings can't
+        // see this function's clauses.
+        let prev_ensures = std::mem::take(&mut self.current_ensures);
+        let prev_ret = self.current_return_type.take();
+        self.current_ensures = fn_decl.ensures.clone();
+        self.current_return_type = Some(self.lower_type(&fn_decl.return_type));
+
         // Lower the body, then prepend `@requires(cond)` checks as
         // runtime asserts: `if (!cond) { fc_trap(); }`. Order is
         // preserved so the first declared requires checks first.
         let mut body = self.lower_block(&fn_decl.body);
+
+        // Restore caller's ensures state for any later sibling fn.
+        self.current_ensures = prev_ensures;
+        self.current_return_type = prev_ret;
+
         if !fn_decl.requires.is_empty() {
             let mut prologue: Vec<CStmt> = Vec::with_capacity(fn_decl.requires.len() * 2);
             for cond in fn_decl.requires.iter().rev() {
@@ -884,7 +910,72 @@ impl Lower {
             ast::Stmt::Return { value, .. } => {
                 let mut pre_stmts = Vec::new();
                 let c_value = value.as_ref().map(|v| self.lower_expr(v, &mut pre_stmts));
-                pre_stmts.push(CStmt::Return(c_value));
+
+                if self.current_ensures.is_empty() {
+                    pre_stmts.push(CStmt::Return(c_value));
+                    return pre_stmts;
+                }
+
+                // Capture the return value into a temp so each
+                // `@ensures(...)` clause can reference it via the
+                // magic `result` identifier. The clauses are
+                // lowered after the capture so a `result` ident in
+                // the clause resolves to the temp; the variable's
+                // C name has to match exactly what `rewrite_result`
+                // substitutes — `__ensures_result`.
+                let ensures = self.current_ensures.clone();
+                if let Some(cv) = c_value {
+                    let ret_ty = self.current_return_type.clone().unwrap_or(CType::Int32);
+                    pre_stmts.push(CStmt::VarDecl {
+                        name: "__ensures_result".to_string(),
+                        ty: ret_ty.clone(),
+                        init: Some(cv),
+                    });
+                    self.var_types
+                        .insert("__ensures_result".to_string(), ret_ty);
+                    for cond in &ensures {
+                        let rewritten = rewrite_result_ident(cond);
+                        let mut pre: Vec<CStmt> = Vec::new();
+                        let c_cond = self.lower_expr(&rewritten, &mut pre);
+                        pre_stmts.extend(pre);
+                        let negated = CExpr::Unary {
+                            op: CUnaryOp::Not,
+                            operand: Box::new(c_cond),
+                        };
+                        pre_stmts.push(CStmt::If {
+                            cond: negated,
+                            then: vec![CStmt::Expr(CExpr::Call {
+                                func: Box::new(CExpr::Ident("fc_trap".to_string())),
+                                args: Vec::new(),
+                            })],
+                            else_: None,
+                        });
+                    }
+                    pre_stmts.push(CStmt::Return(Some(CExpr::Ident(
+                        "__ensures_result".to_string(),
+                    ))));
+                } else {
+                    // void return: no `result` to capture; just
+                    // emit the checks then `return;`.
+                    for cond in &ensures {
+                        let mut pre: Vec<CStmt> = Vec::new();
+                        let c_cond = self.lower_expr(cond, &mut pre);
+                        pre_stmts.extend(pre);
+                        let negated = CExpr::Unary {
+                            op: CUnaryOp::Not,
+                            operand: Box::new(c_cond),
+                        };
+                        pre_stmts.push(CStmt::If {
+                            cond: negated,
+                            then: vec![CStmt::Expr(CExpr::Call {
+                                func: Box::new(CExpr::Ident("fc_trap".to_string())),
+                                args: Vec::new(),
+                            })],
+                            else_: None,
+                        });
+                    }
+                    pre_stmts.push(CStmt::Return(None));
+                }
                 pre_stmts
             }
             ast::Stmt::If {
@@ -1519,6 +1610,56 @@ impl Lower {
 impl Default for Lower {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Recursively rewrite the magic `result` ident inside an `@ensures`
+/// expression to the captured C-side temp `__ensures_result`. Other
+/// idents pass through unchanged. Done as an AST-level pass so the
+/// existing `lower_expr` machinery can take the rewritten clause
+/// without any new wiring — the temp name is just an opaque
+/// identifier from its point of view.
+fn rewrite_result_ident(expr: &ast::Expr) -> ast::Expr {
+    use ast::Expr;
+    match expr {
+        Expr::Ident { name, span } if name == "result" => Expr::Ident {
+            name: "__ensures_result".to_string(),
+            span: span.clone(),
+        },
+        Expr::Binary { op, lhs, rhs, span } => Expr::Binary {
+            op: *op,
+            lhs: Box::new(rewrite_result_ident(lhs)),
+            rhs: Box::new(rewrite_result_ident(rhs)),
+            span: span.clone(),
+        },
+        Expr::Unary { op, operand, span } => Expr::Unary {
+            op: *op,
+            operand: Box::new(rewrite_result_ident(operand)),
+            span: span.clone(),
+        },
+        Expr::Paren { inner, span } => Expr::Paren {
+            inner: Box::new(rewrite_result_ident(inner)),
+            span: span.clone(),
+        },
+        Expr::Call { callee, args, span } => Expr::Call {
+            callee: Box::new(rewrite_result_ident(callee)),
+            args: args.iter().map(rewrite_result_ident).collect(),
+            span: span.clone(),
+        },
+        Expr::Field { base, field, span } => Expr::Field {
+            base: Box::new(rewrite_result_ident(base)),
+            field: field.clone(),
+            span: span.clone(),
+        },
+        Expr::Cast { expr, ty, span } => Expr::Cast {
+            expr: Box::new(rewrite_result_ident(expr)),
+            ty: ty.clone(),
+            span: span.clone(),
+        },
+        // Other expression kinds either cannot mention `result`
+        // semantically (literals, sizeof) or are out of scope for
+        // v1 ensures clauses (closures, struct lits, etc).
+        _ => expr.clone(),
     }
 }
 

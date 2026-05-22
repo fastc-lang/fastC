@@ -516,6 +516,18 @@ fn test_log_demo_compiles() {
 }
 
 #[test]
+fn test_ensures_demo_compiles() {
+    // Deferred-item 9: `@ensures(<expr>)` runtime postconditions.
+    // Companion to `@requires`. Each clause runs at every `return`
+    // site with the magic ident `result` bound to the captured
+    // return value. v1 lowers to runtime asserts; v2.1 hands these
+    // to the SMT discharger. The demo declares `abs` returns >= 0
+    // and `pick_larger` returns >= each argument, then exercises
+    // both at runtime.
+    compile_and_verify("examples/ensures_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

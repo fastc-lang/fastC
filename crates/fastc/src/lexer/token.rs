@@ -229,6 +229,8 @@ pub enum Token {
     AtPure,
     #[token("@requires")]
     AtRequires,
+    #[token("@ensures")]
+    AtEnsures,
 
     // Operators
     #[token("+")]
@@ -448,6 +450,7 @@ impl fmt::Display for Token {
             Token::AtNodiverg => write!(f, "@nodiverg"),
             Token::AtPure => write!(f, "@pure"),
             Token::AtRequires => write!(f, "@requires"),
+            Token::AtEnsures => write!(f, "@ensures"),
             Token::Plus => write!(f, "+"),
             Token::Minus => write!(f, "-"),
             Token::Star => write!(f, "*"),

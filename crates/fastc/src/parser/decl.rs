@@ -27,22 +27,27 @@ impl Parser<'_> {
         // `@pure`) precede `fn` and accumulate into a Vec attached
         // to the FnDecl. Collected here so they survive a `pub`
         // modifier or a leading `unsafe`. Same treatment for the
-        // `@requires(...)` runtime precondition syntax.
+        // `@requires(...)` / `@ensures(...)` contract syntax.
         let annotations = self.parse_fn_annotations();
         let requires = self.parse_fn_requires()?;
-        // Allow interleaved order — annotations then requires, or the
-        // reverse. Loop until both stabilize so a `@pure @requires(x>0)
-        // @noalloc` chain parses regardless of token order.
+        let ensures = self.parse_fn_ensures()?;
+        // Allow interleaved order — annotations then requires then
+        // ensures, or any permutation. Loop until all three stabilize
+        // so a `@pure @requires(x>0) @ensures(result>=0) @noalloc`
+        // chain parses regardless of token order.
         let mut annotations = annotations;
         let mut requires = requires;
+        let mut ensures = ensures;
         loop {
             let more_ann = self.parse_fn_annotations();
             let more_req = self.parse_fn_requires()?;
-            if more_ann.is_empty() && more_req.is_empty() {
+            let more_ens = self.parse_fn_ensures()?;
+            if more_ann.is_empty() && more_req.is_empty() && more_ens.is_empty() {
                 break;
             }
             annotations.extend(more_ann);
             requires.extend(more_req);
+            ensures.extend(more_ens);
         }
 
         // Check for visibility modifier
@@ -60,6 +65,9 @@ impl Parser<'_> {
                 let mut rs = requires.clone();
                 rs.extend(f.requires);
                 f.requires = rs;
+                let mut es = ensures.clone();
+                es.extend(f.ensures);
+                f.ensures = es;
                 Item::Fn(f)
             }
             Token::Unsafe => {
@@ -70,6 +78,9 @@ impl Parser<'_> {
                     let mut rs = requires.clone();
                     rs.extend(f.requires);
                     f.requires = rs;
+                    let mut es = ensures.clone();
+                    es.extend(f.ensures);
+                    f.ensures = es;
                     Item::Fn(f)
                 } else {
                     return Err(self.error("expected 'fn' after 'unsafe'"));
@@ -223,10 +234,11 @@ impl Parser<'_> {
         // Collect any `@noalloc` / `@nodiverg` / `@pure` annotations
         // attached to the fn declaration. They precede `fn`.
         let annotations = self.parse_fn_annotations();
-        // Collect any `@requires(...)` runtime preconditions. These
-        // can interleave with the bool-flag annotations above; both
-        // are accumulated independently and merged onto the FnDecl.
+        // Collect any `@requires(...)` / `@ensures(...)` clauses. These
+        // can interleave with the bool-flag annotations above; all
+        // three are accumulated independently and merged onto the FnDecl.
         let requires = self.parse_fn_requires()?;
+        let ensures = self.parse_fn_ensures()?;
         self.consume(&Token::Fn, "expected 'fn'")?;
         let name = self.expect_ident()?;
         let generics = self.parse_optional_type_params()?;
@@ -251,6 +263,7 @@ impl Parser<'_> {
             doc_comments: Vec::new(),
             annotations,
             requires,
+            ensures,
         })
     }
 
@@ -264,6 +277,23 @@ impl Parser<'_> {
             self.consume(&Token::LParen, "expected '(' after '@requires'")?;
             let cond = self.parse_expr()?;
             self.consume(&Token::RParen, "expected ')' to close '@requires'")?;
+            out.push(cond);
+        }
+        Ok(out)
+    }
+
+    /// Parse zero-or-more `@ensures(<expr>)` postcondition clauses.
+    /// Inside the expression, the identifier `result` is reserved
+    /// for the value the function returns; the lower pass binds it
+    /// at every `return EXPR;` site. v1 checks at runtime via
+    /// `if (!cond) fc_trap();`; v2.1 SMT-discharges what it can.
+    fn parse_fn_ensures(&mut self) -> Result<Vec<crate::ast::Expr>, CompileError> {
+        let mut out = Vec::new();
+        while matches!(self.current(), Token::AtEnsures) {
+            self.advance();
+            self.consume(&Token::LParen, "expected '(' after '@ensures'")?;
+            let cond = self.parse_expr()?;
+            self.consume(&Token::RParen, "expected ')' to close '@ensures'")?;
             out.push(cond);
         }
         Ok(out)

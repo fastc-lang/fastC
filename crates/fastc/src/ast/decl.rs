@@ -81,6 +81,15 @@ pub struct FnDecl {
     /// `if (!cond) fc_trap();` at the function-body prologue. SMT
     /// discharge replaces the runtime trap in stage 2.1.
     pub requires: Vec<super::Expr>,
+    /// `@ensures(expr)` runtime postconditions. Each entry is a
+    /// boolean expression that must hold at every function exit.
+    /// Inside the expression, the identifier `result` refers to
+    /// the value the function is about to return. Lowered by
+    /// capturing every `return EXPR;` into a temp `__ensures_result`
+    /// and inserting `if (!cond) fc_trap();` immediately before
+    /// the return. v2.1 will hand these to the SMT discharge
+    /// pipeline alongside `@requires`.
+    pub ensures: Vec<super::Expr>,
 }
 
 /// A declared type parameter, e.g. the `T` in `fn id[T](x: T) -> T`.
