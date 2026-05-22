@@ -306,6 +306,13 @@ enum Commands {
         /// Input FastC source file
         input: PathBuf,
     },
+
+    /// Run an MCP (Model Context Protocol) stdio server. Reads
+    /// newline-delimited JSON-RPC 2.0 requests from stdin, writes
+    /// responses to stdout. Implements `initialize`, `tools/list`,
+    /// and `tools/call`; one tool is exposed today (`explain`),
+    /// which returns the same JSON `fastc explain` prints.
+    Mcp {},
 }
 
 fn main() -> Result<()> {
@@ -713,9 +720,180 @@ fn main() -> Result<()> {
             let file = fastc::parse(&source, &filename).map_err(|e| miette::miette!("{:?}", e))?;
             print_explain_json(&file);
         }
+
+        Commands::Mcp {} => {
+            run_mcp_server();
+        }
     }
 
     Ok(())
+}
+
+/// Minimal MCP (Model Context Protocol) stdio server. Reads
+/// newline-delimited JSON-RPC 2.0 messages from stdin, writes
+/// JSON-RPC responses to stdout. Implements three methods:
+///
+/// - `initialize`: returns server capabilities.
+/// - `tools/list`: returns the available tools (one in v1: `explain`).
+/// - `tools/call`: dispatches to the named tool.
+///
+/// Today the only tool is `explain(path: string)` which returns the
+/// same JSON `fastc explain <path>` would print, wrapped in an
+/// MCP `content` array. Future tools — `check`, `compile`,
+/// `caps_summary`, `discharge_report` — bolt on by adding match
+/// arms to `handle_tools_call`.
+///
+/// The framing is line-delimited JSON (one message per line)
+/// rather than the LSP-style Content-Length headers that some MCP
+/// clients use. Modern clients (Claude Code, Cursor) accept both;
+/// line-delimited is simpler to implement without a third-party
+/// MCP SDK dependency, and keeps the binary small.
+fn run_mcp_server() {
+    use std::io::{BufRead, Write};
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    let reader = stdin.lock();
+    for line in reader.lines() {
+        let Ok(line) = line else {
+            break;
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let response = match serde_json::from_str::<serde_json::Value>(trimmed) {
+            Ok(req) => handle_mcp_request(req),
+            Err(e) => mcp_error_response(
+                serde_json::Value::Null,
+                -32700,
+                &format!("Parse error: {}", e),
+            ),
+        };
+        let serialized = serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string());
+        if writeln!(out, "{}", serialized).is_err() {
+            break;
+        }
+        let _ = out.flush();
+    }
+}
+
+fn handle_mcp_request(req: serde_json::Value) -> serde_json::Value {
+    let id = req.get("id").cloned().unwrap_or(serde_json::Value::Null);
+    let method = req
+        .get("method")
+        .and_then(|m| m.as_str())
+        .unwrap_or("")
+        .to_string();
+    match method.as_str() {
+        "initialize" => serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": { "tools": {} },
+                "serverInfo": {
+                    "name": "fastc-mcp",
+                    "version": env!("CARGO_PKG_VERSION"),
+                }
+            }
+        }),
+        "tools/list" => serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "tools": [
+                    {
+                        "name": "explain",
+                        "description": "Return a JSON summary of every fn in a fastC source file — name, params, return type, annotations, requires clauses, doc comments. The stable agent-facing artifact.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Filesystem path to a .fc source file."
+                                }
+                            },
+                            "required": ["path"]
+                        }
+                    }
+                ]
+            }
+        }),
+        "tools/call" => handle_tools_call(req, id),
+        _ => mcp_error_response(id, -32601, &format!("Method not found: {}", method)),
+    }
+}
+
+fn handle_tools_call(req: serde_json::Value, id: serde_json::Value) -> serde_json::Value {
+    let params = req
+        .get("params")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let name = params
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
+    let args = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    match name.as_str() {
+        "explain" => {
+            let path = match args.get("path").and_then(|p| p.as_str()) {
+                Some(p) => p.to_string(),
+                None => {
+                    return mcp_error_response(id, -32602, "Missing required 'path' argument");
+                }
+            };
+            match std::fs::read_to_string(&path) {
+                Ok(source) => match fastc::parse(&source, &path) {
+                    Ok(file) => {
+                        let json = explain_to_string(&file);
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [
+                                    { "type": "text", "text": json }
+                                ]
+                            }
+                        })
+                    }
+                    Err(e) => mcp_error_response(id, -32000, &format!("Parse failed: {:?}", e)),
+                },
+                Err(e) => {
+                    mcp_error_response(id, -32000, &format!("Failed to read {}: {}", path, e))
+                }
+            }
+        }
+        _ => mcp_error_response(id, -32601, &format!("Unknown tool: {}", name)),
+    }
+}
+
+fn mcp_error_response(id: serde_json::Value, code: i64, message: &str) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": code,
+            "message": message
+        }
+    })
+}
+
+/// Render the same JSON `print_explain_json` outputs, but return it
+/// as a String instead of writing to stdout. Used by the MCP server
+/// to embed the explain output as a tool result.
+fn explain_to_string(file: &fastc::ast::File) -> String {
+    let mut entries: Vec<String> = Vec::new();
+    walk_for_explain(&file.items, None, &mut entries);
+    let body = entries.join(",\n");
+    format!(
+        "{{\n  \"functions\": [\n{}\n  ]\n}}",
+        if body.is_empty() { String::new() } else { body }
+    )
 }
 
 /// Walk the parsed file and emit a JSON document describing every
