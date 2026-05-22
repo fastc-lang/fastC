@@ -296,6 +296,16 @@ enum Commands {
         #[arg(long)]
         only: Option<String>,
     },
+
+    /// Emit a machine-readable JSON summary of every fn in a source
+    /// file — name, params, return type, annotations, requires
+    /// clauses. The Stage 1.6 agent-facing artifact, designed for
+    /// Claude Code / Cursor / Codex consumption without re-parsing
+    /// the source.
+    Explain {
+        /// Input FastC source file
+        input: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -696,9 +706,241 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
+
+        Commands::Explain { input } => {
+            let source = std::fs::read_to_string(&input).into_diagnostic()?;
+            let filename = input.display().to_string();
+            let file = fastc::parse(&source, &filename).map_err(|e| miette::miette!("{:?}", e))?;
+            print_explain_json(&file);
+        }
     }
 
     Ok(())
+}
+
+/// Walk the parsed file and emit a JSON document describing every
+/// top-level (and mod-nested) `fn` declaration. Format mirrors what
+/// the future `fastc-mcp` server will surface as an MCP resource:
+///
+/// ```json
+/// {
+///   "functions": [
+///     {
+///       "name": "safe_div",
+///       "module": null,
+///       "params": [
+///         { "name": "value",   "type": "i32" },
+///         { "name": "divisor", "type": "i32" }
+///       ],
+///       "return": "i32",
+///       "annotations": [],
+///       "requires": ["(divisor != 0)", "(divisor > 0)"],
+///       "is_unsafe": false,
+///       "doc_comments": []
+///     }
+///   ]
+/// }
+/// ```
+///
+/// Hand-rolled because pulling in `serde_json` for one subcommand
+/// would inflate compile time more than the savings buy us.
+fn print_explain_json(file: &fastc::ast::File) {
+    let mut entries: Vec<String> = Vec::new();
+    walk_for_explain(&file.items, None, &mut entries);
+    println!("{{");
+    println!("  \"functions\": [");
+    for (i, e) in entries.iter().enumerate() {
+        let comma = if i + 1 < entries.len() { "," } else { "" };
+        println!("{}{}", e, comma);
+    }
+    println!("  ]");
+    println!("}}");
+}
+
+fn walk_for_explain(items: &[fastc::ast::Item], module: Option<&str>, out: &mut Vec<String>) {
+    for item in items {
+        match item {
+            fastc::ast::Item::Fn(f) => {
+                out.push(render_fn_explain(f, module));
+            }
+            fastc::ast::Item::Mod(m) => {
+                if let Some(body) = &m.body {
+                    let nested = match module {
+                        Some(parent) => format!("{}::{}", parent, m.name),
+                        None => m.name.clone(),
+                    };
+                    walk_for_explain(body, Some(&nested), out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn render_fn_explain(f: &fastc::ast::FnDecl, module: Option<&str>) -> String {
+    let params = f
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "      {{ \"name\": \"{}\", \"type\": \"{}\" }}",
+                escape_json(&p.name),
+                escape_json(&type_to_string(&p.ty))
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",\n");
+    let annotations = f
+        .annotations
+        .iter()
+        .map(|a| format!("\"{}\"", escape_json(a)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let requires = f
+        .requires
+        .iter()
+        .map(|e| format!("\"{}\"", escape_json(&expr_to_string(e))))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let doc_comments = f
+        .doc_comments
+        .iter()
+        .map(|s| format!("\"{}\"", escape_json(s)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let module_field = match module {
+        Some(m) => format!("\"{}\"", escape_json(m)),
+        None => "null".to_string(),
+    };
+    format!(
+        "    {{\n      \"name\": \"{}\",\n      \"module\": {},\n      \"params\": [{}\n      ],\n      \"return\": \"{}\",\n      \"annotations\": [{}],\n      \"requires\": [{}],\n      \"is_unsafe\": {},\n      \"doc_comments\": [{}]\n    }}",
+        escape_json(&f.name),
+        module_field,
+        if f.params.is_empty() {
+            "".to_string()
+        } else {
+            format!("\n{}", params)
+        },
+        escape_json(&type_to_string(&f.return_type)),
+        annotations,
+        requires,
+        f.is_unsafe,
+        doc_comments
+    )
+}
+
+fn type_to_string(ty: &fastc::ast::TypeExpr) -> String {
+    use fastc::ast::TypeExpr;
+    match ty {
+        TypeExpr::Void => "void".to_string(),
+        TypeExpr::Primitive(p) => format!("{:?}", p).to_lowercase(),
+        TypeExpr::Named(n) => n.clone(),
+        TypeExpr::NamedGeneric(n, args) => format!(
+            "{}[{}]",
+            n,
+            args.iter()
+                .map(type_to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        TypeExpr::Ref(t) => format!("ref({})", type_to_string(t)),
+        TypeExpr::Mref(t) => format!("mref({})", type_to_string(t)),
+        TypeExpr::Raw(t) => format!("raw({})", type_to_string(t)),
+        TypeExpr::Rawm(t) => format!("rawm({})", type_to_string(t)),
+        TypeExpr::Own(t) => format!("own({})", type_to_string(t)),
+        TypeExpr::Slice(t) => format!("slice({})", type_to_string(t)),
+        TypeExpr::Arr(t, _) => format!("arr({}, ..)", type_to_string(t)),
+        TypeExpr::Opt(t) => format!("opt({})", type_to_string(t)),
+        TypeExpr::Res(a, b) => format!("res({}, {})", type_to_string(a), type_to_string(b)),
+        TypeExpr::Fn { params, ret, .. } => format!(
+            "fn({}) -> {}",
+            params
+                .iter()
+                .map(type_to_string)
+                .collect::<Vec<_>>()
+                .join(", "),
+            type_to_string(ret)
+        ),
+    }
+}
+
+fn expr_to_string(e: &fastc::ast::Expr) -> String {
+    // Best-effort textual rendering for the requires JSON. Round-
+    // tripping through the formatter would give nicer output but
+    // pulls in a lot of bytes; the explain JSON is for AI agents,
+    // not human review, so a structural dump is fine.
+    use fastc::ast::Expr;
+    match e {
+        Expr::IntLit { value, .. } => value.to_string(),
+        Expr::FloatLit { raw, .. } => raw.clone(),
+        Expr::BoolLit { value, .. } => value.to_string(),
+        Expr::Ident { name, .. } => name.clone(),
+        Expr::Binary { op, lhs, rhs, .. } => format!(
+            "({} {} {})",
+            expr_to_string(lhs),
+            binop_to_string(*op),
+            expr_to_string(rhs)
+        ),
+        Expr::Unary { op, operand, .. } => {
+            let s = match op {
+                fastc::ast::UnaryOp::Neg => "-",
+                fastc::ast::UnaryOp::Not => "!",
+                fastc::ast::UnaryOp::BitNot => "~",
+            };
+            format!("({}{})", s, expr_to_string(operand))
+        }
+        Expr::Paren { inner, .. } => format!("({})", expr_to_string(inner)),
+        Expr::Call { callee, args, .. } => format!(
+            "{}({})",
+            expr_to_string(callee),
+            args.iter()
+                .map(expr_to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Expr::Field { base, field, .. } => format!("{}.{}", expr_to_string(base), field),
+        _ => "<expr>".to_string(),
+    }
+}
+
+fn binop_to_string(op: fastc::ast::BinOp) -> &'static str {
+    use fastc::ast::BinOp;
+    match op {
+        BinOp::Add => "+",
+        BinOp::Sub => "-",
+        BinOp::Mul => "*",
+        BinOp::Div => "/",
+        BinOp::Rem => "%",
+        BinOp::Eq => "==",
+        BinOp::Ne => "!=",
+        BinOp::Lt => "<",
+        BinOp::Le => "<=",
+        BinOp::Gt => ">",
+        BinOp::Ge => ">=",
+        BinOp::And => "&&",
+        BinOp::Or => "||",
+        BinOp::BitAnd => "&",
+        BinOp::BitOr => "|",
+        BinOp::BitXor => "^",
+        BinOp::Shl => "<<",
+        BinOp::Shr => ">>",
+    }
+}
+
+fn escape_json(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Pick the C compiler to invoke. Explicit `--compiler` wins; otherwise
