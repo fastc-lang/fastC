@@ -34,6 +34,13 @@ theme:
 
 nav:
   - Home: index.md
+  - Why fastC:
+    - why/index.md
+    - Rubric: why/rubric.md
+    - Benchmarks: why/benchmarks.md
+    - Agent-friendly: why/agent-friendly.md
+    - C interop: why/c-interop.md
+    - Safety defaults: why/safety-defaults.md
   - Getting Started:
     - getting-started/index.md
     - Installation: getting-started/installation.md
