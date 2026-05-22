@@ -375,9 +375,28 @@ impl Parser<'_> {
                 })
             }
 
-            // Identifier (possibly struct literal)
+            // Identifier (possibly struct literal or qualified path)
             Token::Ident(name) => {
                 self.advance();
+
+                // Check for qualified path: `vec::len`, `hashmap::put`,
+                // etc. After parsing the first segment we collect any
+                // `::` continuations and join with `::` into a single
+                // identifier name. The rest of the pipeline treats a
+                // `::`-containing name as the fully-qualified form;
+                // lower replaces `::` with `__` to produce a valid C
+                // identifier.
+                let name = if self.check(&Token::ColonColon) {
+                    let mut segments = vec![name];
+                    while self.check(&Token::ColonColon) {
+                        self.advance();
+                        let next = self.expect_ident()?;
+                        segments.push(next);
+                    }
+                    segments.join("::")
+                } else {
+                    name
+                };
 
                 // Check for struct literal
                 if self.check(&Token::LBrace) {

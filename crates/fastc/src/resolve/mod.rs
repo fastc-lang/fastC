@@ -681,7 +681,15 @@ impl<'a> Resolver<'a> {
             | Expr::Bytes { .. } => {}
 
             Expr::Ident { name, span } => {
-                if self.symbols.lookup(name).is_none() {
+                // Qualified path like `vec::len`: walk the `::`
+                // segments through nested module scopes and verify
+                // the leaf exists. Falls back to flat lookup for
+                // bare identifiers.
+                if name.contains("::") {
+                    if self.resolve_path(name).is_none() {
+                        self.error_undefined(name, span);
+                    }
+                } else if self.symbols.lookup(name).is_none() {
                     self.error_undefined(name, span);
                 }
             }
@@ -881,6 +889,27 @@ impl<'a> Resolver<'a> {
                 self.resolve_type(ret);
             }
         }
+    }
+
+    /// Resolve a `::`-qualified path against the symbol table, walking
+    /// from the root scope through each module segment. Returns the
+    /// final symbol when the full path resolves to a defined name,
+    /// or `None` otherwise.
+    fn resolve_path(&self, name: &str) -> Option<Symbol> {
+        let segments: Vec<&str> = name.split("::").collect();
+        if segments.is_empty() {
+            return None;
+        }
+        let mut sym = self.symbols.lookup(segments[0])?.clone();
+        for seg in &segments[1..] {
+            match sym.kind {
+                SymbolKind::Module { scope_id } => {
+                    sym = self.symbols.lookup_in_scope(scope_id, seg)?.clone();
+                }
+                _ => return None,
+            }
+        }
+        Some(sym)
     }
 
     // === Error helpers ===

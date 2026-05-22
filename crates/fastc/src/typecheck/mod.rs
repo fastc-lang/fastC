@@ -570,6 +570,14 @@ impl<'a> TypeChecker<'a> {
             Expr::Bytes { .. } => TypeExpr::Slice(Box::new(TypeExpr::Primitive(PrimitiveType::U8))),
 
             Expr::Ident { name, .. } => {
+                // Qualified path: walk `::` segments through module
+                // scopes. The leaf symbol's type carries through.
+                if name.contains("::") {
+                    if let Some(sym) = self.lookup_path(name) {
+                        return sym.ty;
+                    }
+                    return TypeExpr::Void;
+                }
                 if let Some(sym) = self.symbols.lookup(name) {
                     sym.ty.clone()
                 } else {
@@ -726,10 +734,17 @@ impl<'a> TypeChecker<'a> {
                 // e.g. function pointer values) fall through to the existing
                 // path which has no generics.
                 let generic_params: Vec<String> = match callee.as_ref() {
-                    Expr::Ident { name, .. } => match self.symbols.lookup(name).map(|s| &s.kind) {
-                        Some(SymbolKind::Function { generic_params, .. }) => generic_params.clone(),
-                        _ => Vec::new(),
-                    },
+                    Expr::Ident { name, .. } => {
+                        let resolved = if name.contains("::") {
+                            self.lookup_path(name).map(|s| s.kind.clone())
+                        } else {
+                            self.symbols.lookup(name).map(|s| s.kind.clone())
+                        };
+                        match resolved {
+                            Some(SymbolKind::Function { generic_params, .. }) => generic_params,
+                            _ => Vec::new(),
+                        }
+                    }
                     _ => Vec::new(),
                 };
 
@@ -1029,6 +1044,26 @@ impl<'a> TypeChecker<'a> {
     }
 
     // === Type compatibility checks ===
+
+    /// Walk a `::`-qualified path through nested module scopes and
+    /// return the leaf symbol when the full path resolves. Mirrors
+    /// `resolve::resolve_path` so qualified calls type-check.
+    fn lookup_path(&self, name: &str) -> Option<crate::resolve::Symbol> {
+        let segments: Vec<&str> = name.split("::").collect();
+        if segments.is_empty() {
+            return None;
+        }
+        let mut sym = self.symbols.lookup(segments[0])?.clone();
+        for seg in &segments[1..] {
+            match sym.kind {
+                crate::resolve::SymbolKind::Module { scope_id } => {
+                    sym = self.symbols.lookup_in_scope(scope_id, seg)?.clone();
+                }
+                _ => return None,
+            }
+        }
+        Some(sym)
+    }
 
     fn types_compatible(&self, expected: &TypeExpr, actual: &TypeExpr) -> bool {
         match (expected, actual) {

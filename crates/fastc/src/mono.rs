@@ -917,6 +917,7 @@ fn strip_generic_fns_from_mod(m: &crate::ast::ModDecl, ctx: &MonoCtx) -> crate::
 /// canonical case) are visible to mono.
 fn collect_items_recursive(
     items: &[Item],
+    module_path: &[String],
     generic_fns: &mut HashMap<String, Vec<FnDecl>>,
     generic_structs: &mut HashMap<String, StructDecl>,
     all_structs: &mut HashMap<String, StructDecl>,
@@ -931,8 +932,20 @@ fn collect_items_recursive(
                         .entry(f.name.clone())
                         .or_default()
                         .push(f.clone());
+                    // Also register under the qualified name so a
+                    // call site that wrote `vec::len(...)` finds the
+                    // mod-scoped definition directly without going
+                    // through bare-name candidate selection.
+                    if !module_path.is_empty() {
+                        let qualified = format!("{}::{}", module_path.join("::"), f.name);
+                        generic_fns.entry(qualified).or_default().push(f.clone());
+                    }
                 }
                 all_fns.insert(f.name.clone(), f.clone());
+                if !module_path.is_empty() {
+                    let qualified = format!("{}::{}", module_path.join("::"), f.name);
+                    all_fns.insert(qualified, f.clone());
+                }
             }
             Item::Struct(s) => {
                 if !s.generics.is_empty() {
@@ -950,8 +963,11 @@ fn collect_items_recursive(
             }
             Item::Mod(m) => {
                 if let Some(body) = &m.body {
+                    let mut new_path = module_path.to_vec();
+                    new_path.push(m.name.clone());
                     collect_items_recursive(
                         body,
+                        &new_path,
                         generic_fns,
                         generic_structs,
                         all_structs,
@@ -974,6 +990,7 @@ impl<'a> MonoCtx<'a> {
         let mut trait_impls: HashMap<String, HashSet<String>> = HashMap::new();
         collect_items_recursive(
             &file.items,
+            &[],
             &mut generic_fns,
             &mut generic_structs,
             &mut all_structs,
@@ -1472,7 +1489,12 @@ fn mangle_type(ty: &TypeExpr) -> String {
 
 fn mangled_name(fn_name: &str, type_args: &[TypeExpr]) -> String {
     let suffix: Vec<String> = type_args.iter().map(mangle_type).collect();
-    format!("{}_{}", fn_name, suffix.join("_"))
+    // Replace `::` with `__` so qualified call sites like
+    // `vec::len(...)` produce a valid C identifier (`vec__len_i32`).
+    // The same substitution applies to the lifted fn name so both
+    // sides agree.
+    let cleaned = fn_name.replace("::", "__");
+    format!("{}_{}", cleaned, suffix.join("_"))
 }
 
 /// Produce the specialized FnDecl for an instantiation.

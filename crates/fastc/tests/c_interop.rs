@@ -473,6 +473,18 @@ fn test_contracts_compiles() {
 }
 
 #[test]
+fn test_qualified_calls_compiles() {
+    // Deferred-item 1: `mod::fn(args)` qualified call syntax.
+    // Parser produces an Ident whose name contains `::`; resolver
+    // walks segments through module scopes; typecheck reuses the
+    // same path lookup; mono registers fns under both bare and
+    // qualified names; lower replaces `::` with `__` to produce a
+    // valid C identifier. Lets callers disambiguate cross-module
+    // bare-name collisions (`vec::len` vs `hashmap::len` etc).
+    compile_and_verify("examples/qualified_calls_demo.fc");
+}
+
+#[test]
 fn test_enum_example_compiles() {
     compile_and_verify("examples/enum_example.fc");
 }

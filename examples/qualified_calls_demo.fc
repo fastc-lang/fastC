@@ -1,0 +1,36 @@
+// Deferred-item 1: qualified-call syntax.
+//
+// Functions can now be called by their fully-qualified path:
+//
+//   vec::push(addrm(v), 42);
+//   hashmap::lookup(addr(m), addr(k));
+//   math::abs_i32(0 - 7);
+//
+// The parser produces a single `Expr::Ident` whose name contains
+// `::`. The resolver walks the segments through module scopes to
+// verify the leaf exists. Mono registers every fn under both its
+// bare name and its qualified name, so a call site can use either.
+// Lower replaces `::` with `__` to produce a valid C identifier.
+//
+// User-facing payoff: no more `use vec::len; use hashmap::lookup;`
+// chains at the top of every file. And cross-module collisions
+// (`vec::len` vs a future `hashmap::len`) stop forcing
+// `_str`/`_map`/`_of` rename suffixes.
+
+fn main() -> i32 {
+    let v: Vec[i32] = vec::new(0);
+    vec::push(addrm(v), 10);
+    vec::push(addrm(v), 20);
+    vec::push(addrm(v), 30);
+
+    let n: i32 = cast(i32, vec::len(addr(v)));   // 3
+    let a: i32 = vec::get(addr(v), cast(usize, 0));   // 10
+    let b: i32 = vec::get(addr(v), cast(usize, 2));   // 30
+    let mn: i32 = math::min(a, b);                    // 10
+    let mx: i32 = math::max(a, b);                    // 30
+
+    vec::release(addrm(v));
+
+    // 3 + 10 + 30 + 10 + 30 = 83
+    return ((((n + a) + b) + mn) + mx);
+}
