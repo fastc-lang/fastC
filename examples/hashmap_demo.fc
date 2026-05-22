@@ -8,7 +8,7 @@
 // traits, the same machinery `vec::contains` and `vec::sort` already
 // exercise.
 //
-// Function names use `_map` / `count_map` / `lookup` rather than
+// Function names use `_map` / `len` / `lookup` rather than
 // mirroring vec's API because mono's current `generic_fns` lookup
 // keys by bare name; the proper fix is qualified-call resolution but
 // the rename is a v1 pragmatic choice.

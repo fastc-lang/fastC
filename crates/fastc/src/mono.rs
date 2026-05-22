@@ -67,7 +67,7 @@ pub fn monomorphize(
 
     // Pass 1b: transitive closure — a generic body may call further generics.
     while let Some((fn_name, type_args)) = ctx.worklist.pop() {
-        if let Some(generic_fn) = ctx.generic_fns.get(&fn_name).cloned() {
+        if let Some(generic_fn) = pick_first_candidate(&ctx.generic_fns, &fn_name) {
             let subst = build_subst(&generic_fn.generics, &type_args);
             let mut env: HashMap<String, TypeExpr> = HashMap::new();
             for p in &generic_fn.params {
@@ -120,7 +120,7 @@ pub fn monomorphize(
         errors: Vec::new(),
     };
     for (mangled, (fn_name, type_args)) in entries {
-        if let Some(generic_fn) = pseudo_ctx.generic_fns.get(&fn_name).cloned() {
+        if let Some(generic_fn) = pick_first_candidate(&pseudo_ctx.generic_fns, &fn_name) {
             let subst = build_subst(&generic_fn.generics, &type_args);
             new_items.push(Item::Fn(specialize_fn(
                 &generic_fn,
@@ -699,10 +699,64 @@ fn approx_field_type(expr: &Expr) -> TypeExpr {
     }
 }
 
+/// Pick a generic-fn candidate by bare name. With a single candidate
+/// (the common case) returns it directly. With multiple, walks them
+/// and picks the one whose parameter shapes unify cleanly against
+/// the actual call arguments — proper overload resolution by
+/// parameter shape. Lets `vec::len[T]` and `hashmap::len[K, V]`
+/// coexist under the same bare name because the receiver type
+/// disambiguates at every call site.
+fn pick_first_candidate(generic_fns: &HashMap<String, Vec<FnDecl>>, name: &str) -> Option<FnDecl> {
+    generic_fns.get(name).and_then(|v| v.first().cloned())
+}
+
+/// Smart picker: choose the candidate whose declared parameter types
+/// unify cleanly with the actual argument shapes. Falls back to the
+/// first candidate when nothing unifies cleanly — that lets a buggy
+/// call still surface a useful downstream type error instead of
+/// silently picking nothing.
+fn pick_candidate_for_call(
+    generic_fns: &HashMap<String, Vec<FnDecl>>,
+    name: &str,
+    args: &[Expr],
+    subst: &HashMap<String, TypeExpr>,
+    env: &HashMap<String, TypeExpr>,
+    structs: &HashMap<String, StructDecl>,
+    fns: &HashMap<String, FnDecl>,
+) -> Option<FnDecl> {
+    let candidates = generic_fns.get(name)?;
+    if candidates.len() == 1 {
+        return Some(candidates[0].clone());
+    }
+    // Multi-candidate overload resolution. A candidate is "clean"
+    // when it has matching arity AND `unify_generic` resolves every
+    // declared type parameter via the actual argument types.
+    for c in candidates {
+        if c.params.len() != args.len() {
+            continue;
+        }
+        let type_params: Vec<String> = c.generics.iter().map(|p| p.name.clone()).collect();
+        let mut inferred: HashMap<String, TypeExpr> = HashMap::new();
+        for (arg, param) in args.iter().zip(c.params.iter()) {
+            let arg_ty = approx_expr_type(arg, subst, env, structs, fns);
+            unify_generic(&param.ty, &arg_ty, &type_params, &mut inferred);
+        }
+        if type_params.iter().all(|p| inferred.contains_key(p)) {
+            return Some(c.clone());
+        }
+    }
+    candidates.first().cloned()
+}
+
 /// Walking context for monomorphization.
 struct MonoCtx<'a> {
-    /// All generic-fn declarations in the program, keyed by name.
-    generic_fns: HashMap<String, FnDecl>,
+    /// All generic-fn declarations in the program, keyed by bare name.
+    /// Multiple entries per name when several mods define a generic
+    /// with the same identifier (e.g. `vec::concat[T]` and a future
+    /// `mod foo` declaring its own `concat[U, V]`). At a call site,
+    /// `pick_generic_candidate` walks the candidates and selects the
+    /// one whose parameter shapes unify cleanly with the actual args.
+    generic_fns: HashMap<String, Vec<FnDecl>>,
     /// All generic struct declarations, keyed by name.
     generic_structs: HashMap<String, StructDecl>,
     /// Every struct declaration (generic + non-generic), keyed by name.
@@ -861,7 +915,7 @@ fn strip_generic_fns_from_mod(m: &crate::ast::ModDecl, ctx: &MonoCtx) -> crate::
 /// canonical case) are visible to mono.
 fn collect_items_recursive(
     items: &[Item],
-    generic_fns: &mut HashMap<String, FnDecl>,
+    generic_fns: &mut HashMap<String, Vec<FnDecl>>,
     generic_structs: &mut HashMap<String, StructDecl>,
     all_structs: &mut HashMap<String, StructDecl>,
     all_fns: &mut HashMap<String, FnDecl>,
@@ -871,7 +925,10 @@ fn collect_items_recursive(
         match item {
             Item::Fn(f) => {
                 if !f.generics.is_empty() {
-                    generic_fns.insert(f.name.clone(), f.clone());
+                    generic_fns
+                        .entry(f.name.clone())
+                        .or_default()
+                        .push(f.clone());
                 }
                 all_fns.insert(f.name.clone(), f.clone());
             }
@@ -908,7 +965,7 @@ fn collect_items_recursive(
 
 impl<'a> MonoCtx<'a> {
     fn new(file: &'a File, symbols: &'a SymbolTable, source: &'a str) -> Self {
-        let mut generic_fns = HashMap::new();
+        let mut generic_fns: HashMap<String, Vec<FnDecl>> = HashMap::new();
         let mut generic_structs = HashMap::new();
         let mut all_structs = HashMap::new();
         let mut all_fns = HashMap::new();
@@ -1142,7 +1199,15 @@ impl<'a> MonoCtx<'a> {
                     // (e.g. `vec::new` -> `vec::with_capacity`) because
                     // those symbols don't live in the root scope unless
                     // explicitly re-imported.
-                    if let Some(generic_fn) = self.generic_fns.get(name).cloned() {
+                    if let Some(generic_fn) = pick_candidate_for_call(
+                        &self.generic_fns,
+                        name,
+                        args,
+                        subst,
+                        env,
+                        &self.all_structs,
+                        &self.all_fns,
+                    ) {
                         let generic_params: Vec<String> =
                             generic_fn.generics.iter().map(|p| p.name.clone()).collect();
                         if !generic_params.is_empty() {
@@ -1841,7 +1906,16 @@ fn rewrite_expr(
                 // Mirror collect_in_expr: look up the callee in `generic_fns`
                 // directly so mod-internal generic calls (e.g.
                 // `vec::new` -> `vec::with_capacity`) rewrite correctly.
-                match ctx.generic_fns.get(name) {
+                let candidate = pick_candidate_for_call(
+                    &ctx.generic_fns,
+                    name,
+                    args,
+                    subst,
+                    env,
+                    &ctx.all_structs,
+                    &ctx.all_fns,
+                );
+                match candidate.as_ref() {
                     Some(generic_fn) if !generic_fn.generics.is_empty() => {
                         let generic_params: Vec<String> =
                             generic_fn.generics.iter().map(|p| p.name.clone()).collect();
