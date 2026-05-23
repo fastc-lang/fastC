@@ -254,6 +254,17 @@ enum Commands {
         /// Additional flags to pass to the C compiler
         #[arg(long)]
         cflags: Option<String>,
+
+        /// Cross-compile target triple (e.g. aarch64-linux-musl, wasm32-wasi).
+        /// Run `fastc target list` to see the full set. Backed by `zig cc` by
+        /// default; override with --cc-override for a custom toolchain.
+        #[arg(long, value_name = "TRIPLE")]
+        target: Option<String>,
+
+        /// Override the C compiler with a custom binary (proprietary
+        /// cross-toolchain, distro gcc-cross, etc). Bypasses zig cc.
+        #[arg(long, value_name = "PATH", conflicts_with = "compiler")]
+        cc_override: Option<String>,
     },
 
     /// Build, compile, and run the project
@@ -274,9 +285,24 @@ enum Commands {
         #[arg(long)]
         cflags: Option<String>,
 
+        /// Cross-compile target triple (e.g. aarch64-linux-musl, wasm32-wasi).
+        /// `fastc run` will refuse to execute non-native binaries.
+        #[arg(long, value_name = "TRIPLE")]
+        target: Option<String>,
+
+        /// Override the C compiler with a custom binary.
+        #[arg(long, value_name = "PATH", conflicts_with = "compiler")]
+        cc_override: Option<String>,
+
         /// Arguments to pass to the program
         #[arg(last = true)]
         args: Vec<String>,
+    },
+
+    /// Inspect cross-compile targets and verify backend availability.
+    Target {
+        #[command(subcommand)]
+        action: TargetAction,
     },
 
     /// Fetch project dependencies without building
@@ -313,6 +339,22 @@ enum Commands {
     /// and `tools/call`; one tool is exposed today (`explain`),
     /// which returns the same JSON `fastc explain` prints.
     Mcp {},
+}
+
+#[derive(Subcommand)]
+enum TargetAction {
+    /// List all cross-compile target triples fastC ships presets for.
+    List,
+    /// Verify that the backend (zig cc by default, or --cc-override) can
+    /// produce a binary for `triple`. Exits 0 on success, 1 on failure.
+    /// Used by CI matrices to skip targets the runner doesn't support.
+    Check {
+        /// Target triple (e.g. aarch64-linux-musl)
+        triple: String,
+        /// Override the C compiler with a custom binary.
+        #[arg(long, value_name = "PATH")]
+        cc_override: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -582,6 +624,8 @@ fn main() -> Result<()> {
             cc,
             compiler,
             cflags,
+            target,
+            cc_override,
         } => {
             let current_dir = std::env::current_dir().into_diagnostic()?;
             let mut ctx =
@@ -594,14 +638,32 @@ fn main() -> Result<()> {
                 .compile(&output, release)
                 .map_err(|e| miette::miette!("{}", e))?;
 
-            if cc {
+            // Anything that uses --target / --cc-override implies cc.
+            let needs_cc = cc || target.is_some() || cc_override.is_some();
+            if needs_cc {
+                let target_enum = parse_target_flag(target.as_deref())?;
                 let cflags_vec: Vec<&str> = cflags
                     .as_deref()
                     .map(|s| s.split_whitespace().collect())
                     .unwrap_or_default();
-                let resolved = resolve_compiler(compiler.as_deref(), dev, release);
-                ctx.cc_compile(&c_file, &resolved, &cflags_vec, release)
-                    .map_err(|e| miette::miette!("{}", e))?;
+                let plan = plan_cc_invocation(
+                    compiler.as_deref(),
+                    cc_override.as_deref(),
+                    target_enum,
+                    dev,
+                    release,
+                )?;
+                let prefix_refs: Vec<&str> = plan.prefix_args.iter().map(|s| s.as_str()).collect();
+                let output_ext = target_enum.map(|t| t.output_extension()).unwrap_or("");
+                ctx.cc_compile(
+                    &c_file,
+                    &plan.command,
+                    &prefix_refs,
+                    &cflags_vec,
+                    release,
+                    output_ext,
+                )
+                .map_err(|e| miette::miette!("{}", e))?;
             }
         }
 
@@ -610,8 +672,21 @@ fn main() -> Result<()> {
             dev,
             compiler,
             cflags,
+            target,
+            cc_override,
             args,
         } => {
+            let target_enum = parse_target_flag(target.as_deref())?;
+            if let Some(t) = target_enum {
+                return Err(miette::miette!(
+                    "`fastc run --target={}` is not supported: running a cross-compiled \
+                    binary requires an emulator (qemu, wasmtime) we don't manage. \
+                    Use `fastc build --target={}` to produce the binary, then run it \
+                    yourself.",
+                    t.triple(),
+                    t.triple(),
+                ));
+            }
             let current_dir = std::env::current_dir().into_diagnostic()?;
             let mut ctx =
                 fastc::BuildContext::new(&current_dir).map_err(|e| miette::miette!("{}", e))?;
@@ -628,14 +703,72 @@ fn main() -> Result<()> {
                 .as_deref()
                 .map(|s| s.split_whitespace().collect())
                 .unwrap_or_default();
-            let resolved = resolve_compiler(compiler.as_deref(), dev, release);
+            let plan = plan_cc_invocation(
+                compiler.as_deref(),
+                cc_override.as_deref(),
+                None,
+                dev,
+                release,
+            )?;
+            let prefix_refs: Vec<&str> = plan.prefix_args.iter().map(|s| s.as_str()).collect();
             let executable = ctx
-                .cc_compile(&c_file, &resolved, &cflags_vec, release)
+                .cc_compile(
+                    &c_file,
+                    &plan.command,
+                    &prefix_refs,
+                    &cflags_vec,
+                    release,
+                    "",
+                )
                 .map_err(|e| miette::miette!("{}", e))?;
 
             ctx.run(&executable, &args)
                 .map_err(|e| miette::miette!("{}", e))?;
         }
+
+        Commands::Target { action } => match action {
+            TargetAction::List => {
+                println!("| Triple | Use case |");
+                println!("|---|---|");
+                for t in fastc::targets::Target::all() {
+                    println!("| {} | {} |", t.triple(), t.description());
+                }
+                println!();
+                println!(
+                    "Backed by `zig cc` by default. Pass `--cc-override=<path>` to use a \
+                    proprietary cross-toolchain instead."
+                );
+            }
+            TargetAction::Check {
+                triple,
+                cc_override,
+            } => {
+                let Some(t) = fastc::targets::Target::from_triple(&triple) else {
+                    return Err(miette::miette!(
+                        "unknown target `{}`. Run `fastc target list` to see supported triples.",
+                        triple
+                    ));
+                };
+                match fastc::targets::resolve_target_compiler(Some(t), cc_override.as_deref()) {
+                    Ok(c) => {
+                        println!(
+                            "OK: target `{}` available via `{}{}`.",
+                            t.triple(),
+                            c.command,
+                            if c.extra_args.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" {}", c.extra_args.join(" "))
+                            }
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("ERROR: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        },
 
         Commands::Fetch => {
             let current_dir = std::env::current_dir().into_diagnostic()?;
@@ -1121,18 +1254,71 @@ fn escape_json(s: &str) -> String {
     out
 }
 
-/// Pick the C compiler to invoke. Explicit `--compiler` wins; otherwise
-/// `--dev` (and the absence of `--release`) prefers `tcc` when present on
-/// PATH; everything else defaults to `cc`.
-fn resolve_compiler(explicit: Option<&str>, dev: bool, release: bool) -> String {
-    if let Some(c) = explicit {
-        return c.to_string();
+/// Parse a `--target=<triple>` value into the enum, returning a helpful
+/// error pointing the user at `fastc target list` for typos.
+fn parse_target_flag(triple: Option<&str>) -> Result<Option<fastc::targets::Target>> {
+    match triple {
+        None => Ok(None),
+        Some(t) => match fastc::targets::Target::from_triple(t) {
+            Some(target) => Ok(Some(target)),
+            None => Err(miette::miette!(
+                "unknown target `{}`. Run `fastc target list` to see supported triples.",
+                t
+            )),
+        },
     }
-    if dev && !release {
+}
+
+/// The resolved C compiler invocation plan: which binary to call and any
+/// args that must appear before the source file (e.g. zig's `cc`
+/// subcommand + `--target=...`).
+struct CcPlan {
+    command: String,
+    prefix_args: Vec<String>,
+}
+
+/// Resolve `(--compiler, --cc-override, --target, --dev, --release)` into
+/// a concrete compiler invocation plan.
+///
+/// Priority (highest first):
+/// 1. `--cc-override=<path>` — explicit user-supplied binary. Wins over
+///    everything, including --target (we trust the user knows their toolchain
+///    targets the right triple).
+/// 2. `--target=<triple>` — route through `zig cc --target=...`. Errors if
+///    zig isn't on PATH.
+/// 3. `--compiler=<path>` — legacy explicit compiler flag, no target.
+/// 4. `--dev` (and not `--release`) — auto-detect tcc on PATH.
+/// 5. Default — `cc`.
+fn plan_cc_invocation(
+    explicit_compiler: Option<&str>,
+    cc_override: Option<&str>,
+    target: Option<fastc::targets::Target>,
+    dev: bool,
+    release: bool,
+) -> Result<CcPlan> {
+    if cc_override.is_some() || target.is_some() {
+        let resolved = fastc::targets::resolve_target_compiler(target, cc_override)
+            .map_err(|e| miette::miette!("{}", e))?;
+        return Ok(CcPlan {
+            command: resolved.command,
+            prefix_args: resolved.extra_args,
+        });
+    }
+    if let Some(c) = explicit_compiler {
+        return Ok(CcPlan {
+            command: c.to_string(),
+            prefix_args: vec![],
+        });
+    }
+    let command = if dev && !release {
         fastc::build::detect_dev_compiler("cc")
     } else {
         "cc".to_string()
-    }
+    };
+    Ok(CcPlan {
+        command,
+        prefix_args: vec![],
+    })
 }
 
 /// Write the active `TimingReport` to `dest`. `None` writes JSON to stderr;

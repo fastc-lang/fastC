@@ -1,0 +1,88 @@
+name: Cross-compile
+
+# Verifies every v1.9 cross-compile target produces a binary of the right
+# architecture / ABI. Uses `zig cc` for the backend and skips gracefully
+# if zig isn't on the runner (currently shouldn't happen — ubuntu-latest
+# installs zig in the first step).
+#
+# Matrix is single-OS (ubuntu-latest) because the cross-compile is by
+# definition target-OS-agnostic: we ask zig cc to emit the right format.
+# Running on macOS or Windows would test the same thing more slowly.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  cross-compile:
+    name: Cross-compile (${{ matrix.triple }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        triple:
+          - aarch64-linux-musl
+          - x86_64-linux-musl
+          - aarch64-linux-gnu
+          - x86_64-linux-gnu
+          - aarch64-macos
+          - x86_64-macos
+          - wasm32-wasi
+          - riscv64-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.85"
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-xc-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install zig (cross-compile backend)
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - name: Build release fastc
+        run: cargo build --release -p fastc
+
+      - name: Verify backend available
+        run: ./target/release/fastc target check ${{ matrix.triple }}
+
+      - name: Cross-compile hello.fc
+        run: |
+          mkdir -p /tmp/xc/src
+          cp examples/hello.fc /tmp/xc/src/main.fc
+          cat > /tmp/xc/fastc.toml <<EOF
+          [package]
+          name = "hello_xc"
+          version = "0.1.0"
+          EOF
+          cd /tmp/xc && $GITHUB_WORKSPACE/target/release/fastc build --target=${{ matrix.triple }}
+
+      - name: Inspect output
+        run: |
+          if [ -f /tmp/xc/build/main.wasm ]; then
+            file /tmp/xc/build/main.wasm
+          else
+            file /tmp/xc/build/main
+          fi
+
+      - name: Run cross-compile integration test for this triple
+        run: cargo test -p fastc --test cross_compile --release

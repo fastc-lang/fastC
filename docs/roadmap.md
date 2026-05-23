@@ -596,6 +596,30 @@ See [docs/ecosystem.md](ecosystem.md) for the full curation strategy and target 
 - [ ] A new fastC project can implement an HTTP+JSON CRUD service using only `fastc-core` packages.
 - [ ] `fastc.dev` returns relevant results for "http", "json", "logging" within 1 second.
 
+## 1.9 — Cross-Compilation via `zig cc` ✅
+
+> **Requires:** none new — sits on top of the existing compile pipeline; fastC already emits portable C11.
+> **Complexity managed:** Reach every cloud / edge / embedded / WASM target without maintaining our own cross-compilation infrastructure. fastC emits portable C11, which means every C cross-compiler in the world is structurally a fastC cross-compiler.
+> **Complexity refused:** No custom code generator per target. No sysroot manager (zig bundles libcs; proprietary toolchains use `--cc-override`). No Windows-msvc target in v1 (different ABI, deferred until a real user asks).
+
+See [docs/cross-compile.md](cross-compile.md) for the full how-to.
+
+- [x] `fastc compile / build --target=<triple>` flag.
+- [x] Eight v1.7 target presets via `zig cc`: `aarch64-linux-musl`, `x86_64-linux-musl`, `aarch64-linux-gnu`, `x86_64-linux-gnu`, `aarch64-macos`, `x86_64-macos`, `wasm32-wasi`, `riscv64-linux-musl`.
+- [x] `--cc-override=<path>` escape hatch for proprietary cross-toolchains (crosstool-ng, vendor gcc-cross, IAR, ARM Compiler, etc).
+- [x] `fastc target list` / `fastc target check <triple>` introspection subcommands.
+- [x] `fastc run --target=<triple>` explicitly refuses (cross-binary execution needs an emulator we don't manage).
+- [x] WASI output gets the `.wasm` extension automatically.
+- [x] CI matrix verifying every shipped target end-to-end on every PR (`.github/workflows/cross_compile.yml`).
+- [x] Integration test (`crates/fastc/tests/cross_compile.rs`) inspects ELF / Mach-O / WASM magic bytes per triple. Skips gracefully when zig isn't on PATH.
+- [x] Runtime header (`runtime/fastc_runtime.h`) audited for portability — the POSIX surface used (`access`, `stat`, `time`, `getenv`) is available on every shipped target's libc, including wasi-libc.
+
+**Definition of Done**
+
+- [x] `fastc build --target=<each of the 8>` produces a binary with the right architecture / ABI on a fresh CI runner.
+- [x] `fastc target list` and `fastc target check` exit 0 / 1 as documented.
+- [x] `documentation/docs/why/rubric.md` and `README.md` reflect the new "Cross-compile" capability.
+
 ## 2.0 — Compiler Hardening + Incremental
 
 > **Requires:** 1.7 (ecosystem feedback reveals real-world compiler bugs and pain points).
@@ -606,8 +630,9 @@ See [docs/ecosystem.md](ecosystem.md) for the full curation strategy and target 
 - [ ] Dedicated fuzz target for the annotation parser (1.3) and capability checker (1.4).
 - [ ] Debug info / source maps (C line → fastC source) for debugger integration.
 - [ ] Reproducible-build verification on the compiler itself (build the compiler with itself + gcc, hash the output, match across machines).
-- [ ] Cross-compilation support (target triples, sysroot configuration).
 - [ ] Incremental compilation hardening — extend the 0.8 Salsa skeleton to handle multi-package workspaces with cross-package change propagation.
+
+> Cross-compilation lifted from 2.0 to its own stage 1.9 (see above) — shipped via `zig cc` ahead of the rest of the hardening work.
 
 **Definition of Done**
 
@@ -700,7 +725,7 @@ See [docs/contracts.md](contracts.md) for the three-tier discharge design.
 
 Features that depend on ecosystem maturity and community feedback.
 
-- [ ] WASM target via Emscripten or direct C-to-WASM pipeline.
+- [ ] WASM beyond `wasm32-wasi` (browser, the component model, Emscripten interop) — basic `wasm32-wasi` ships in stage 1.9 via `zig cc`.
 - [ ] `comptime`-style constant evaluation beyond current `const` expressions (only if it can be kept explicit).
 
 These are deliberately vague. They will be specified when the prerequisites exist and community demand is clear.

@@ -346,30 +346,50 @@ impl BuildContext {
 
     /// Compile the generated C code with a C compiler
     ///
-    /// Returns the path to the executable
+    /// `compiler_prefix_args` are inserted right after the compiler binary
+    /// and before the source file. Cross-compile uses this for `zig cc
+    /// --target=...` — `compiler="zig"`, `compiler_prefix_args=["cc",
+    /// "--target=aarch64-linux-musl"]`. The `output_ext` lets WASI targets
+    /// override the default empty extension with `.wasm`.
+    ///
+    /// Returns the path to the executable.
     pub fn cc_compile(
         &self,
         c_file: &Path,
         compiler: &str,
+        compiler_prefix_args: &[&str],
         cflags: &[&str],
         release: bool,
+        output_ext: &str,
     ) -> Result<PathBuf, BuildError> {
         let output_dir = c_file.parent().unwrap_or(Path::new("."));
         let base_name = c_file.file_stem().unwrap().to_string_lossy();
 
-        // Output executable name (add .exe on Windows)
-        #[cfg(windows)]
-        let exe_name = format!("{}.exe", base_name);
-        #[cfg(not(windows))]
-        let exe_name = base_name.to_string();
+        // Output executable name (add .exe on Windows when no explicit ext).
+        let exe_name = if !output_ext.is_empty() {
+            format!("{}{}", base_name, output_ext)
+        } else {
+            #[cfg(windows)]
+            {
+                format!("{}.exe", base_name)
+            }
+            #[cfg(not(windows))]
+            {
+                base_name.to_string()
+            }
+        };
 
         let executable = output_dir.join(&exe_name);
 
         eprintln!("Compiling C code with {}...", compiler);
 
-        // Build compiler arguments
-        let mut args: Vec<&str> =
-            vec![c_file.to_str().unwrap(), "-o", executable.to_str().unwrap()];
+        // Build compiler arguments. `compiler_prefix_args` first (e.g. zig's
+        // `cc` subcommand, --target flag), then the source file.
+        let mut args: Vec<&str> = Vec::new();
+        args.extend(compiler_prefix_args.iter().copied());
+        args.push(c_file.to_str().unwrap());
+        args.push("-o");
+        args.push(executable.to_str().unwrap());
 
         // Add runtime include path
         // Try to find the runtime directory relative to the executable or use env var

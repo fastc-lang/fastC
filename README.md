@@ -23,6 +23,7 @@ fastC is a modern C-like language for a world where most code is written by an A
 | Vendor-first deps (no central registry) | N/A | crates.io | Zon | modules | **✓** |
 | Sigstore / SLSA provenance | ✗ | ✗ | ✗ | ✗ | **scheduled** |
 | Stripped binary (hello) | 33 KB | 341 KB | 50 KB | 2.4 MB | **53 KB** |
+| Cross-compile, no sysroot setup | depends on toolchain | rustup per-target dance | ✓ (`zig cc`, 50+) | ✓ (`GOOS`/`GOARCH`) | **✓ (8 presets via `zig cc`, any C cross-toolchain via `--cc-override`)** |
 
 Each row has a paragraph of context at [docs.skelfresearch.com/fastc/why/rubric](https://docs.skelfresearch.com/fastc/why/rubric). The honest framing of which trade-offs fastC actually wins on (and which it loses) is in [docs/MANIFESTO.md](docs/MANIFESTO.md).
 
@@ -82,6 +83,8 @@ Go silently wrapped 3/3; Rust 2/3. fastC and Zig either refused to compile or co
 The scripts and golden data are in [`benchmarks/cross-lang/`](benchmarks/cross-lang/). Re-running the perf suite takes 30 seconds; the first-compile-success harness against the four Ollama models with a single key is ~$2 and ~30 minutes. See [`benchmarks/cross-lang/first-compile/`](benchmarks/cross-lang/first-compile/).
 
 The [supply-chain side-by-side demo](examples/supply_chain_demo/) shows `cargo build` executing a malicious `build.rs` vs `fastc.toml` rejecting the same shape at parse time.
+
+**Cross-compile, one flag.** `fastc build --target=<triple>` ships eight pre-wired presets via `zig cc` (aarch64/x86_64 × linux-musl/linux-gnu, aarch64/x86_64-macos, wasm32-wasi, riscv64-linux-musl). One `brew install zig` and `fastc build --target=aarch64-linux-musl` produces a statically-linked ARM Linux binary, or `--target=wasm32-wasi` a `.wasm` for sandboxed runtimes. `--cc-override=<path>` swaps in a proprietary toolchain when needed. fastC emits portable C11, so any C cross-compiler in the world targets fastC binaries — we just default to the best one. See [docs/cross-compile.md](docs/cross-compile.md) and `fastc target list` for the live matrix.
 
 ## Quick Start
 

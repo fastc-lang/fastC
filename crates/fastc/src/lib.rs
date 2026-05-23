@@ -23,6 +23,7 @@ pub mod parser;
 pub mod prelude;
 pub mod resolve;
 pub mod scaffold;
+pub mod targets;
 pub mod timing;
 pub mod typecheck;
 

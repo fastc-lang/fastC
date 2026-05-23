@@ -1,4 +1,16 @@
-/* FastC Runtime Header */
+/* FastC Runtime Header
+ *
+ * Portability: this header is C11 + a small slice of POSIX (`unistd.h`'s
+ * `access`, `sys/stat.h`'s `stat`, `time.h`'s `time`, `stdlib.h`'s
+ * `getenv`). All eight v1.9 cross-compile targets (aarch64/x86_64 ×
+ * linux-musl/linux-gnu, aarch64/x86_64-macos, wasm32-wasi,
+ * riscv64-linux-musl) provide that surface via their bundled libc.
+ *
+ * The Windows-msvc target is deliberately *not* in the v1.9 set — its
+ * different ABI (no POSIX `access`, `_stat` instead of `stat`) needs
+ * its own `#ifdef _WIN32` wrappers and a real user request. See
+ * docs/cross-compile.md for the current matrix.
+ */
 #ifndef FASTC_RUNTIME_H
 #define FASTC_RUNTIME_H
 

@@ -12,6 +12,7 @@
 | Native MCP server | ✗ | ✗ | ✗ | ✗ | **✓ `fastc-mcp`** |
 | Mandatory module annotations | ✗ | ✗ | ✗ | ✗ | **✓ (`@owns` / `@arch` / …)** |
 | Binary size (stripped, hello) | 33 KB | 341 KB | 50 KB | 2.4 MB | **53 KB** |
+| Cross-compile targets, no setup | depends on toolchain | ~200 (rustup, per-target sysroot dance) | 50+ (`zig cc`, bundled libcs) | 50+ (`GOOS`/`GOARCH`) | **8 shipped presets via `zig cc`, plus any C cross-toolchain via `--cc-override`** |
 
 ## How to read this table
 
@@ -63,6 +64,12 @@ fastC is in the C / Zig binary-size class. Rust is **6.4× larger**; Go is **45�
 
 Why this column matters: container cold-start, embedded ceilings, distribution / audit costs all scale with binary size. fastC's structural choice to ship a tiny static-inline runtime in a single header (rather than a large standard library) is what makes 53 KB binaries achievable at all. See [benchmarks](benchmarks.md#binary-size-stripped--fastc-is-in-the-c--zig-class-not-the-rust--go-class) for the full per-program table and the ratio analysis.
 
+### Cross-compile targets, no setup
+
+fastC ships eight pre-wired target presets in v1.9 — aarch64/x86_64 × linux-musl/linux-gnu, aarch64/x86_64-macos, wasm32-wasi, and riscv64-linux-musl — covering cloud / Apple Silicon / sandboxed WASM / RISC-V. They all go through `zig cc`, so a single `brew install zig` is the only setup. Run `fastc target list` for the live matrix; run `fastc build --target=<triple>` to produce a binary; run `fastc target check <triple>` to verify the backend without compiling.
+
+The strategic claim is structural, not numerical: **fastC emits portable C11, which means every C cross-compiler in the world is a fastC cross-compiler.** We default to zig because it's the best one and ships with bundled libcs, but `--cc-override=<path>` plugs in any other toolchain (proprietary embedded compilers, distro gcc-cross, custom musl-cross). fastC inherits its cross-compile breadth from the underlying C toolchain — we don't compete with Zig on cross-compilation; we wrap it. See [cross-compile.md](../../../docs/cross-compile.md) for the full how-to and the v1.9 target matrix.
+
 ## fastC vs Zig specifically
 
 Zig is fastC's closest competitor by the empirical numbers — same binary-size class (~50 KB), same refusal to ship silently-wrong code (Zig's strict signed-division rule caught T5's overflow exactly as fastC's strict syntax caught it). The two languages will get compared side-by-side. The honest read on where each wins:
@@ -95,7 +102,7 @@ Zig is fastC's closest competitor by the empirical numbers — same binary-size 
 
 4. **`comptime`.** Zig's compile-time metaprogramming is genuinely powerful — generic containers without monomorphization explosions, embedded DSLs, build-time codegen. fastC has no equivalent; we trade expressive power for predictable codegen and a smaller language surface.
 
-5. **Cross-compilation.** Zig is the best cross-compiler in the world out of the box. fastC doesn't ship cross-targets yet.
+5. **Cross-compilation breadth.** Zig ships 50+ targets in one binary. fastC ships eight pre-wired targets and routes them through `zig cc` (so the underlying capability is the same), with `--cc-override` for proprietary toolchains. Zig still wins on out-of-the-box breadth — fastC's set is curated to where it plausibly competes (cloud / Apple Silicon / WASI / RISC-V). See [cross-compile.md](../../../docs/cross-compile.md) for the v1.9 matrix.
 
 ### One-sentence positioning
 
