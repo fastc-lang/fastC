@@ -69,6 +69,10 @@ pub struct BuildContext {
     fetcher: Fetcher,
     /// Project root directory
     project_root: PathBuf,
+    /// When set, embed only the source basename in `#line` directives
+    /// (and elsewhere) so the C output is byte-identical across
+    /// different working directories. C2 supply-chain polish.
+    reproducible: bool,
 }
 
 /// Errors that can occur during build
@@ -147,7 +151,16 @@ impl BuildContext {
             lockfile,
             fetcher,
             project_root,
+            reproducible: false,
         })
+    }
+
+    /// Set the reproducible flag — when on, the filename embedded in
+    /// `#line` directives and the M1 project cache key uses just the
+    /// source basename (e.g. `main.fc`) instead of the absolute path.
+    /// Required for cross-machine reproducible builds.
+    pub fn set_reproducible(&mut self, on: bool) {
+        self.reproducible = on;
     }
 
     /// Get the project root directory
@@ -532,8 +545,18 @@ impl BuildContext {
         // Gather dependency paths
         let dep_dirs = self.dependency_dirs();
 
-        // Compile with dependency awareness
-        let filename = source_file.display().to_string();
+        // Compile with dependency awareness. In reproducible mode,
+        // normalize the filename to just the source basename so the
+        // C output's #line directives don't bake the absolute path.
+        let filename = if self.reproducible {
+            source_file
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("source.fc")
+                .to_string()
+        } else {
+            source_file.display().to_string()
+        };
         let (c_code, header) = crate::compile_project(&source, &filename, true, dep_dirs)?;
 
         // Create output directory

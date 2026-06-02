@@ -115,3 +115,72 @@ fn same_source_in_different_dirs_produces_identical_c_under_reproducible() {
         r_a_str
     );
 }
+
+/// C2 (v1.x supply-chain polish): a multi-file project that pulls
+/// in a vendored dep produces byte-identical C across clean
+/// builds in different working directories.
+///
+/// Uses a tiny fixture: a project with src/main.fc + src/helper.fc
+/// in two separate temp dirs. Both build with --reproducible and
+/// the C output should be byte-identical even though the build
+/// roots differ. This verifies the property at the dep / multi-
+/// file level, not just the single-file level that the test above
+/// covers.
+#[test]
+fn multi_file_project_reproducible_across_dirs() {
+    let fastc = fastc_release();
+    if !fastc.exists() {
+        eprintln!("skipping: release fastc binary missing");
+        return;
+    }
+
+    let toml = "[package]\nname = \"dep_repro\"\nversion = \"0.1.0\"\n";
+    let main_fc = "mod helper;\nuse helper::double;\nfn main() -> i32 { return double(21); }\n";
+    let helper_fc = "pub fn double(x: i32) -> i32 { return (x + x); }\n";
+
+    let dir_a = std::env::temp_dir().join("fastc_dep_repro_a");
+    let dir_b = std::env::temp_dir().join("fastc_dep_repro_b");
+    let _ = std::fs::remove_dir_all(&dir_a);
+    let _ = std::fs::remove_dir_all(&dir_b);
+    for dir in [&dir_a, &dir_b] {
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("fastc.toml"), toml).unwrap();
+        std::fs::write(dir.join("src/main.fc"), main_fc).unwrap();
+        std::fs::write(dir.join("src/helper.fc"), helper_fc).unwrap();
+    }
+
+    fn build_clean(fastc: &PathBuf, dir: &PathBuf) -> PathBuf {
+        // Isolated cache root per dir so we don't share the M1
+        // project cache (which would mask any path divergence).
+        let cache_root = std::env::temp_dir().join(format!(
+            "fastc_dep_repro_cache_{}",
+            std::process::id() ^ (dir.to_string_lossy().len() as u32)
+        ));
+        let _ = std::fs::remove_dir_all(&cache_root);
+        std::fs::create_dir_all(&cache_root).unwrap();
+        let out = Command::new(fastc)
+            .env("HOME", &cache_root)
+            .env("XDG_CACHE_HOME", &cache_root)
+            .arg("build")
+            .arg("--reproducible")
+            .current_dir(dir)
+            .output()
+            .expect("spawn fastc build");
+        assert!(
+            out.status.success(),
+            "build failed in {}:\n{}",
+            dir.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        dir.join("build").join("main.c")
+    }
+
+    let c_a = build_clean(&fastc, &dir_a);
+    let c_b = build_clean(&fastc, &dir_b);
+    let bytes_a = std::fs::read(&c_a).expect("read a");
+    let bytes_b = std::fs::read(&c_b).expect("read b");
+    assert_eq!(
+        bytes_a, bytes_b,
+        "multi-file project should produce byte-identical C across working dirs under --reproducible"
+    );
+}

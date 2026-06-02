@@ -323,6 +323,13 @@ enum Commands {
         /// cross-toolchain, distro gcc-cross, etc). Bypasses zig cc.
         #[arg(long, value_name = "PATH", conflicts_with = "compiler")]
         cc_override: Option<String>,
+
+        /// Normalize source paths embedded in #line directives to
+        /// basenames so the same source bytes in different working
+        /// directories produce byte-identical C. Required for
+        /// reproducible-build verification across CI runners.
+        #[arg(long)]
+        reproducible: bool,
     },
 
     /// Build, compile, and run the project
@@ -883,10 +890,12 @@ fn main() -> Result<()> {
             cflags,
             target,
             cc_override,
+            reproducible,
         } => {
             let current_dir = std::env::current_dir().into_diagnostic()?;
             let mut ctx =
                 fastc::BuildContext::new(&current_dir).map_err(|e| miette::miette!("{}", e))?;
+            ctx.set_reproducible(reproducible);
 
             ctx.fetch_dependencies()
                 .map_err(|e| miette::miette!("{}", e))?;
