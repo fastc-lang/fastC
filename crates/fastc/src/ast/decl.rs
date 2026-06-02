@@ -319,4 +319,40 @@ pub struct ModDecl {
     pub body: Option<Vec<Item>>,
     /// Source span
     pub span: Span,
+    /// Module header parsed from `//!` lines at the start of the body.
+    /// `None` when no `//!` lines were present. `module_graph::validate`
+    /// either requires this set (in strict mode) or treats absence as
+    /// a legacy module that compiles untouched.
+    pub header: Option<ModuleHeader>,
+}
+
+/// Module-level header parsed from `//! @key = "value"` lines at the
+/// top of an inline `mod foo { ... }` body or a file-as-module file.
+///
+/// Stage 1.3 mandates `@module` / `@owns` / `@arch` / `@depends` /
+/// `@threading` / `@invariants` when any `//!` line is present. The
+/// module-graph pass validates uniqueness of `@owns`, exhaustiveness
+/// of `@depends` (every `use mod::X` must point at a declared dep),
+/// and `@arch` layering (lower layer can't depend on higher layer).
+#[derive(Debug, Clone, Default)]
+pub struct ModuleHeader {
+    /// `@module = "name"` — display name. Often matches the decl name.
+    pub module_name: Option<String>,
+    /// `@owns = "ns1, ns2, ..."` — namespaces this module is the sole
+    /// owner of. Validated globally unique across all modules.
+    pub owns: Vec<String>,
+    /// `@arch = "layer"` — architectural layer the module belongs to.
+    /// Layering is enforced as a DAG by the module-graph pass.
+    pub arch: Option<String>,
+    /// `@depends = "dep1, dep2, ..."` — modules this one may import
+    /// from. Every actual `use mod::X` must point inside this list.
+    pub depends: Vec<String>,
+    /// `@threading = "single | thread_safe | concurrent"`.
+    pub threading: Option<String>,
+    /// `@invariants = "..."` — free-text invariants. Multiple
+    /// `@invariants` lines accumulate.
+    pub invariants: Vec<String>,
+    /// The raw `//!` lines as they appeared, preserved for
+    /// `fastc explain` and `fastc fmt`.
+    pub raw_lines: Vec<String>,
 }

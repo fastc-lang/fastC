@@ -20,6 +20,7 @@ pub mod emit;
 pub mod fmt;
 pub mod lexer;
 pub mod lower;
+pub mod module_graph;
 pub mod mono;
 pub mod noalloc_check;
 pub mod p10;

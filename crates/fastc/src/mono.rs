@@ -352,6 +352,7 @@ fn rewrite_mod_struct_refs(
                 .collect()
         }),
         span: m.span,
+        header: m.header,
     }
 }
 
@@ -913,6 +914,7 @@ fn strip_generic_fns_from_mod(m: &crate::ast::ModDecl, ctx: &MonoCtx) -> crate::
         name: m.name.clone(),
         body: new_body,
         span: m.span.clone(),
+        header: m.header.clone(),
     }
 }
 

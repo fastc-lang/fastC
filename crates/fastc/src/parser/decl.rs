@@ -2,8 +2,8 @@
 
 use crate::ast::{
     BigO, ConstDecl, EnumDecl, ExternBlock, ExternItem, Field, FnDecl, FnProto, ImplBlock, Item,
-    MemAnnot, ModDecl, OpaqueDecl, PanicsAnnot, Param, PurityLevel, Repr, StructDecl, TraitDecl,
-    TypeParam, UseDecl, UseItems, Variant,
+    MemAnnot, ModDecl, ModuleHeader, OpaqueDecl, PanicsAnnot, Param, PurityLevel, Repr, StructDecl,
+    TraitDecl, TypeParam, UseDecl, UseItems, Variant,
 };
 use crate::diag::CompileError;
 use crate::lexer::Token;
@@ -960,17 +960,24 @@ impl Parser<'_> {
         let name = self.expect_ident()?;
 
         // Check for inline module body or external file reference
-        let body = if self.check(&Token::LBrace) {
+        let (body, header) = if self.check(&Token::LBrace) {
             self.advance();
+            // v1.3 module-level headers: `//! @key = "value"` lines at
+            // the top of the body, before any item. The collector
+            // consumes only consecutive `//!` LineComments; if there
+            // are none, header stays None and the module is a legacy
+            // header-less module (compiles fine when not in strict
+            // mode).
+            let hdr = self.collect_module_header()?;
             let mut items = Vec::new();
             while !self.check(&Token::RBrace) && !self.is_at_end() {
                 items.push(self.parse_item()?);
             }
             self.consume(&Token::RBrace, "expected '}'")?;
-            Some(items)
+            (Some(items), hdr)
         } else {
             self.consume(&Token::Semi, "expected ';' or '{'")?;
-            None
+            (None, None)
         };
 
         let end = self.previous_span().end;
@@ -980,8 +987,81 @@ impl Parser<'_> {
             name,
             body,
             span: start..end,
+            header,
         })
     }
+
+    /// Consume any `//!` inner-doc lines at the current position and
+    /// parse them as `@key = "value"` pairs into a `ModuleHeader`.
+    /// Returns `Ok(None)` if no `//!` lines were present (legacy
+    /// module). Validates only at the per-line level here; cross-
+    /// module checks (uniqueness, exhaustiveness) happen in
+    /// `module_graph::validate`.
+    fn collect_module_header(&mut self) -> Result<Option<ModuleHeader>, CompileError> {
+        // Quick check: are we looking at any `//!` line?
+        if !matches!(self.current(), Token::LineComment(t) if crate::lexer::is_inner_doc(t)) {
+            return Ok(None);
+        }
+        let mut header = ModuleHeader::default();
+        while let Token::LineComment(text) = self.current().clone() {
+            if !crate::lexer::is_inner_doc(&text) {
+                break;
+            }
+            let body = crate::lexer::inner_doc_text(&text);
+            header.raw_lines.push(body.clone());
+            self.advance();
+            // Empty `//!` lines and `//! free-text` lines are accepted
+            // but only the `@key = "..."` form populates fields.
+            let trimmed = body.trim();
+            if trimmed.is_empty() || !trimmed.starts_with('@') {
+                continue;
+            }
+            parse_header_kv(
+                &header.raw_lines.last().cloned().unwrap_or_default(),
+                &mut header,
+            )
+            .map_err(|m| self.error(&m))?;
+        }
+        Ok(Some(header))
+    }
+}
+
+/// Parse one `@key = "value"` line into the header struct.
+fn parse_header_kv(line: &str, header: &mut ModuleHeader) -> Result<(), String> {
+    let trimmed = line.trim();
+    let after_at = match trimmed.strip_prefix('@') {
+        Some(s) => s,
+        None => return Ok(()),
+    };
+    let eq_pos = match after_at.find('=') {
+        Some(p) => p,
+        None => return Err(format!("module header '{}' missing '='", trimmed)),
+    };
+    let key = after_at[..eq_pos].trim();
+    let rest = after_at[eq_pos + 1..].trim();
+    // Strip surrounding quotes if present.
+    let value = rest
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(rest)
+        .to_string();
+    match key {
+        "module" => header.module_name = Some(value),
+        "owns" => header.owns = split_csv(&value),
+        "arch" => header.arch = Some(value),
+        "depends" => header.depends = split_csv(&value),
+        "threading" => header.threading = Some(value),
+        "invariants" => header.invariants.push(value),
+        _ => return Err(format!("unknown module-header key: '@{}'", key)),
+    }
+    Ok(())
+}
+
+fn split_csv(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect()
 }
 
 /// Attach a `Vec<String>` of doc-comment lines to whichever item variant

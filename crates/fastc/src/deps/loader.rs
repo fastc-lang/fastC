@@ -121,6 +121,7 @@ impl ModuleLoader {
             name: mod_decl.name.clone(),
             body: Some(ast.items),
             span: mod_decl.span.clone(),
+            header: mod_decl.header.clone(),
         })
     }
 

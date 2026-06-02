@@ -199,6 +199,15 @@ pub fn compile_with_p10_and_discharge(
         crate::annotation_check::check_annotations(&ast, source)
     })?;
 
+    // v1.3 module-graph validation: `//! @module / @owns / @arch /
+    // @depends / @threading / @invariants` headers. In non-strict
+    // mode (the default for single-file `fastc compile`), a `mod`
+    // block without a header parses untouched; one with a header
+    // must declare every required key.
+    time_pass("module_graph", || {
+        crate::module_graph::validate(&ast, source, false)
+    })?;
+
     time_pass("p10", || {
         let p10_checker = P10Checker::new(p10_config);
         p10_checker.check_and_report(&ast, source)
@@ -324,6 +333,12 @@ pub fn compile_project(
     // `@purity(pure)` against the transitive call set.
     time_pass("annotation_check", || {
         crate::annotation_check::check_annotations(&ast, source)
+    })?;
+
+    // v1.3 module-graph validation (lenient mode for single-file
+    // compile_project; strict mode is opt-in via manifest).
+    time_pass("module_graph", || {
+        crate::module_graph::validate(&ast, source, false)
     })?;
 
     time_pass("p10", || {

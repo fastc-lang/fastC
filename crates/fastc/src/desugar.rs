@@ -379,6 +379,7 @@ impl ClosureLifter {
                     .collect()
             }),
             span: m.span.clone(),
+            header: m.header.clone(),
         }
     }
 

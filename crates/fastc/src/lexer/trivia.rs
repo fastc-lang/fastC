@@ -68,10 +68,12 @@ impl Iterator for TriviaLexer<'_> {
             let spanned = self.inner.next()?;
 
             match &spanned.node {
-                // Doc comments (`///`) are *not* trivia — they're parsed
-                // into the AST as `doc_comments` on the next item. Skip
-                // them entirely here so the formatter doesn't double-emit.
-                Token::LineComment(text) if is_doc_comment(text) => continue,
+                // Doc comments (`///`) and inner-doc comments (`//!`)
+                // are *not* trivia — they're parsed into the AST.
+                // `///` attaches to the next item; `//!` is collected
+                // by the module-header parser inside a `mod` body or
+                // at the start of a root file.
+                Token::LineComment(text) if is_doc_comment(text) || is_inner_doc(text) => continue,
                 Token::LineComment(text) | Token::BlockComment(text) => {
                     // Collect comment as trivia
                     self.pending_comments.push(Comment {
@@ -105,7 +107,7 @@ pub fn strip_comments(tokens: Vec<Spanned<Token>>) -> Vec<Spanned<Token>> {
         .into_iter()
         .filter(|t| match &t.node {
             Token::BlockComment(_) => false,
-            Token::LineComment(text) => is_doc_comment(text),
+            Token::LineComment(text) => is_doc_comment(text) || is_inner_doc(text),
             _ => true,
         })
         .collect()
@@ -118,10 +120,23 @@ pub fn is_doc_comment(text: &str) -> bool {
     text.starts_with("///") && !text.starts_with("////")
 }
 
+/// Does this `//`-style comment start with `//!` (an inner / header doc
+/// comment)? Used for module-level headers (`//! @module = "..."`).
+pub fn is_inner_doc(text: &str) -> bool {
+    text.starts_with("//!")
+}
+
 /// Strip the leading `///` (and an optional single space) from a doc-comment
 /// line, returning just the human-readable text. `/// foo bar` → `"foo bar"`.
 pub fn doc_comment_text(text: &str) -> String {
     let after = text.strip_prefix("///").unwrap_or(text);
+    after.strip_prefix(' ').unwrap_or(after).to_string()
+}
+
+/// Strip the leading `//!` (and an optional single space) from an inner-doc
+/// line, returning just the body text. `//! @module = "x"` → `"@module = \"x\""`.
+pub fn inner_doc_text(text: &str) -> String {
+    let after = text.strip_prefix("//!").unwrap_or(text);
     after.strip_prefix(' ').unwrap_or(after).to_string()
 }
 
