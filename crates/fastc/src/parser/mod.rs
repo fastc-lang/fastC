@@ -33,6 +33,39 @@ impl<'a> Parser<'a> {
         let mut items = Vec::new();
 
         while !self.is_at_end() {
+            // B3 contextual keyword: `test { fn ... fn ... }` flattens
+            // into individual top-level fns each marked `is_test=true`.
+            // We hijack `Ident("test") {` before falling through to
+            // parse_item so user-defined `fn test() { ... }` still
+            // parses correctly (parse_item handles the fn case).
+            if matches!(self.current(), crate::lexer::Token::Ident(s) if s == "test") {
+                let saved = self.pos;
+                self.advance();
+                if self.check(&crate::lexer::Token::LBrace) {
+                    self.advance();
+                    while !self.check(&crate::lexer::Token::RBrace) && !self.is_at_end() {
+                        let it = self.parse_item()?;
+                        match it {
+                            crate::ast::Item::Fn(mut f) => {
+                                f.is_test = true;
+                                items.push(crate::ast::Item::Fn(f));
+                            }
+                            _ => {
+                                return Err(self.error(
+                                    "only `fn` declarations are allowed inside a `test { }` block",
+                                ));
+                            }
+                        }
+                    }
+                    self.consume(
+                        &crate::lexer::Token::RBrace,
+                        "expected '}' to close test block",
+                    )?;
+                    continue;
+                } else {
+                    self.pos = saved;
+                }
+            }
             items.push(self.parse_item()?);
         }
 

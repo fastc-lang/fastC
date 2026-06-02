@@ -77,6 +77,11 @@ pub fn check_with_p10(
     // before any further pass — these declarations become part of the
     // user's compilation unit. See `crate::prelude`.
     let ast = time_pass("prelude", || prepend_prelude(ast));
+    // B3: in non-test builds (the default), strip every fn marked
+    // `is_test = true` from the AST so test bodies don't show up in
+    // the user's binary. A `--test` flag in a future commit reverses
+    // this and generates a test-runner main.
+    let ast = strip_test_fns(ast);
 
     // Lift impl blocks' methods to free `Type_method` functions. The
     // original `Item::Impl` and `Item::Trait` items remain so resolve,
@@ -164,6 +169,11 @@ pub fn compile_with_p10_and_discharge(
     // before any further pass — these declarations become part of the
     // user's compilation unit. See `crate::prelude`.
     let ast = time_pass("prelude", || prepend_prelude(ast));
+    // B3: in non-test builds (the default), strip every fn marked
+    // `is_test = true` from the AST so test bodies don't show up in
+    // the user's binary. A `--test` flag in a future commit reverses
+    // this and generates a test-runner main.
+    let ast = strip_test_fns(ast);
 
     // Lift impl blocks' methods to free `Type_method` functions. The
     // original `Item::Impl` and `Item::Trait` items remain so resolve,
@@ -300,6 +310,11 @@ pub fn compile_project(
     // before any further pass — these declarations become part of the
     // user's compilation unit. See `crate::prelude`.
     let ast = time_pass("prelude", || prepend_prelude(ast));
+    // B3: in non-test builds (the default), strip every fn marked
+    // `is_test = true` from the AST so test bodies don't show up in
+    // the user's binary. A `--test` flag in a future commit reverses
+    // this and generates a test-runner main.
+    let ast = strip_test_fns(ast);
 
     // Lift impl blocks' methods to free `Type_method` functions. The
     // original `Item::Impl` and `Item::Trait` items remain so resolve,
@@ -390,4 +405,34 @@ fn prepend_prelude(mut user: File) -> File {
     let mut items = prelude_items();
     items.append(&mut user.items);
     File { items }
+}
+
+/// B3: strip every `is_test=true` fn from the AST. Used in the normal
+/// (non-`--test`) build path so test bodies don't end up in the
+/// user's binary. Walks inline `mod` bodies + `impl` method tables
+/// too — `@test` is allowed anywhere a fn can be declared.
+fn strip_test_fns(file: File) -> File {
+    File {
+        items: strip_test_items(file.items),
+    }
+}
+
+fn strip_test_items(items: Vec<crate::ast::Item>) -> Vec<crate::ast::Item> {
+    items
+        .into_iter()
+        .filter_map(|it| match it {
+            crate::ast::Item::Fn(f) if f.is_test => None,
+            crate::ast::Item::Mod(mut m) => {
+                if let Some(body) = m.body.take() {
+                    m.body = Some(strip_test_items(body));
+                }
+                Some(crate::ast::Item::Mod(m))
+            }
+            crate::ast::Item::Impl(mut block) => {
+                block.methods.retain(|m| !m.is_test);
+                Some(crate::ast::Item::Impl(block))
+            }
+            other => Some(other),
+        })
+        .collect()
 }
