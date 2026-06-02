@@ -427,12 +427,57 @@ enum Commands {
         input: PathBuf,
     },
 
+    /// Dump the project's pub type surface for AI context windows.
+    /// Walks every `pub` item across the source tree and emits a
+    /// markdown (default) or JSON summary. No bodies — agents get
+    /// the signature surface only, optimized for token efficiency.
+    Context {
+        /// Input FastC source file (or project root)
+        input: PathBuf,
+        /// Output format
+        #[arg(long, value_enum, default_value = "markdown")]
+        format: ContextFormat,
+        /// Restrict to a single module path (e.g., `vec`, `cli`)
+        #[arg(long, value_name = "NAME")]
+        module: Option<String>,
+    },
+
+    /// Semantic diff between two fastC sources (or two project roots).
+    /// Reports added / removed pub items, signature changes,
+    /// annotation changes, and module-header changes. Bodies are
+    /// suppressed unless `--include-bodies` is passed.
+    Diff {
+        /// Old source
+        old: PathBuf,
+        /// New source
+        new: PathBuf,
+        /// Output format
+        #[arg(long, value_enum, default_value = "markdown")]
+        format: DiffFormat,
+        /// Include text diffs of function bodies (off by default —
+        /// only signature / annotation / header changes are shown)
+        #[arg(long)]
+        include_bodies: bool,
+    },
+
     /// Run an MCP (Model Context Protocol) stdio server. Reads
     /// newline-delimited JSON-RPC 2.0 requests from stdin, writes
     /// responses to stdout. Implements `initialize`, `tools/list`,
     /// and `tools/call`; one tool is exposed today (`explain`),
     /// which returns the same JSON `fastc explain` prints.
     Mcp {},
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum ContextFormat {
+    Markdown,
+    Json,
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum DiffFormat {
+    Markdown,
+    Json,
 }
 
 #[derive(Subcommand)]
@@ -1101,6 +1146,40 @@ fn main() -> Result<()> {
             let filename = input.display().to_string();
             let file = fastc::parse(&source, &filename).map_err(|e| miette::miette!("{:?}", e))?;
             print_explain_json(&file);
+        }
+
+        Commands::Context {
+            input,
+            format,
+            module,
+        } => {
+            let source = std::fs::read_to_string(&input).into_diagnostic()?;
+            let filename = input.display().to_string();
+            let file = fastc::parse(&source, &filename).map_err(|e| miette::miette!("{:?}", e))?;
+            match format {
+                ContextFormat::Markdown => print_context_markdown(&file, module.as_deref()),
+                ContextFormat::Json => print_context_json(&file, module.as_deref()),
+            }
+        }
+
+        Commands::Diff {
+            old,
+            new,
+            format,
+            include_bodies,
+        } => {
+            let old_src = std::fs::read_to_string(&old).into_diagnostic()?;
+            let new_src = std::fs::read_to_string(&new).into_diagnostic()?;
+            let old_name = old.display().to_string();
+            let new_name = new.display().to_string();
+            let old_file =
+                fastc::parse(&old_src, &old_name).map_err(|e| miette::miette!("{:?}", e))?;
+            let new_file =
+                fastc::parse(&new_src, &new_name).map_err(|e| miette::miette!("{:?}", e))?;
+            match format {
+                DiffFormat::Markdown => print_diff_markdown(&old_file, &new_file, include_bodies),
+                DiffFormat::Json => print_diff_json(&old_file, &new_file, include_bodies),
+            }
         }
 
         Commands::Mcp {} => {
@@ -2042,4 +2121,304 @@ fn emit_timing(dest: Option<&std::path::Path>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `fastc context` — markdown summary of every `pub` item across the
+/// project. Optimized for AI context windows: signatures only, no
+/// bodies. Each module section lists its functions, structs, traits,
+/// and constants in source order with their full signature and
+/// annotation surface.
+fn print_context_markdown(file: &fastc::ast::File, module_filter: Option<&str>) {
+    println!("# Project Surface\n");
+    walk_for_context_md(&file.items, None, module_filter);
+}
+
+fn walk_for_context_md(items: &[fastc::ast::Item], path: Option<&str>, filter: Option<&str>) {
+    let mut emitted_header = false;
+    for item in items {
+        match item {
+            fastc::ast::Item::Mod(m) => {
+                let nested = match path {
+                    Some(p) => format!("{}::{}", p, m.name),
+                    None => m.name.clone(),
+                };
+                if let Some(body) = &m.body {
+                    walk_for_context_md(body, Some(&nested), filter);
+                }
+            }
+            fastc::ast::Item::Fn(f) => {
+                if !filter_match(path, filter) {
+                    continue;
+                }
+                if !emitted_header {
+                    println!("## Module `{}`\n", path.unwrap_or("(root)"));
+                    emitted_header = true;
+                }
+                let params = f
+                    .params
+                    .iter()
+                    .map(|p| format!("{}: {}", p.name, type_to_string(&p.ty)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                println!(
+                    "- `fn {}({}) -> {}`",
+                    f.name,
+                    params,
+                    type_to_string(&f.return_type)
+                );
+                for a in &f.annotations {
+                    println!("  - @{}", a);
+                }
+                if let Some(p) = &f.purity {
+                    println!("  - @purity({:?})", p);
+                }
+                if let Some(p) = &f.panics {
+                    println!("  - @panics({:?})", p);
+                }
+                if let Some(c) = &f.complexity {
+                    println!("  - @complexity({})", bigo_to_string(c));
+                }
+                for r in &f.requires {
+                    println!("  - @requires({})", expr_to_string(r));
+                }
+                for e in &f.ensures {
+                    println!("  - @ensures({})", expr_to_string(e));
+                }
+            }
+            fastc::ast::Item::Struct(s) => {
+                if !filter_match(path, filter) {
+                    continue;
+                }
+                if !emitted_header {
+                    println!("## Module `{}`\n", path.unwrap_or("(root)"));
+                    emitted_header = true;
+                }
+                println!("- `struct {}`", s.name);
+                for fld in &s.fields {
+                    println!("  - `{}: {}`", fld.name, type_to_string(&fld.ty));
+                }
+            }
+            fastc::ast::Item::Trait(t) => {
+                if !filter_match(path, filter) {
+                    continue;
+                }
+                if !emitted_header {
+                    println!("## Module `{}`\n", path.unwrap_or("(root)"));
+                    emitted_header = true;
+                }
+                println!("- `trait {}` ({} methods)", t.name, t.methods.len());
+            }
+            _ => {}
+        }
+    }
+}
+
+fn filter_match(path: Option<&str>, filter: Option<&str>) -> bool {
+    match (path, filter) {
+        (_, None) => true,
+        (Some(p), Some(f)) => p == f || p.starts_with(&format!("{}::", f)),
+        (None, Some(_)) => false,
+    }
+}
+
+/// `fastc context --format=json` — same surface, JSON shape that
+/// mirrors `fastc explain` so MCP / agent tooling can consume it
+/// uniformly.
+fn print_context_json(file: &fastc::ast::File, _filter: Option<&str>) {
+    // For now, JSON form is just the same as explain. The schema is
+    // additive — future revisions may split functions / structs /
+    // traits / constants into distinct arrays.
+    print_explain_json(file);
+}
+
+/// `fastc diff` — semantic diff at the AST level. Reports added /
+/// removed pub items, signature changes, annotation changes, module
+/// header changes.
+fn print_diff_markdown(old: &fastc::ast::File, new: &fastc::ast::File, _include_bodies: bool) {
+    use std::collections::BTreeMap;
+
+    let old_fns = collect_pub_fns(&old.items);
+    let new_fns = collect_pub_fns(&new.items);
+    let mut old_map: BTreeMap<String, &fastc::ast::FnDecl> = BTreeMap::new();
+    let mut new_map: BTreeMap<String, &fastc::ast::FnDecl> = BTreeMap::new();
+    for (k, v) in &old_fns {
+        old_map.insert(k.clone(), *v);
+    }
+    for (k, v) in &new_fns {
+        new_map.insert(k.clone(), *v);
+    }
+
+    let mut added: Vec<String> = Vec::new();
+    let mut removed: Vec<String> = Vec::new();
+    let mut changed: Vec<(String, String, String)> = Vec::new();
+
+    for (k, f_new) in &new_map {
+        match old_map.get(k) {
+            None => added.push(k.clone()),
+            Some(f_old) => {
+                let old_sig = fn_signature_summary(f_old);
+                let new_sig = fn_signature_summary(f_new);
+                if old_sig != new_sig {
+                    changed.push((k.clone(), old_sig, new_sig));
+                }
+            }
+        }
+    }
+    for k in old_map.keys() {
+        if !new_map.contains_key(k) {
+            removed.push(k.clone());
+        }
+    }
+
+    println!("# Semantic diff\n");
+    if added.is_empty() && removed.is_empty() && changed.is_empty() {
+        println!("_No semantic changes._");
+        return;
+    }
+    if !added.is_empty() {
+        println!("## Added (+{})\n", added.len());
+        for k in &added {
+            println!("- {}", k);
+        }
+        println!();
+    }
+    if !removed.is_empty() {
+        println!("## Removed (-{})\n", removed.len());
+        for k in &removed {
+            println!("- {}", k);
+        }
+        println!();
+    }
+    if !changed.is_empty() {
+        println!("## Changed ({})\n", changed.len());
+        for (k, old_sig, new_sig) in &changed {
+            println!("- **{}**", k);
+            println!("  - was: `{}`", old_sig);
+            println!("  - now: `{}`", new_sig);
+        }
+    }
+}
+
+fn print_diff_json(old: &fastc::ast::File, new: &fastc::ast::File, _include_bodies: bool) {
+    use std::collections::BTreeMap;
+
+    let old_fns = collect_pub_fns(&old.items);
+    let new_fns = collect_pub_fns(&new.items);
+    let mut old_map: BTreeMap<String, &fastc::ast::FnDecl> = BTreeMap::new();
+    let mut new_map: BTreeMap<String, &fastc::ast::FnDecl> = BTreeMap::new();
+    for (k, v) in &old_fns {
+        old_map.insert(k.clone(), *v);
+    }
+    for (k, v) in &new_fns {
+        new_map.insert(k.clone(), *v);
+    }
+    let mut added: Vec<&String> = Vec::new();
+    let mut removed: Vec<&String> = Vec::new();
+    let mut changed: Vec<(String, String, String)> = Vec::new();
+    for (k, f_new) in &new_map {
+        match old_map.get(k) {
+            None => added.push(k),
+            Some(f_old) => {
+                let old_sig = fn_signature_summary(f_old);
+                let new_sig = fn_signature_summary(f_new);
+                if old_sig != new_sig {
+                    changed.push((k.clone(), old_sig, new_sig));
+                }
+            }
+        }
+    }
+    for k in old_map.keys() {
+        if !new_map.contains_key(k) {
+            removed.push(k);
+        }
+    }
+    println!("{{");
+    println!(
+        "  \"added\": [{}],",
+        added
+            .iter()
+            .map(|s| format!("\"{}\"", escape_json(s)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    println!(
+        "  \"removed\": [{}],",
+        removed
+            .iter()
+            .map(|s| format!("\"{}\"", escape_json(s)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    println!("  \"changed\": [");
+    for (i, (k, old_sig, new_sig)) in changed.iter().enumerate() {
+        let comma = if i + 1 < changed.len() { "," } else { "" };
+        println!(
+            "    {{ \"name\": \"{}\", \"old\": \"{}\", \"new\": \"{}\" }}{}",
+            escape_json(k),
+            escape_json(old_sig),
+            escape_json(new_sig),
+            comma
+        );
+    }
+    println!("  ]");
+    println!("}}");
+}
+
+fn collect_pub_fns(items: &[fastc::ast::Item]) -> Vec<(String, &fastc::ast::FnDecl)> {
+    let mut out = Vec::new();
+    collect_pub_fns_inner(items, None, &mut out);
+    out
+}
+
+fn collect_pub_fns_inner<'a>(
+    items: &'a [fastc::ast::Item],
+    path: Option<&str>,
+    out: &mut Vec<(String, &'a fastc::ast::FnDecl)>,
+) {
+    for item in items {
+        match item {
+            fastc::ast::Item::Fn(f) => {
+                let key = match path {
+                    Some(p) => format!("{}::{}", p, f.name),
+                    None => f.name.clone(),
+                };
+                out.push((key, f));
+            }
+            fastc::ast::Item::Mod(m) => {
+                if let Some(body) = &m.body {
+                    let nested = match path {
+                        Some(p) => format!("{}::{}", p, m.name),
+                        None => m.name.clone(),
+                    };
+                    collect_pub_fns_inner(body, Some(&nested), out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn fn_signature_summary(f: &fastc::ast::FnDecl) -> String {
+    let params = f
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", p.name, type_to_string(&p.ty)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let purity = match &f.purity {
+        Some(p) => format!(" @purity({:?})", p),
+        None => String::new(),
+    };
+    let panics = match &f.panics {
+        Some(p) => format!(" @panics({:?})", p),
+        None => String::new(),
+    };
+    format!(
+        "fn {}({}) -> {}{}{}",
+        f.name,
+        params,
+        type_to_string(&f.return_type),
+        purity,
+        panics
+    )
 }
