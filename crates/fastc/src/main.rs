@@ -581,6 +581,7 @@ fn main() -> Result<()> {
                 target_triple: None,
                 emit_header,
                 strict,
+                dep_content_hash: None,
             };
             let cache_eligible = !prove && !no_prove && !emit_header && !timing;
 

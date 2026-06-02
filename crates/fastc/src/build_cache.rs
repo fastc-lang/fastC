@@ -48,6 +48,12 @@ pub struct CacheKey<'a> {
     /// `--strict` flag — affects whether warnings become errors,
     /// which can change whether a compile succeeds.
     pub strict: bool,
+    /// SHA-256 of the project's resolved deps. Computed from the
+    /// `sha256` fields of every locked dep in `fastc.lock`, sorted
+    /// by name. Changing a dep version, adding a dep, or removing
+    /// one flips this hash. `None` for single-file compiles with
+    /// no dep graph.
+    pub dep_content_hash: Option<&'a str>,
 }
 
 impl<'a> CacheKey<'a> {
@@ -66,6 +72,8 @@ impl<'a> CacheKey<'a> {
         buf.push(0);
         buf.push(if self.emit_header { 1 } else { 0 });
         buf.push(if self.strict { 1 } else { 0 });
+        buf.push(0);
+        buf.extend_from_slice(self.dep_content_hash.unwrap_or("nodeps").as_bytes());
         hex_encode(&sha256(&buf))
     }
 }
@@ -170,6 +178,7 @@ mod tests {
             target_triple: None,
             emit_header: false,
             strict: false,
+            dep_content_hash: None,
         }
     }
 
@@ -205,6 +214,24 @@ mod tests {
         let mut b = key_a();
         a.safety_level = "standard";
         b.safety_level = "critical";
+        assert_ne!(a.hash_hex(), b.hash_hex());
+    }
+
+    #[test]
+    fn different_dep_content_hash_different_hash() {
+        let mut a = key_a();
+        let mut b = key_a();
+        a.dep_content_hash = Some("aaa111");
+        b.dep_content_hash = Some("bbb222");
+        assert_ne!(a.hash_hex(), b.hash_hex());
+    }
+
+    #[test]
+    fn dep_content_none_vs_some_different_hash() {
+        let mut a = key_a();
+        let mut b = key_a();
+        a.dep_content_hash = None;
+        b.dep_content_hash = Some("aaa111");
         assert_ne!(a.hash_hex(), b.hash_hex());
     }
 
