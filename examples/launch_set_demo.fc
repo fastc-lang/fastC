@@ -1,0 +1,122 @@
+// Stage 1.8 launch-set integrated demo.
+//
+// One fastC program exercising all five v1 fastc-core launch-set
+// modules in their final shape:
+//
+//   - mod cli   — parse `--port` / `--endpoint` / `--verbose` flags
+//   - mod toml  — read a default port from an embedded config blob
+//   - mod log   — emit progress (info/warn/error + kv pairs)
+//   - mod http  — hit the endpoint via CapNetConnect (the wedge)
+//   - mod json  — extract an "id" field from a JSON-shaped response
+//
+// Try:
+//   python3 -m http.server 8088 &
+//   fastc compile examples/launch_set_demo.fc -o /tmp/demo.c
+//   cc /tmp/demo.c -I runtime -o /tmp/demo
+//   /tmp/demo --port=8088 --endpoint=/ --verbose
+//
+// The cap argument on http::get_status is the strategic wedge: a
+// function in this file that didn't take `c: ref(CapNetConnect)`
+// could not reach the network, even by accident, because the type
+// system refuses the call.
+
+use cli::has_flag;
+use cli::flag_value;
+use cli::flag_int;
+use cli::is_null;
+use log::info;
+use log::warn;
+use log::error;
+use log::kv_int;
+use log::kv_str;
+// `mod json` and `mod toml` both export `find_int` — fastC doesn't
+// support `use X as Y` rename today, so we reach them via qualified
+// calls below (`toml::find_int(...)`, `json::find_int(...)`).
+use http::get_status;
+use caps::init;
+use io::println;
+use io::print_int;
+use io::put_char;
+
+// Embedded TOML config — in a real app this would be `mod fs::read`
+// of a path, but `mod fs::read` doesn't exist yet and the v1 toml
+// decoder takes a cstr regardless of where the bytes came from.
+fn default_config_blob() -> raw(u8) {
+    return cstr("# fastc launch_set_demo config\nport = 9000\ntimeout_ms = 5000\n");
+}
+
+// Pretend an HTTP service returned this JSON. In a fuller demo
+// `get_body` would also exist; for v1 we test the decoder against
+// a literal so the data flow is visible.
+fn fake_json_response() -> raw(u8) {
+    return cstr("{\"id\": 42, \"status\": \"ok\", \"count\": 7}");
+}
+
+fn main() -> i32 {
+    let cfg: raw(u8) = default_config_blob();
+
+    // --- CLI: --port wins, else the toml config, else hardcoded 8088.
+    let cli_port: i32 = flag_int(cstr("port"), 0);
+    let toml_port: i64 = toml::find_int(cfg, cstr("port"), cast(i64, 0));
+    let port: i32 = cli_port;
+    if (port == 0) {
+        port = cast(i32, toml_port);
+    }
+    if (port == 0) {
+        port = 8088;
+    }
+
+    let endpoint_raw: raw(u8) = flag_value(cstr("endpoint"));
+    let endpoint: raw(u8) = endpoint_raw;
+    if (is_null(endpoint_raw)) {
+        endpoint = cstr("/");
+    }
+
+    let verbose: bool = has_flag(cstr("verbose"));
+
+    // --- log: structured progress
+    info(cstr("starting launch_set_demo"));
+    kv_int(cstr("port"), port);
+    kv_str(cstr("endpoint"), endpoint);
+    info(cstr("config loaded"));
+
+    // --- http: cap-typed network call (the wedge)
+    let bundle: Caps = init();
+    let status: i32 = get_status(addr(bundle.net_connect), cstr("127.0.0.1"), port, endpoint);
+
+    if (status < 0) {
+        error(cstr("connect or request failed"));
+        return 2;
+    }
+
+    kv_int(cstr("status"), status);
+    info(cstr("response received"));
+
+    if (status >= 400) {
+        warn(cstr("non-2xx status from server"));
+    }
+
+    // --- json: extract a field from a (faked) response body
+    if (verbose) {
+        let resp: raw(u8) = fake_json_response();
+        let id: i64 = json::find_int(resp, cstr("id"), cast(i64, -1));
+        let count: i64 = json::find_int(resp, cstr("count"), cast(i64, 0));
+        println(cstr("--- demo json field extract ---"));
+        println(cstr("id:"));
+        print_int(cast(i32, id));
+        put_char(10);
+        println(cstr("count:"));
+        print_int(cast(i32, count));
+        put_char(10);
+    }
+
+    info(cstr("done"));
+
+    // Exit 0 iff we got a 2xx.
+    if (status >= 200) {
+        if (status < 300) {
+            return 0;
+        }
+    }
+    return 1;
+}

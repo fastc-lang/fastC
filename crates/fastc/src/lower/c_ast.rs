@@ -58,6 +58,16 @@ pub struct CFnDef {
     pub params: Vec<CParam>,
     pub return_type: CType,
     pub body: Vec<CStmt>,
+    /// J1 (v2.0 hardening): 1-based source line of the originating
+    /// `fn` declaration in the input `.fc` file, plus the file's
+    /// pathname. When both are set, the emitter prepends a
+    /// `#line N "<file>"` C preprocessor directive so gdb / lldb
+    /// stack traces and breakpoints land on fastC source lines
+    /// instead of the generated C. `None` for synthetically-lifted
+    /// functions (closure lambdas, generated drop/clone glue)
+    /// where there's no meaningful user source line.
+    pub source_line: Option<u32>,
+    pub source_file: Option<String>,
 }
 
 /// C function parameter
@@ -138,6 +148,17 @@ pub enum CStmt {
         default: Option<Vec<CStmt>>,
     },
     Break,
+    Continue,
+    /// J2 (v2.0 hardening): a `#line N "<file>"` C preprocessor
+    /// directive. Lower inserts these before each user statement so
+    /// gdb / lldb breakpoints land on the originating fastC line,
+    /// not on whichever C line the lowered statement happened to
+    /// occupy. Synthesizes nothing at runtime — the C preprocessor
+    /// consumes the directive before the C compiler ever sees it.
+    SourceMark {
+        line: u32,
+        file: String,
+    },
 }
 
 /// C expressions

@@ -1,0 +1,93 @@
+// fastc-core preview: `mod cli` — argv access plus flag parsing.
+//
+// `mod cli` is part of the stage 1.8 fastc-core launch set. v1
+// covers argv access (count / at / program_name) plus three
+// high-level helpers: has_flag, flag_value, and flag_int.
+//
+// argv access is cap-free in v1: argv is ambient process state the
+// OS hands you, comparable to stdin. A future revision may add a
+// `CapArgs` token if the threat model tightens (a parent process
+// passing flags the child trusts is the case to watch).
+//
+// Try:
+//   fastc compile examples/cli_demo.fc -o /tmp/cli.c
+//   cc /tmp/cli.c -I runtime -o /tmp/cli
+//   /tmp/cli --name=Dipankar --count 3 --verbose
+//   /tmp/cli  (with no args, hits the defaults)
+
+use io::println;
+use io::print_int;
+use io::put_char;
+use cli::count;
+use cli::arg_at;
+use cli::program_name;
+use cli::has_flag;
+use cli::flag_value;
+use cli::flag_int;
+use cli::is_null;
+
+fn echo_cstr(s: raw(u8)) -> void {
+    // P10 Rule 2 wants a provable loop bound. 4096 is a reasonable
+    // cap for any cstr a CLI flag or argv element will hand us;
+    // longer strings get truncated rather than walked unbounded.
+    let i: usize = cast(usize, 0);
+    let max: usize = cast(usize, 4096);
+    while (i < max) {
+        unsafe {
+            let b: u8 = at(s, i);
+            if (b == cast(u8, 0)) { return; }
+            put_char(cast(i32, b));
+        }
+        i = (i + cast(usize, 1));
+    }
+}
+
+fn main() -> i32 {
+    // Echo the program path and total argv count.
+    println(cstr("--- cli_demo ---"));
+    echo_cstr(cstr("program: "));
+    echo_cstr(program_name());
+    put_char(10);
+
+    echo_cstr(cstr("argc: "));
+    print_int(count());
+    put_char(10);
+
+    // Walk every argv slot for visibility.
+    let i: i32 = 0;
+    let n: i32 = count();
+    while (i < n) {
+        echo_cstr(cstr("  argv["));
+        print_int(i);
+        echo_cstr(cstr("] = "));
+        echo_cstr(arg_at(i));
+        put_char(10);
+        i = (i + 1);
+    }
+
+    // Flag presence — boolean
+    echo_cstr(cstr("--verbose? "));
+    if (has_flag(cstr("verbose"))) {
+        println(cstr("yes"));
+    } else {
+        println(cstr("no"));
+    }
+
+    // String value: --name=<value> or --name <value>
+    let name: raw(u8) = flag_value(cstr("name"));
+    echo_cstr(cstr("--name = "));
+    if (is_null(name)) {
+        println(cstr("<absent>"));
+    } else {
+        echo_cstr(name);
+        put_char(10);
+    }
+
+    // Integer with default
+    let n_iter: i32 = flag_int(cstr("count"), 1);
+    echo_cstr(cstr("--count = "));
+    print_int(n_iter);
+    put_char(10);
+
+    return 0;
+}

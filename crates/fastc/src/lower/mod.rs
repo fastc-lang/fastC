@@ -34,6 +34,26 @@ pub struct Lower {
     /// Return type of the function currently being lowered. Used
     /// to type the `__ensures_result` capture variable.
     current_return_type: Option<CType>,
+    /// Stage 2.1 discharge report — drives the "skip the
+    /// `fc_trap` for proven obligations" optimization. `None` when
+    /// the driver doesn't supply a report (test harnesses, the
+    /// `compile()` entry point that doesn't touch contracts).
+    discharge: Option<crate::discharge::DischargeReport>,
+    /// Name of the function currently being lowered. The discharge
+    /// report keys obligations by function name, so the ensures
+    /// discharge check at every `return` needs to know which function
+    /// it's inside. Set on `lower_fn` entry, cleared on exit.
+    current_fn_name: String,
+    /// J1 source-map plumbing. When both are set, `lower_fn` annotates
+    /// each `CFnDef` with the originating `.fc` line + path so the
+    /// emitter can produce `#line N "<file>"` preprocessor directives.
+    source_text: Option<String>,
+    source_file: Option<String>,
+    /// Pre-computed byte-offset → 1-based-line table for `source_text`.
+    /// Built lazily on the first `set_source` call. Each entry is the
+    /// byte offset of a line's first character; binary-search yields
+    /// the line for any byte offset in O(log n).
+    line_starts: Vec<usize>,
 }
 
 impl Lower {
@@ -50,7 +70,57 @@ impl Lower {
             fn_return_types: HashMap::new(),
             current_ensures: Vec::new(),
             current_return_type: None,
+            discharge: None,
+            current_fn_name: String::new(),
+            source_text: None,
+            source_file: None,
+            line_starts: Vec::new(),
         }
+    }
+
+    /// J1: attach the original `.fc` source text + filename so the
+    /// lower pass can annotate each `CFnDef` with its source line
+    /// for the `#line N "<file>"` directives the emitter produces.
+    /// Calling sites that don't supply source/file (test harnesses,
+    /// internal one-off lowerings) just skip the annotations and
+    /// the emitter omits the directives.
+    pub fn set_source(&mut self, source: &str, file: &str) {
+        self.source_text = Some(source.to_string());
+        self.source_file = Some(file.to_string());
+        // Pre-build the line-starts table: each entry is the byte
+        // offset of a line's first character. Line 1 starts at 0.
+        let mut starts = Vec::with_capacity(source.len() / 40 + 1);
+        starts.push(0);
+        for (i, b) in source.bytes().enumerate() {
+            if b == b'\n' {
+                starts.push(i + 1);
+            }
+        }
+        self.line_starts = starts;
+    }
+
+    /// J1: 1-based source line for a byte offset. Binary-search
+    /// against `line_starts` produces the line in O(log n). Returns
+    /// `None` when source isn't attached or `offset` falls outside
+    /// the source (synthetic spans from desugar / mono).
+    fn source_line_for(&self, offset: usize) -> Option<u32> {
+        if self.source_text.is_none() || offset >= self.source_text.as_ref()?.len() {
+            return None;
+        }
+        // partition_point returns the first index whose start > offset;
+        // the line containing offset is therefore that index - 1.
+        let idx = self.line_starts.partition_point(|&start| start <= offset);
+        Some(idx as u32)
+    }
+
+    /// Attach a stage-2.1 discharge report. The lower pass uses it
+    /// to elide `fc_trap` guards for proven `@requires` and
+    /// `@ensures` clauses — the only effect on the lowered C is
+    /// that the runtime check disappears for proven obligations.
+    /// Calling sites that don't supply a report keep the existing
+    /// "always emit the trap" behavior (stage-1.5 default).
+    pub fn set_discharge(&mut self, report: crate::discharge::DischargeReport) {
+        self.discharge = Some(report);
     }
 
     /// Walk all `Fn` items (top-level + mod-nested) and record each
@@ -758,8 +828,10 @@ impl Lower {
         // see this function's clauses.
         let prev_ensures = std::mem::take(&mut self.current_ensures);
         let prev_ret = self.current_return_type.take();
+        let prev_fn_name = std::mem::take(&mut self.current_fn_name);
         self.current_ensures = fn_decl.ensures.clone();
         self.current_return_type = Some(self.lower_type(&fn_decl.return_type));
+        self.current_fn_name = fn_decl.name.clone();
 
         // Lower the body, then prepend `@requires(cond)` checks as
         // runtime asserts: `if (!cond) { fc_trap(); }`. Order is
@@ -769,10 +841,30 @@ impl Lower {
         // Restore caller's ensures state for any later sibling fn.
         self.current_ensures = prev_ensures;
         self.current_return_type = prev_ret;
+        self.current_fn_name = prev_fn_name;
 
         if !fn_decl.requires.is_empty() {
             let mut prologue: Vec<CStmt> = Vec::with_capacity(fn_decl.requires.len() * 2);
-            for cond in fn_decl.requires.iter().rev() {
+            // Walk in reverse so when we prepend each clause to the
+            // prologue, earlier-declared clauses still execute first.
+            // The original (forward) index is what the discharge
+            // report keyed on, so we recover it from the reverse index.
+            let count = fn_decl.requires.len();
+            for (rev_idx, cond) in fn_decl.requires.iter().rev().enumerate() {
+                let original_idx = count - 1 - rev_idx;
+
+                // Stage 2.1: elide the runtime trap when the discharge
+                // pass proved this obligation statically.
+                if let Some(report) = self.discharge.as_ref() {
+                    if report.is_proven(
+                        &fn_decl.name,
+                        crate::discharge::ObligationKind::Requires,
+                        original_idx,
+                    ) {
+                        continue;
+                    }
+                }
+
                 let mut pre: Vec<CStmt> = Vec::new();
                 let c_cond = self.lower_expr(cond, &mut pre);
                 // Pre-stmts (e.g. temps) come first, then the actual check.
@@ -806,11 +898,25 @@ impl Lower {
             self.mangle_name(&fn_decl.name)
         };
 
+        // J1: stash the source line + file. Synthetic functions
+        // (closure lambdas with span 0..0, generated drop / clone
+        // glue from desugar) get `None` and the emitter skips the
+        // `#line` directive — anything that's not a meaningful
+        // user source position shouldn't lie about one.
+        let source_line = self.source_line_for(fn_decl.span.start);
+        let source_file = if source_line.is_some() {
+            self.source_file.clone()
+        } else {
+            None
+        };
+
         CFnDef {
             name: c_name,
             params,
             return_type: self.lower_type(&fn_decl.return_type),
             body,
+            source_line,
+            source_file,
         }
     }
 
@@ -877,9 +983,35 @@ impl Lower {
     fn lower_block(&mut self, block: &ast::Block) -> Vec<CStmt> {
         let mut stmts = Vec::new();
         for stmt in &block.stmts {
+            // J2: prepend a SourceMark so gdb / lldb breakpoints land
+            // on the originating `.fc` line for this statement instead
+            // of the lowered C position. Skipped when the source isn't
+            // attached (test harness) or when the stmt's span is
+            // synthetic (desugar / mono insertions with span 0..0).
+            if let Some(mark) = self.source_mark_for_stmt(stmt) {
+                stmts.push(mark);
+            }
             stmts.extend(self.lower_stmt(stmt));
         }
         stmts
+    }
+
+    /// J2: build a `CStmt::SourceMark` for a top-level statement if
+    /// we have both the source/file attached and a non-synthetic span.
+    /// Returns `None` for synthetic statements (the desugar pass
+    /// emits some `Stmt::Let` / `Stmt::Expr` with span `0..0` that
+    /// would otherwise produce a misleading `#line 1` directive).
+    fn source_mark_for_stmt(&self, stmt: &ast::Stmt) -> Option<CStmt> {
+        let span = stmt_span(stmt);
+        if span.start == 0 && span.end == 0 {
+            return None;
+        }
+        let file = self.source_file.as_ref()?;
+        let line = self.source_line_for(span.start)?;
+        Some(CStmt::SourceMark {
+            line,
+            file: file.clone(),
+        })
     }
 
     fn lower_stmt(&mut self, stmt: &ast::Stmt) -> Vec<CStmt> {
@@ -933,7 +1065,18 @@ impl Lower {
                     });
                     self.var_types
                         .insert("__ensures_result".to_string(), ret_ty);
-                    for cond in &ensures {
+                    for (idx, cond) in ensures.iter().enumerate() {
+                        // Stage 2.1: elide the runtime trap for any
+                        // ensures clause the discharge pass proved.
+                        if let Some(report) = self.discharge.as_ref() {
+                            if report.is_proven(
+                                &self.current_fn_name,
+                                crate::discharge::ObligationKind::Ensures,
+                                idx,
+                            ) {
+                                continue;
+                            }
+                        }
                         let rewritten = rewrite_result_ident(cond);
                         let mut pre: Vec<CStmt> = Vec::new();
                         let c_cond = self.lower_expr(&rewritten, &mut pre);
@@ -957,7 +1100,16 @@ impl Lower {
                 } else {
                     // void return: no `result` to capture; just
                     // emit the checks then `return;`.
-                    for cond in &ensures {
+                    for (idx, cond) in ensures.iter().enumerate() {
+                        if let Some(report) = self.discharge.as_ref() {
+                            if report.is_proven(
+                                &self.current_fn_name,
+                                crate::discharge::ObligationKind::Ensures,
+                                idx,
+                            ) {
+                                continue;
+                            }
+                        }
                         let mut pre: Vec<CStmt> = Vec::new();
                         let c_cond = self.lower_expr(cond, &mut pre);
                         pre_stmts.extend(pre);
@@ -1129,6 +1281,8 @@ impl Lower {
 
                 pre_stmts
             }
+            ast::Stmt::Break { .. } => vec![CStmt::Break],
+            ast::Stmt::Continue { .. } => vec![CStmt::Continue],
             _ => {
                 // TODO: Handle other statements (for, defer, etc.)
                 vec![]
@@ -1619,6 +1773,30 @@ impl Default for Lower {
 /// existing `lower_expr` machinery can take the rewritten clause
 /// without any new wiring — the temp name is just an opaque
 /// identifier from its point of view.
+/// J2 helper: return the span of any user statement variant.
+/// Mirrors the explicit `span:` field present on every `ast::Stmt`
+/// constructor. `Stmt::Block` borrows its inner block's span.
+fn stmt_span(stmt: &ast::Stmt) -> crate::lexer::Span {
+    use crate::ast::Stmt;
+    match stmt {
+        Stmt::Let { span, .. }
+        | Stmt::Assign { span, .. }
+        | Stmt::If { span, .. }
+        | Stmt::IfLet { span, .. }
+        | Stmt::While { span, .. }
+        | Stmt::For { span, .. }
+        | Stmt::Switch { span, .. }
+        | Stmt::Return { span, .. }
+        | Stmt::Break { span, .. }
+        | Stmt::Continue { span, .. }
+        | Stmt::Defer { span, .. }
+        | Stmt::Expr { span, .. }
+        | Stmt::Discard { span, .. }
+        | Stmt::Unsafe { span, .. } => span.clone(),
+        Stmt::Block(b) => b.span.clone(),
+    }
+}
+
 fn rewrite_result_ident(expr: &ast::Expr) -> ast::Expr {
     use ast::Expr;
     match expr {

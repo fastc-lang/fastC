@@ -122,6 +122,7 @@ pub fn create_project(
     write_build_files(&project_dir, name, project_type, build_template)?;
     write_gitignore(&project_dir)?;
     write_readme(&project_dir, name, project_type, build_template)?;
+    write_agents_md(&project_dir, name, project_type)?;
 
     eprintln!(
         "Created {} project '{}' at {}",
@@ -201,6 +202,12 @@ pub fn init_project(
         write_readme(path, name, project_type, build_template)?;
     }
 
+    // Write AGENTS.md if not present — gives AI agents a self-
+    // describing entry point on every new fastC project.
+    if !path.join("AGENTS.md").exists() {
+        write_agents_md(path, name, project_type)?;
+    }
+
     eprintln!("Initialized {} project in {}", project_type, path.display());
 
     Ok(())
@@ -256,4 +263,14 @@ fn write_readme(
 ) -> Result<()> {
     let content = templates::readme(name, project_type, build_template);
     fs::write(project_dir.join("README.md"), content).into_diagnostic()
+}
+
+/// Drop an `AGENTS.md` into the new project root. Documented by the
+/// stage 1.6 roadmap entry; the contents are a short, self-describing
+/// pointer to the agent-facing tooling (`fastc explain`, `caps.json`,
+/// `discharge.json`, `fastc-mcp`) so an LLM running with this repo
+/// in its context has a single canonical entry point.
+fn write_agents_md(project_dir: &Path, name: &str, project_type: ProjectType) -> Result<()> {
+    let content = templates::agents_md(name, project_type);
+    fs::write(project_dir.join("AGENTS.md"), content).into_diagnostic()
 }

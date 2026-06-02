@@ -21,6 +21,12 @@ pub struct Resolver<'a> {
     symbols: SymbolTable,
     source: &'a str,
     errors: Vec<CompileError>,
+    /// H6: name of the function currently being resolved. Synthetic
+    /// closure-lifted functions are named `__lambda_<N>`. When the
+    /// resolver hits an undefined name inside one of those, the
+    /// diagnostic gets the closure-captures explanation instead of
+    /// the generic "did you mean ...?".
+    current_fn_name: Option<String>,
 }
 
 impl<'a> Resolver<'a> {
@@ -29,6 +35,7 @@ impl<'a> Resolver<'a> {
             symbols: SymbolTable::new(),
             source,
             errors: Vec::new(),
+            current_fn_name: None,
         }
     }
 
@@ -390,6 +397,12 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_fn(&mut self, fn_decl: &FnDecl) {
+        // Stash the prior current-fn so nested fns (impl methods,
+        // closures lifted to siblings) leave the outer state intact
+        // when they pop. Lambda-detection in `error_undefined` keys
+        // off the prefix of this name.
+        let prev_fn_name = std::mem::replace(&mut self.current_fn_name, Some(fn_decl.name.clone()));
+
         // Enter function scope
         self.symbols.enter_scope();
 
@@ -436,6 +449,7 @@ impl<'a> Resolver<'a> {
 
         // Exit function scope
         self.symbols.exit_scope();
+        self.current_fn_name = prev_fn_name;
     }
 
     fn resolve_struct(&mut self, struct_decl: &StructDecl) {
@@ -915,6 +929,37 @@ impl<'a> Resolver<'a> {
     // === Error helpers ===
 
     fn error_undefined(&mut self, name: &str, span: &Span) {
+        // H6: when the undefined name appears inside a closure-
+        // lifted synthetic function (`__lambda_N`), the user almost
+        // certainly tried to capture an outer variable. Surface a
+        // concrete explanation pointing at v1.0's capture-free
+        // restriction and the explicit workaround (pass the value
+        // through an extra closure parameter), rather than the
+        // generic "did you mean ...?" hint.
+        let inside_lambda = self
+            .current_fn_name
+            .as_deref()
+            .map(|n| n.starts_with("__lambda_"))
+            .unwrap_or(false);
+        if inside_lambda {
+            self.errors.push(CompileError::resolve_with_hint(
+                format!(
+                    "undefined name '{}' — fastC v1.0 closures are capture-free; \
+                     you cannot reference outer variables from inside a closure body",
+                    name
+                ),
+                span.clone(),
+                self.source,
+                format!(
+                    "either add '{}' as an explicit closure parameter and pass \
+                     it at the call site, or inline the value directly. \
+                     Capture-by-value support is on the v2.0 roadmap.",
+                    name
+                ),
+            ));
+            return;
+        }
+
         // Try to find a similar name to suggest
         let hint = self
             .find_similar_name(name)

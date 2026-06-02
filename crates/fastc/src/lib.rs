@@ -7,11 +7,14 @@
 pub mod ast;
 pub mod bench;
 pub mod build;
+pub mod build_cache;
 pub mod cap_check;
+pub mod caps_summary;
 pub mod db;
 pub mod deps;
 pub mod desugar;
 pub mod diag;
+pub mod discharge;
 pub mod emit;
 pub mod fmt;
 pub mod lexer;
@@ -33,7 +36,8 @@ pub use ast::Item;
 pub use build::{BuildContext, BuildError};
 pub use deps::{Cache, Fetcher, Lockfile, Manifest, ModuleLoader, ModuleResolver};
 pub use driver::{
-    check, check_with_p10, compile, compile_project, compile_with_options, compile_with_p10, parse,
+    check, check_with_p10, compile, compile_project, compile_with_options, compile_with_p10,
+    compile_with_p10_and_discharge, parse,
 };
 pub use fmt::{check_formatted, format};
 pub use p10::{ComplianceReport, P10Checker, P10Config, ProjectReport, SafetyLevel};

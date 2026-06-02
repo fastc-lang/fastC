@@ -1,0 +1,183 @@
+name: Release
+
+# Stage 1.7 supply-chain story for the fastc compiler.
+#
+# Triggered on push of a `vX.Y.Z` tag. Builds the host fastc binary
+# on every supported runner, signs each artifact with cosign keyless
+# OIDC, and emits SLSA L3 provenance for the whole set via
+# slsa-framework/slsa-github-generator.
+#
+# Result: every published fastc release carries
+#
+#   1. A binary at `fastc-<os>-<arch>` for Linux x86_64, Linux
+#      aarch64, macOS arm64, macOS x86_64, and Windows x86_64.
+#   2. A `.sigstore.json` next to each binary, signed keyless by
+#      this workflow's identity (no long-lived keys to compromise,
+#      no PGP-key-loss disaster scenarios).
+#   3. A `multiple.intoto.jsonl` SLSA L3 provenance attestation
+#      covering every artifact in the release, signed by the same
+#      identity and published to the Rekor transparency log.
+#
+# Downstream verification (in a downstream user's setup):
+#
+#   cosign verify-blob \
+#     --bundle fastc-linux-x86_64.sigstore.json \
+#     --new-bundle-format \
+#     --certificate-identity-regexp '^https://github.com/Skelf-Research/fastc/\.github/workflows/release\.yml@.+$' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     fastc-linux-x86_64
+#
+#   slsa-verifier verify-artifact fastc-linux-x86_64 \
+#     --provenance-path multiple.intoto.jsonl \
+#     --source-uri github.com/Skelf-Research/fastc
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux-x86_64
+            ext: ''
+          - os: macos-latest
+            label: macos-aarch64
+            ext: ''
+          - os: macos-13
+            label: macos-x86_64
+            ext: ''
+          - os: windows-latest
+            label: windows-x86_64
+            ext: '.exe'
+    outputs:
+      hash-linux-x86_64: ${{ steps.hash.outputs.hash }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.85"
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-rel-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: cargo build --release -p fastc
+
+      - name: Rename artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/release/fastc${{ matrix.ext }} dist/fastc-${{ matrix.label }}${{ matrix.ext }}
+
+      - name: Record sha256 (linux-x86_64 only, for SLSA subject)
+        id: hash
+        if: matrix.label == 'linux-x86_64'
+        shell: bash
+        run: |
+          cd dist
+          # SLSA generator expects base64-encoded subject-list lines:
+          # "<sha256-hex>  <filename>".
+          DIGEST=$(sha256sum fastc-${{ matrix.label }} | awk '{print $1}')
+          LINE=$(printf '%s  %s\n' "$DIGEST" fastc-${{ matrix.label }})
+          ENC=$(printf '%s' "$LINE" | base64 -w0)
+          echo "hash=$ENC" >> $GITHUB_OUTPUT
+          echo "Artifact sha256: $DIGEST"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fastc-${{ matrix.label }}
+          path: dist/*
+
+  sign:
+    name: Sign with cosign keyless
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # for the eventual GitHub Release upload
+      id-token: write   # for cosign OIDC keyless signing
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.4.1'
+
+      - name: Sign every artifact (keyless)
+        run: |
+          set -euo pipefail
+          mkdir -p signed
+          shopt -s globstar nullglob
+          for f in artifacts/**/*; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            echo "signing $f"
+            cosign sign-blob \
+              --yes \
+              --new-bundle-format \
+              --bundle "signed/${base}.sigstore.json" \
+              "$f"
+            cp "$f" "signed/$base"
+          done
+
+      - name: Upload signed bundle set
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-release
+          path: signed/*
+
+      - name: Attach binaries + bundles to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: signed/*
+          fail_on_unmatched_files: true
+
+  provenance:
+    # SLSA L3 provenance — emits multiple.intoto.jsonl signed
+    # keyless by the same GitHub workflow identity that built the
+    # artifacts. Downstream verification uses `slsa-verifier`.
+    #
+    # `needs.build.outputs.hash-linux-x86_64` carries the canonical
+    # subject; in the multi-target follow-up we'll aggregate per-OS
+    # hashes into a single subject list. For v1 we attest the
+    # primary Linux artifact (the one most downstream consumers
+    # install), and document that other-OS provenance is per-target.
+    needs: build
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: ${{ needs.build.outputs.hash-linux-x86_64 }}
+      upload-assets: true

@@ -74,6 +74,16 @@ impl From<CliBuildTemplate> for fastc::BuildTemplate {
     }
 }
 
+/// Output format for `fastc check`. Agents want JSON; humans want
+/// the existing "No errors found." text. Default stays text to keep
+/// the inner loop unchanged.
+#[derive(Debug, Clone, Copy, ValueEnum, Default)]
+enum CliCheckFormat {
+    #[default]
+    Text,
+    Json,
+}
+
 /// Report output format
 #[derive(Debug, Clone, Copy, ValueEnum, Default)]
 enum CliReportFormat {
@@ -120,6 +130,47 @@ enum Commands {
         /// Path to write the timing JSON (default: stderr)
         #[arg(long, value_name = "PATH", requires = "timing")]
         timing_output: Option<PathBuf>,
+
+        /// Stage 2.1: opt into SMT contract discharge. Tier-1
+        /// syntactic discharge always runs; this flag also enables
+        /// the tier-2 SMT pipeline (shells out to `z3`). Off by
+        /// default to keep `fastc compile` fast; `fastc build` will
+        /// flip this on once Z3 is bundled with releases.
+        #[arg(long, conflicts_with = "no_prove")]
+        prove: bool,
+
+        /// Disable contract discharge entirely (skip both tier-1
+        /// and tier-2). Every obligation falls to the runtime trap.
+        /// Useful for benchmarking the unproven cost.
+        #[arg(long)]
+        no_prove: bool,
+
+        /// Per-obligation SMT budget in milliseconds.
+        /// Default: 500 ms.
+        #[arg(long, value_name = "MS", default_value = "500")]
+        prove_budget: u64,
+
+        /// Write the discharge report JSON to this path. Omit to
+        /// suppress the report. Use `-` to write to stderr.
+        #[arg(long, value_name = "PATH")]
+        discharge_output: Option<String>,
+
+        /// Write the per-build `caps.json` capability surface to
+        /// this path. Documents every function's declared cap
+        /// parameters — the agent-facing answer to "what can this
+        /// program structurally do?". `-` writes to stderr.
+        #[arg(long, value_name = "PATH")]
+        caps_output: Option<String>,
+
+        /// Produce path-independent output. Equivalent to passing
+        /// the input as a basename only — `#line` directives embed
+        /// `"foo.fc"` instead of the absolute path, so compiling
+        /// the same source in different working directories
+        /// produces byte-identical C output. Use this for
+        /// reproducible-build verification and content-hash-based
+        /// caches that key off the C output across machines.
+        #[arg(long)]
+        reproducible: bool,
     },
 
     /// Type-check a FastC source file without emitting C
@@ -146,6 +197,13 @@ enum Commands {
         /// Path to write the timing JSON (default: stderr)
         #[arg(long, value_name = "PATH", requires = "timing")]
         timing_output: Option<PathBuf>,
+
+        /// Emit a machine-readable JSON status object on success
+        /// (`{"status": "ok", "file": "...", "safety_level": "..."}`).
+        /// On failure, the standard miette diagnostic stream still
+        /// goes to stderr — agents read exit code to disambiguate.
+        #[arg(long, value_enum, default_value = "text")]
+        output_format: CliCheckFormat,
     },
 
     /// List Power of 10 rules and their status
@@ -308,6 +366,42 @@ enum Commands {
     /// Fetch project dependencies without building
     Fetch,
 
+    /// Compute and record the content sha256 of every dependency in
+    /// `fastc.lock`. Use this after adding a new dep (or after a
+    /// rev/tag bump) to anchor the verifier against the current
+    /// fetched tree. Subsequent `fastc build` runs will refuse to
+    /// proceed if a dep no longer hashes to the recorded value.
+    Lock {
+        /// Re-hash dependencies even when their recorded sha256
+        /// still matches. Use this when an upstream rev was rewritten
+        /// (force-push) and you've decided the new contents are safe.
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Fetch a candidate dependency, surface what capabilities it
+    /// asks for, and (with confirmation) write it into `fastc.toml`.
+    /// This is the supply-chain front door: a fastC dep can declare
+    /// `ref(CapFsRead)` / `ref(CapNetConnect)` / etc. in its public
+    /// surface — `fastc add` extracts that set and shows it to the
+    /// user *before* the dep ever runs in a build.
+    Add {
+        /// Git URL to add (e.g. `https://github.com/Skelf-Research/fastc-http`).
+        url: String,
+        /// Pin to a specific git commit. If omitted, `fastc add` uses
+        /// the resolved HEAD of the default branch and records it.
+        #[arg(long)]
+        rev: Option<String>,
+        /// Name to use for the dep entry in fastc.toml. Defaults to
+        /// the dep's own `[package].name` value.
+        #[arg(long)]
+        name: Option<String>,
+        /// Skip the interactive confirmation prompt. Useful for CI
+        /// and scripted setups; do not use as a default.
+        #[arg(long)]
+        yes: bool,
+    },
+
     /// Run the compile-time budget benchmark and report results
     Bench {
         /// Path to the budget TOML (default: auto-discovered)
@@ -370,9 +464,31 @@ fn main() -> Result<()> {
             strict,
             timing,
             timing_output,
+            prove,
+            no_prove,
+            prove_budget,
+            discharge_output,
+            caps_output,
+            reproducible,
         } => {
             let source = std::fs::read_to_string(&input).into_diagnostic()?;
-            let filename = input.display().to_string();
+            // L2: in --reproducible mode, label the source with just
+            // its basename so `#line` directives don't bake the
+            // absolute path into the C output. The full path is only
+            // used for `read_to_string` above (to actually find the
+            // file); everything downstream — diagnostics, source
+            // maps, build-cache keys — sees the normalized name and
+            // therefore produces byte-identical bytes regardless of
+            // the user's working directory.
+            let filename = if reproducible {
+                input
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("source.fc")
+                    .to_string()
+            } else {
+                input.display().to_string()
+            };
 
             // P10 rules are always enabled (use --safety-level=relaxed to disable)
             let mut config = fastc::P10Config::from_level(safety_level.into());
@@ -384,11 +500,85 @@ fn main() -> Result<()> {
                 fastc::timing::install(&filename);
             }
 
-            let (c_code, header) =
-                fastc::compile_with_p10(&source, &filename, emit_header, config)?;
+            // --prove enables the SMT tier (tier-1 syntactic discharge
+            // always runs unless --no-prove forces every obligation to
+            // runtime). --no-prove wins if both somehow set. H2: on-disk
+            // discharge cache is rooted at the input file's directory
+            // so repeat `fastc compile --prove` runs reuse Z3 verdicts.
+            let cache_root = input
+                .parent()
+                .map(|p| p.to_path_buf())
+                .filter(|p| !p.as_os_str().is_empty());
+            let discharge_cfg = fastc::discharge::DischargeConfig {
+                enable: prove && !no_prove,
+                smt_budget_ms: prove_budget,
+                cache_root,
+            };
+
+            // H4 — global build cache. Skip the lex→…→emit pipeline
+            // entirely when this exact (source, version, safety, target,
+            // header, strict) tuple has been compiled before. Only
+            // active when neither --prove nor --no-prove was passed
+            // (so the discharge report — which we'd otherwise lose —
+            // isn't silently skipped), and when the header isn't
+            // needed (the cache stores the C output only). For
+            // common edit-loop usage of `fastc compile foo.fc`, this
+            // shaves the per-pass time down to a single read.
+            let level_label = match safety_level {
+                CliSafetyLevel::Standard => "standard",
+                CliSafetyLevel::Critical => "critical",
+                CliSafetyLevel::Relaxed => "relaxed",
+            };
+            let build_key = fastc::build_cache::CacheKey {
+                source: &source,
+                fastc_version: env!("CARGO_PKG_VERSION"),
+                safety_level: level_label,
+                target_triple: None,
+                emit_header,
+                strict,
+            };
+            let cache_eligible = !prove && !no_prove && !emit_header && !timing;
+
+            let (c_code, header, discharge_report) =
+                if cache_eligible && let Some(cached) = fastc::build_cache::lookup(&build_key) {
+                    (cached, None, fastc::discharge::DischargeReport::default())
+                } else {
+                    let result = fastc::compile_with_p10_and_discharge(
+                        &source,
+                        &filename,
+                        emit_header,
+                        config,
+                        &discharge_cfg,
+                    )?;
+                    if cache_eligible {
+                        fastc::build_cache::store(&build_key, &result.0);
+                    }
+                    result
+                };
 
             if timing {
                 emit_timing(timing_output.as_deref())?;
+            }
+
+            if let Some(path) = &discharge_output {
+                let json = discharge_report.to_json();
+                if path == "-" {
+                    eprintln!("{}", json);
+                } else {
+                    std::fs::write(path, json).into_diagnostic()?;
+                    eprintln!("Discharge report: {}", path);
+                }
+            }
+
+            if let Some(path) = &caps_output {
+                let ast = fastc::parse(&source, &filename)?;
+                let json = fastc::caps_summary::CapsSummary::from_file(&ast).to_json();
+                if path == "-" {
+                    eprintln!("{}", json);
+                } else {
+                    std::fs::write(path, json).into_diagnostic()?;
+                    eprintln!("Caps report: {}", path);
+                }
             }
 
             if output == "-" {
@@ -413,6 +603,7 @@ fn main() -> Result<()> {
             strict,
             timing,
             timing_output,
+            output_format,
         } => {
             let source = std::fs::read_to_string(&input).into_diagnostic()?;
             let filename = input.display().to_string();
@@ -433,7 +624,27 @@ fn main() -> Result<()> {
                 emit_timing(timing_output.as_deref())?;
             }
 
-            eprintln!("No errors found.");
+            match output_format {
+                CliCheckFormat::Text => {
+                    eprintln!("No errors found.");
+                }
+                CliCheckFormat::Json => {
+                    // Print a stable JSON status line to stdout so agents
+                    // can grep for `"status": "ok"`. Hand-rolled to
+                    // avoid pulling serde_json into the hot path.
+                    let level_label = match safety_level {
+                        CliSafetyLevel::Standard => "standard",
+                        CliSafetyLevel::Critical => "critical",
+                        CliSafetyLevel::Relaxed => "relaxed",
+                    };
+                    println!(
+                        "{{\"status\": \"ok\", \"file\": \"{}\", \"safety_level\": \"{}\", \"strict\": {}}}",
+                        escape_json(&filename),
+                        level_label,
+                        strict
+                    );
+                }
+            }
         }
 
         Commands::P10Rules { safety_level } => {
@@ -781,6 +992,23 @@ fn main() -> Result<()> {
             eprintln!("Dependencies fetched successfully.");
         }
 
+        Commands::Lock { force } => {
+            let current_dir = std::env::current_dir().into_diagnostic()?;
+            let mut ctx =
+                fastc::BuildContext::new(&current_dir).map_err(|e| miette::miette!("{}", e))?;
+            ctx.lock_dependencies(force)
+                .map_err(|e| miette::miette!("{}", e))?;
+        }
+
+        Commands::Add {
+            url,
+            rev,
+            name,
+            yes,
+        } => {
+            run_add(&url, rev.as_deref(), name.as_deref(), yes)?;
+        }
+
         Commands::Bench {
             budget,
             fail_on_regression,
@@ -1113,6 +1341,20 @@ fn render_fn_explain(f: &fastc::ast::FnDecl, module: Option<&str>) -> String {
         .map(|e| format!("\"{}\"", escape_json(&expr_to_string(e))))
         .collect::<Vec<_>>()
         .join(", ");
+    let ensures = f
+        .ensures
+        .iter()
+        .map(|e| format!("\"{}\"", escape_json(&expr_to_string(e))))
+        .collect::<Vec<_>>()
+        .join(", ");
+    // Stage 1.4 / agent-facing surface: which capability tokens does
+    // this fn accept? Scans `ref(Cap*)` / `mref(Cap*)` params in
+    // declaration order with duplicates collapsed.
+    let caps = collect_fn_caps(f)
+        .iter()
+        .map(|c| format!("\"{}\"", escape_json(c)))
+        .collect::<Vec<_>>()
+        .join(", ");
     let doc_comments = f
         .doc_comments
         .iter()
@@ -1124,7 +1366,7 @@ fn render_fn_explain(f: &fastc::ast::FnDecl, module: Option<&str>) -> String {
         None => "null".to_string(),
     };
     format!(
-        "    {{\n      \"name\": \"{}\",\n      \"module\": {},\n      \"params\": [{}\n      ],\n      \"return\": \"{}\",\n      \"annotations\": [{}],\n      \"requires\": [{}],\n      \"is_unsafe\": {},\n      \"doc_comments\": [{}]\n    }}",
+        "    {{\n      \"name\": \"{}\",\n      \"module\": {},\n      \"params\": [{}\n      ],\n      \"return\": \"{}\",\n      \"annotations\": [{}],\n      \"caps\": [{}],\n      \"requires\": [{}],\n      \"ensures\": [{}],\n      \"is_unsafe\": {},\n      \"doc_comments\": [{}]\n    }}",
         escape_json(&f.name),
         module_field,
         if f.params.is_empty() {
@@ -1134,10 +1376,45 @@ fn render_fn_explain(f: &fastc::ast::FnDecl, module: Option<&str>) -> String {
         },
         escape_json(&type_to_string(&f.return_type)),
         annotations,
+        caps,
         requires,
+        ensures,
         f.is_unsafe,
         doc_comments
     )
+}
+
+/// Walk a function's params and return the set of `Cap*` struct
+/// names it accepts via `ref(...)` / `mref(...)` — the agent-facing
+/// answer to "what permissions does this fn demand to call?".
+fn collect_fn_caps(f: &fastc::ast::FnDecl) -> Vec<String> {
+    use fastc::ast::TypeExpr;
+    const KNOWN: &[&str] = &[
+        "CapFsRead",
+        "CapFsWrite",
+        "CapNetConnect",
+        "CapNetListen",
+        "CapProcSpawn",
+        "CapTimeRead",
+        "CapRand",
+        "CapEnvRead",
+    ];
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for p in &f.params {
+        let inner = match &p.ty {
+            TypeExpr::Ref(t) | TypeExpr::Mref(t) => t.as_ref(),
+            _ => continue,
+        };
+        let name = match inner {
+            TypeExpr::Named(n) | TypeExpr::NamedGeneric(n, _) => n.clone(),
+            _ => continue,
+        };
+        if KNOWN.iter().any(|k| *k == name.as_str()) && seen.insert(name.clone()) {
+            out.push(name);
+        }
+    }
+    out
 }
 
 fn type_to_string(ty: &fastc::ast::TypeExpr) -> String {
@@ -1319,6 +1596,290 @@ fn plan_cc_invocation(
         command,
         prefix_args: vec![],
     })
+}
+
+/// Implements `fastc add <url>` — fetches a candidate dependency,
+/// surfaces its capability surface, prompts the user, and appends
+/// the entry to `fastc.toml` + records the content hash in
+/// `fastc.lock`.
+///
+/// This is intentionally a "transparent prompt" flow, not a silent
+/// installer. The point of fastC's supply-chain story is that the
+/// user sees what they're authorizing before any of the dep's code
+/// runs (and remember: fastC dep code cannot run at install time
+/// because there is no build.rs equivalent — the worst a malicious
+/// dep can do is be incorrect after you import it).
+fn run_add(url: &str, rev: Option<&str>, name_override: Option<&str>, yes: bool) -> Result<()> {
+    use fastc::deps::{Cache, Dependency, Fetcher, GitVersion, Manifest};
+    use std::io::Write;
+
+    let cwd = std::env::current_dir().into_diagnostic()?;
+    let manifest_path = Manifest::find(&cwd)
+        .ok_or_else(|| miette::miette!("no fastc.toml found in current directory or parents"))?;
+    let project_root = manifest_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| cwd.clone());
+
+    eprintln!("Adding dependency from {}", url);
+
+    // 1. Fetch into the shared cache.
+    let cache =
+        Cache::new().ok_or_else(|| miette::miette!("failed to locate fastc cache directory"))?;
+    let fetcher = Fetcher::with_cache(cache);
+    let probe_name = name_override.unwrap_or("__probe");
+    let probe_version = GitVersion {
+        rev: rev.map(|r| r.to_string()),
+        ..Default::default()
+    };
+    let probe_dep = Dependency::Git {
+        git: url.to_string(),
+        version: probe_version,
+        sha256: None,
+        sigstore: None,
+    };
+    let path = fetcher
+        .fetch(probe_name, &probe_dep)
+        .map_err(|e| miette::miette!("fetch failed: {}", e))?;
+    eprintln!("  fetched to {}", path.display());
+
+    let resolved_rev = match rev {
+        Some(r) => r.to_string(),
+        None => Fetcher::head_commit(&path)
+            .map_err(|e| miette::miette!("couldn't resolve HEAD commit: {}", e))?,
+    };
+
+    // 2. Compute content hash.
+    let sha = fastc::deps::hash_tree(&path)
+        .map_err(|e| miette::miette!("hashing dep tree failed: {}", e))?;
+
+    // 3. Probe the dep's own manifest for its name / version.
+    let dep_manifest = path.join("fastc.toml");
+    if !dep_manifest.exists() {
+        return Err(miette::miette!(
+            "the fetched dependency at {} has no fastc.toml — refusing to add",
+            path.display()
+        ));
+    }
+    let dep_mf = Manifest::load(&dep_manifest)
+        .map_err(|e| miette::miette!("invalid dep manifest: {}", e))?;
+    let dep_name = name_override
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| dep_mf.package.name.clone());
+
+    // 4. Scan capability surface.
+    let caps = scan_capabilities(&path);
+
+    // 5. Print summary.
+    eprintln!();
+    eprintln!(
+        "  package: {} {}",
+        dep_mf.package.name, dep_mf.package.version
+    );
+    eprintln!("  git:     {}", url);
+    eprintln!("  rev:     {}", resolved_rev);
+    eprintln!("  sha256:  {}", sha);
+    eprintln!("  caps:    {}", format_capabilities(&caps));
+    eprintln!();
+
+    if caps
+        .iter()
+        .any(|c| c == "CapNetConnect" || c == "CapProcSpawn" || c == "CapFsWrite")
+    {
+        eprintln!(
+            "  ⚠ this dependency declares high-impact capabilities. \
+            Review its source before approving."
+        );
+    }
+
+    // 6. Prompt.
+    if !yes {
+        eprint!("Add `{}` to fastc.toml? [y/N] ", dep_name);
+        let _ = std::io::stderr().flush();
+        let mut answer = String::new();
+        std::io::stdin().read_line(&mut answer).into_diagnostic()?;
+        let trimmed = answer.trim().to_ascii_lowercase();
+        if trimmed != "y" && trimmed != "yes" {
+            eprintln!("Aborted. Nothing changed.");
+            return Ok(());
+        }
+    }
+
+    // 7. Append to fastc.toml.
+    append_dep_to_manifest(&manifest_path, &dep_name, url, &resolved_rev, &sha)
+        .map_err(|e| miette::miette!("failed to update fastc.toml: {}", e))?;
+    eprintln!("Updated {}", manifest_path.display());
+
+    // 8. Update the lockfile via BuildContext::lock_dependencies so
+    //    every dep (including the new one) ends up anchored.
+    let mut ctx = fastc::BuildContext::new(&project_root).map_err(|e| miette::miette!("{}", e))?;
+    ctx.lock_dependencies(false)
+        .map_err(|e| miette::miette!("{}", e))?;
+
+    Ok(())
+}
+
+/// Walk every `.fc` file under `root` and collect the set of `Cap*`
+/// types that appear in `ref(Cap...)` / `mref(Cap...)` positions.
+/// This is the capability surface — what the dep can do once you've
+/// passed it the right tokens.
+///
+/// Intentionally a string-level scan rather than full parsing: it's
+/// fast, works on any dep regardless of compile errors, and the
+/// false-positive shape (a comment that happens to mention `CapX`)
+/// errs toward over-warning, which is the safer default for a
+/// supply-chain prompt.
+fn scan_capabilities(root: &std::path::Path) -> Vec<String> {
+    use std::collections::BTreeSet;
+    let mut found: BTreeSet<String> = BTreeSet::new();
+    let mut stack: Vec<std::path::PathBuf> = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if path.is_dir() {
+                if name == ".git" || name == "target" || name == "build" {
+                    continue;
+                }
+                stack.push(path);
+                continue;
+            }
+            if !name.ends_with(".fc") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            for cap in extract_caps_from_text(&text) {
+                found.insert(cap);
+            }
+        }
+    }
+    found.into_iter().collect()
+}
+
+fn extract_caps_from_text(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i + 3 < bytes.len() {
+        if &bytes[i..i + 3] == b"Cap" {
+            // Must be a token start: preceded by non-identifier byte.
+            let prev_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
+            if !prev_ok {
+                i += 1;
+                continue;
+            }
+            let mut j = i + 3;
+            while j < bytes.len() && is_ident_byte(bytes[j]) {
+                j += 1;
+            }
+            if j > i + 3 {
+                if let Ok(s) = std::str::from_utf8(&bytes[i..j]) {
+                    out.push(s.to_string());
+                }
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+fn format_capabilities(caps: &[String]) -> String {
+    if caps.is_empty() {
+        return "(none declared)".to_string();
+    }
+    caps.join(", ")
+}
+
+/// Append a new `[dependencies]` entry to fastc.toml. Preserves the
+/// file's existing content exactly; just adds the new line under
+/// the `[dependencies]` table (creating the table if absent).
+///
+/// We don't use a TOML serializer here on purpose — `toml`'s
+/// serializer rewrites the whole file and would clobber comments,
+/// formatting, and field ordering. A line-level append is enough
+/// for what `fastc add` needs to do; richer edits live in a future
+/// `fastc edit` command if it's ever needed.
+fn append_dep_to_manifest(
+    path: &std::path::Path,
+    name: &str,
+    url: &str,
+    rev: &str,
+    sha256: &str,
+) -> std::io::Result<()> {
+    let existing = std::fs::read_to_string(path)?;
+    let entry = format!(
+        "{} = {{ git = \"{}\", rev = \"{}\", sha256 = \"{}\" }}\n",
+        name, url, rev, sha256
+    );
+
+    let mut out = String::new();
+    let mut inserted = false;
+    let mut in_deps_section = false;
+    let mut deps_section_end: Option<usize> = None;
+    for (idx, line) in existing.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            if in_deps_section && deps_section_end.is_none() {
+                deps_section_end = Some(idx);
+            }
+            in_deps_section = trimmed == "[dependencies]";
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if in_deps_section && deps_section_end.is_none() {
+        // [dependencies] is the last section; append at the end.
+        if !out.ends_with("\n\n") {
+            out.push('\n');
+        }
+        out.push_str(&entry);
+        inserted = true;
+    } else if let Some(_end_idx) = deps_section_end {
+        // [dependencies] was followed by another section. Reconstruct
+        // with the new entry inserted at the section's end.
+        let mut rebuilt = String::new();
+        let mut in_deps = false;
+        for line in existing.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                if in_deps {
+                    if !rebuilt.ends_with("\n\n") {
+                        rebuilt.push('\n');
+                    }
+                    rebuilt.push_str(&entry);
+                    in_deps = false;
+                }
+                if trimmed == "[dependencies]" {
+                    in_deps = true;
+                }
+            }
+            rebuilt.push_str(line);
+            rebuilt.push('\n');
+        }
+        out = rebuilt;
+        inserted = true;
+    }
+    if !inserted {
+        // No [dependencies] table yet — append one.
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str("\n[dependencies]\n");
+        out.push_str(&entry);
+    }
+
+    std::fs::write(path, out)
 }
 
 /// Write the active `TimingReport` to `dest`. `None` writes JSON to stderr;

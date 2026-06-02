@@ -56,58 +56,102 @@ Properties:
 
 The conservative design — no SAT solver, no semver, single version per dep — is intentional. Dependency resolution complexity is one of the main attack surfaces in npm and Cargo. By removing it, we remove a class of bugs and a class of UX confusion that agents struggle with.
 
-## `fastc fetch` flow
+## `fastc fetch` flow *(stage 1.7 — shipped)*
 
 ```
 $ fastc fetch
-Reading fastc.toml...
-  fastc-http github.com/Skelf-Research/fastc-http@a1b2c3d4
-  fastc-json github.com/Skelf-Research/fastc-json@e5f6...
-
-Cloning into vendor/fastc-http... (1.2 MiB)
-Verifying content hash... ✓
-Cloning into vendor/fastc-json... (0.4 MiB)
-Verifying content hash... ✓
-
-Reading transitive deps...
-  fastc-http depends on fastc-core (already vendored)
-
-Done. 2 packages, 1.6 MiB vendored.
+Fetching dependency: fastc-http
+  Fetched to: /Users/you/Library/Caches/fastc/deps/fastc-http/a1b2c3d4
+  sha256 verified: 9f2d8e1c4b73…
+  sigstore verified
+Fetching dependency: fastc-json
+  Fetched to: /Users/you/Library/Caches/fastc/deps/fastc-json/e5f67890
+  sha256 verified: 0a1b2c3d4e5f…
+  sigstore skipped: cosign not on PATH (install from https://docs.sigstore.dev/cosign/installation)
+Updated fastc.lock
+Dependencies fetched successfully.
 ```
 
 Failure modes are explicit:
 
-- Hash mismatch — build fails before any source is compiled. The mismatch is logged with the expected/actual hash.
-- Git ref not found — fail with a hint to verify the commit SHA.
-- Conflicting transitive versions — fail with the conflicting pair listed.
+- **Hash mismatch** — build fails before any source is compiled. The diagnostic shows both the expected and computed hash plus the cache path so the user can inspect the drifted tree:
 
-After `fetch`, the `vendor/` tree is checked into the user's repo. Subsequent builds do not re-fetch — they read from `vendor/`. This is also Go's model. The supply-chain win: a clean checkout of any fastC project on a fresh machine is reproducible without network access.
+  ```
+  Error: fetch error: dependency 'fastc-http': integrity: sha256 mismatch at /…/fastc-http/a1b2c3d4
+    expected: 9f2d8e1c4b738a92…(declared)
+    got:      4c1d…
+  ```
 
-## `fastc add <github-url>` — capability-aware add flow
+- **Manifest ↔ lockfile disagreement** — fails with a hint to run `fastc lock --force` if the change is intentional:
 
-This is the single most compelling supply-chain UX available in any language right now and the headline feature of the package system. When a user adds a dependency:
+  ```
+  Error: dependency 'fastc-http': manifest sha256 (9f2d8e1c4b73…) disagrees
+  with fastc.lock sha256 (4c1da6b…). Run `fastc lock --force` to re-anchor
+  or fix the manifest.
+  ```
+
+- **Sigstore bundle invalid** — when `sigstore = "<path>"` is set and `cosign` is on PATH, a verification failure aborts the build with cosign's diagnostic surfaced verbatim. Cosign-not-on-PATH degrades to a `sigstore skipped:` warning so fast iteration isn't blocked in environments where cosign isn't trivially available; production CI installs cosign via `sigstore/cosign-installer@v3` to make the check strict.
+
+- **Git ref not found** — fails with the underlying libgit2 error.
+
+The fetched tree lives in the shared cache (`~/Library/Caches/fastc/deps/` on macOS, `~/.cache/fastc/deps/` on Linux), keyed by `<name>/<git+rev-hash>` so multiple projects pinning the same revision share storage. Subsequent builds do not re-fetch — `fastc.lock` records the resolved commit + content hash, the cache lookup is keyed on (name, url, rev), and `fastc build` short-circuits when the entry already exists. A clean checkout of any fastC project on a fresh machine is reproducible: `fastc fetch` re-pulls into the cache, re-verifies hashes, and the build is deterministic from that point.
+
+## `fastc lock` — recording the content hash
+
+When a dep is added without a `sha256` field (the gradual-adoption path), the user runs `fastc lock` to record the content hash from the current fetched state:
 
 ```
-$ fastc add github.com/Skelf-Research/fastc-http
-Fetching github.com/Skelf-Research/fastc-http (latest signed release)...
-
-Package: fastc-http v0.4.0
-Verified Sigstore signature: ✓ (signed by skelf-research/release-bot)
-SLSA L3 provenance: ✓
-
-This package requires the following capabilities:
-  - net.connect(*)           — outbound network connections, any host
-  - net.dns                  — DNS resolution
-  - time.read                — read system time for timeouts
-
-This package will be vendored to: vendor/fastc-http/
-
-Continue? [y/N]
+$ fastc lock
+Locking dependency: fastc-http
+  sha256: 9f2d8e1c4b738a920eaf3d6c1a05b827...
+Updated fastc.lock
 ```
 
-The capability set is read from the dep's `caps.json` (the build artifact described in [docs/capabilities.md](capabilities.md)). The user sees the full I/O surface of the dep *before* installation — not after reading every line of `build.rs`.
+The lockfile entry becomes the source of truth for subsequent verification. A second `fastc lock` run with no change reports `unchanged` and exits 0. If the upstream repo's content has drifted (re-tagged, force-pushed, etc.) the run reports a mismatch and refuses to overwrite the recorded hash unless `--force` is passed:
 
-This compares favourably to the Rust equivalent (`cargo add foo`) where the user has no language-level idea what `foo` can do at runtime until they read 200 transitive crates of source. fastC: one prompt, one decision.
+```
+$ fastc lock
+Locking dependency: fastc-http
+Error: dependency 'fastc-http': fetched tree no longer matches the recorded
+sha256 (4c1d… != 9f2d8e1c4b73…). Re-run with `--force` if this is intentional.
+```
+
+This is what prevents a silent supply-chain rotation. The user has to actively acknowledge that the upstream content changed.
+
+## `fastc add <github-url>` — capability-aware add flow *(stage 1.7 — shipped)*
+
+The single most compelling supply-chain UX available in any language right now. When a user adds a dependency:
+
+```
+$ fastc add https://github.com/Skelf-Research/fastc-http
+Adding dependency from https://github.com/Skelf-Research/fastc-http
+  fetched to /Users/you/Library/Caches/fastc/deps/__probe/3d716a47…
+
+  package: fastc-http 0.4.0
+  git:     https://github.com/Skelf-Research/fastc-http
+  rev:     a1b2c3d4e5f67890abcdef…
+  sha256:  9f2d8e1c4b738a920eaf3d6c1a05b827…
+  caps:    CapNetConnect, CapTimeRead
+
+  ⚠ this dependency declares high-impact capabilities. Review its source before approving.
+
+Add `fastc-http` to fastc.toml? [y/N]
+```
+
+The capability set is extracted by scanning every `.fc` file in the fetched tree for `Cap*` types appearing in `ref(...)` / `mref(...)` parameter positions — exactly the set that `fastc add` will need to be threaded through at every call site. The shown list is conservative (the scan over-reports rather than under-reports: a comment that happens to mention `CapFsRead` will show up). High-impact caps (`CapNetConnect`, `CapProcSpawn`, `CapFsWrite`) trigger the warning banner.
+
+If the user accepts, fastC writes:
+
+```toml
+[dependencies]
+fastc-http = { git = "https://github.com/Skelf-Research/fastc-http", rev = "a1b2c3d4e5f67890...", sha256 = "9f2d8e1c4b738a920eaf3d6c1a05b827..." }
+```
+
+and runs `fastc lock` to record the same hash into `fastc.lock`. From that point on, every build verifies the cache against this hash.
+
+The user sees the full capability surface of the dep *before* installation — not after reading every line of a Rust `build.rs` or a Zig `build.zig`. The Rust equivalent (`cargo add foo`) tells you nothing about runtime behaviour; here, one prompt covers the decision and a static guarantee (the dep's code structurally cannot reach capabilities it didn't declare in those signatures) backs the prompt up.
+
+The capability scan is implemented in `crates/fastc/src/main.rs`'s `scan_capabilities` — string-level rather than full AST parsing so it works even on deps that don't compile against the local fastC version, and so it surfaces the I/O surface even when the user hasn't yet built the dep.
 
 ## Forbidden: executable build steps
 
@@ -137,21 +181,39 @@ Practical effect: a user's first build of `fastc-http` on a fresh machine takes 
 
 This is what Nix has been trying to achieve for a decade. fastC gets it free because the inputs forbid the dynamism that breaks reproducibility.
 
-## Compiler binary provenance: Sigstore + SLSA L3
+## Compiler binary provenance: Sigstore + SLSA L3 *(stage 1.7 — workflow shipped)*
 
-The compiler binary itself ships with full provenance:
+`.github/workflows/release.yml` runs on every `vX.Y.Z` tag push and does the full provenance dance:
 
-- **Sigstore signing.** Every `fastc` release binary is signed by the Skelf Research release pipeline using Sigstore's keyless flow. The signature is verifiable from any client.
-- **SLSA Level 3 provenance.** The build pipeline produces a SLSA L3 attestation: the source repo, the commit, the builder, the build steps, the output hash. The attestation is published alongside the release.
-- **Verification on install.** `fastc-install` (the bootstrap tool) verifies the Sigstore signature and SLSA attestation before extracting the binary. A binary that fails verification is rejected.
+1. **Build** the host fastc binary on Linux x86_64, macOS x86_64, macOS aarch64, and Windows x86_64 (four matrix jobs).
+2. **Sign** each artifact with `cosign sign-blob --new-bundle-format` using the workflow's OIDC identity. Cosign keyless means no long-lived keys, no PGP-key-loss disaster, no `signing-key.gpg` to compromise — the signing identity *is* the GitHub Actions workflow that produced the binary, recorded in the Sigstore transparency log.
+3. **Attest** via `slsa-framework/slsa-github-generator` — emits a `multiple.intoto.jsonl` SLSA L3 provenance file signed by the same workflow identity. The provenance documents the source repo, commit, builder image, and exact build steps that produced each artifact.
+4. **Publish** binaries, `.sigstore.json` bundles, and the SLSA attestation to the GitHub Release for that tag.
+
+Downstream verification (recommended for any team installing `fastc`):
+
+```sh
+# Verify the binary's signature.
+cosign verify-blob \
+  --bundle fastc-linux-x86_64.sigstore.json \
+  --new-bundle-format \
+  --certificate-identity-regexp '^https://github.com/Skelf-Research/fastc/\.github/workflows/release\.yml@.+$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  fastc-linux-x86_64
+
+# Verify the SLSA L3 attestation.
+slsa-verifier verify-artifact fastc-linux-x86_64 \
+  --provenance-path multiple.intoto.jsonl \
+  --source-uri github.com/Skelf-Research/fastc
+```
 
 This closes the loop. The user's threat surface narrows to:
 
-1. The Sigstore root of trust (shared with the OpenSSF ecosystem).
-2. The GitHub repo hosting fastC and the deps (assumption shared with everyone).
+1. The Sigstore root of trust (shared with the OpenSSF ecosystem; the same trust anchor `go install`, `pip install --require-hashes`, and modern PyPI uploads use).
+2. The GitHub repo hosting fastC and the deps (assumption shared with everyone using GitHub-distributed software).
 3. The user's own source code.
 
-There is no registry, no install-time script, no maintainer-account compromise pathway that does not surface as a Sigstore verification failure.
+There is no registry, no install-time script, no maintainer-account compromise pathway that does not surface as a Sigstore or SLSA verification failure. Compare this to PyPI / npm / crates.io, where a compromised maintainer account is a one-step path to shipping a malicious version that bypasses every static check the user could run.
 
 ## `fastc.dev` as a search frontend
 

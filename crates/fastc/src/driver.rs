@@ -108,13 +108,39 @@ pub fn compile(source: &str, filename: &str) -> Result<String, CompileError> {
     Ok(c_code)
 }
 
-/// Compile FastC source code to C11 with Power of 10 rule enforcement
+/// Compile FastC source code to C11 with Power of 10 rule enforcement.
+///
+/// This is the workhorse entry. `compile_with_p10_and_discharge` is
+/// the richer variant that returns the discharge report; this thin
+/// wrapper preserves the existing signature for backward
+/// compatibility.
 pub fn compile_with_p10(
     source: &str,
     filename: &str,
     emit_header: bool,
     p10_config: P10Config,
 ) -> Result<(String, Option<String>), CompileError> {
+    let (c, h, _) = compile_with_p10_and_discharge(
+        source,
+        filename,
+        emit_header,
+        p10_config,
+        &crate::discharge::DischargeConfig::default(),
+    )?;
+    Ok((c, h))
+}
+
+/// Same as `compile_with_p10` but also returns the SMT contract
+/// discharge report. Callers that want to emit `discharge.json` or
+/// surface proven-vs-runtime counts use this entry; everyone else
+/// uses the thin wrapper above.
+pub fn compile_with_p10_and_discharge(
+    source: &str,
+    filename: &str,
+    emit_header: bool,
+    p10_config: P10Config,
+    discharge_config: &crate::discharge::DischargeConfig,
+) -> Result<(String, Option<String>, crate::discharge::DischargeReport), CompileError> {
     let tokens = time_pass("lex", || {
         let lexer = Lexer::new(source);
         strip_comments(lexer.collect())
@@ -176,8 +202,24 @@ pub fn compile_with_p10(
     // mangled specialized name. Non-generic programs see no change.
     let mono_ast = time_pass("mono", || monomorphize(&ast, &symbols, source))?;
 
+    // Stage 2.1 — collect contract obligations and run the three-tier
+    // pipeline (syntactic → SMT → runtime). Cheap when `discharge_config.enable`
+    // is false: tier-1 still runs (trivial constants) but no external
+    // process is spawned. The report flows downstream to the lower
+    // pass so proven obligations elide their `fc_trap` guard.
+    //
+    // K1: discharge runs AFTER mono so method calls like `c.add(5)` have
+    // already been rewritten to `Counter_add(&c, 5)`. The call-site
+    // discharger looks up callees by mangled free-function name; method
+    // syntax in the pre-mono AST wouldn't resolve to the lifted target.
+    let discharge_report = time_pass("discharge", || {
+        crate::discharge::discharge_file(&mono_ast, discharge_config)
+    });
+
     let c_ast = time_pass("lower", || {
         let mut lowerer = Lower::new();
+        lowerer.set_discharge(discharge_report.clone());
+        lowerer.set_source(source, filename);
         lowerer.lower(&mono_ast)
     });
 
@@ -196,7 +238,7 @@ pub fn compile_with_p10(
         (c_code, header)
     });
 
-    Ok((c_code, header))
+    Ok((c_code, header, discharge_report))
 }
 
 /// Compile FastC source code to C11 with optional header generation
@@ -281,6 +323,7 @@ pub fn compile_project(
 
     let c_ast = time_pass("lower", || {
         let mut lowerer = Lower::new();
+        lowerer.set_source(source, filename);
         lowerer.lower(&mono_ast)
     });
 

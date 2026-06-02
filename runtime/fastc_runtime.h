@@ -233,6 +233,149 @@ static inline void fc_write_u64_unaligned(void* ptr, uint64_t val) {
     fc_memcpy(ptr, &val, sizeof(val));
 }
 
+/* Command-line argv access.
+ *
+ * fastC's `fn main() -> i32` takes no arguments. To expose argv to user
+ * code, the emit pass renames the user's body to `fc_user_main` and
+ * generates a wrapper `int main(int argc, char** argv)` that calls
+ * `fc_args_init` before invoking it. The user-facing surface lives in
+ * `mod cli` in the prelude.
+ *
+ * `_fastc_argv` is a `char**` pointer to libc's argv array — its
+ * lifetime matches the process, so we can stash the pointer for the
+ * full run without copying. The lookup is bounds-checked to return
+ * NULL for out-of-range indices, which `mod cli` translates to
+ * "missing argument".
+ */
+static int _fastc_argc = 0;
+static char** _fastc_argv = (char**)0;
+
+static inline void fc_args_init(int argc, char** argv) {
+    _fastc_argc = argc;
+    _fastc_argv = argv;
+}
+
+static inline int32_t fc_args_count(void) {
+    return (int32_t)_fastc_argc;
+}
+
+static inline const uint8_t* fc_args_at(int32_t i) {
+    if (i < 0 || i >= _fastc_argc || _fastc_argv == (char**)0) {
+        return (const uint8_t*)0;
+    }
+    return (const uint8_t*)_fastc_argv[i];
+}
+
+/* Advance a `const uint8_t*` by one byte. fastC's `raw(u8)` type
+ * doesn't expose pointer-add directly today; `mod cli` uses this
+ * helper to walk past a flag prefix to land on its value. */
+static inline const uint8_t* fc_raw_step(const uint8_t* p) {
+    if (p == (const uint8_t*)0) return p;
+    return p + 1;
+}
+
+/* Null-pointer helpers. fastC has no `cast(raw(u8), 0)` syntax yet
+ * (the type system rejects integer→pointer casts), so callers that
+ * need to spell "NULL" or null-check a pointer go through these. */
+static inline const uint8_t* fc_raw_null(void) {
+    return (const uint8_t*)0;
+}
+
+static inline bool fc_raw_is_null(const uint8_t* p) {
+    return p == (const uint8_t*)0;
+}
+
+/* TCP socket primitives for `mod http`.
+ *
+ * Thin POSIX-socket wrappers used by the stage-1.8 `fastc-core/http`
+ * launch-set preview. The fastC bindings live in `mod http` and gate
+ * every call on a `CapNetConnect` capability so the type system
+ * tracks "this code reaches the network."
+ *
+ * Portability: POSIX `socket` / `connect` / `send` / `recv` /
+ * `close` are available on every v1.9 cross-compile target EXCEPT
+ * wasm32-wasi. wasi-libc ships `<sys/socket.h>` (since 2024) but the
+ * actual `socket()` / `connect()` symbols aren't linkable — WASI
+ * Preview 1 has no synchronous BSD-socket equivalent and Preview 2's
+ * `wasi:sockets` is a different API that needs a separate binding.
+ * For now we gate the body on `!__wasi__`; the fastC `mod http`
+ * binding compiles fine for WASI but calling it links against weak
+ * stubs (defined further down) that return -1.
+ */
+#ifndef __wasi__
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <string.h>
+#include <errno.h>
+#endif
+#include <unistd.h>
+
+/* Open a TCP connection to `host:port`. Returns the socket fd, or
+ * -1 on resolve/connect failure. `host` is a null-terminated cstr
+ * (e.g. "example.com" or "127.0.0.1"); `port` is the IP port.
+ *
+ * On wasm32-wasi this is a stub that always returns -1 (see the
+ * portability note above). User code can still link, and the
+ * fastC `http::get_status` binding still type-checks; the call
+ * just fails at runtime with status -1. */
+#ifndef __wasi__
+static inline int32_t fc_net_connect_tcp(const uint8_t* host, int32_t port) {
+    struct addrinfo hints;
+    struct addrinfo* res = (struct addrinfo*)0;
+    struct addrinfo* p;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    char port_str[8];
+    snprintf(port_str, sizeof(port_str), "%d", (int)port);
+    if (getaddrinfo((const char*)host, port_str, &hints, &res) != 0) {
+        return -1;
+    }
+    int sock = -1;
+    for (p = res; p != (struct addrinfo*)0; p = p->ai_next) {
+        sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (sock < 0) continue;
+        if (connect(sock, p->ai_addr, p->ai_addrlen) == 0) break;
+        close(sock);
+        sock = -1;
+    }
+    freeaddrinfo(res);
+    return (int32_t)sock;
+}
+
+static inline int32_t fc_net_send(int32_t fd, const uint8_t* buf, int32_t len) {
+    if (fd < 0 || len <= 0) return -1;
+    ssize_t n = send((int)fd, buf, (size_t)len, 0);
+    return (int32_t)n;
+}
+
+static inline int32_t fc_net_recv(int32_t fd, uint8_t* buf, int32_t cap) {
+    if (fd < 0 || cap <= 0) return -1;
+    ssize_t n = recv((int)fd, buf, (size_t)cap, 0);
+    return (int32_t)n;
+}
+
+static inline void fc_net_close(int32_t fd) {
+    if (fd >= 0) close((int)fd);
+}
+#else
+/* wasm32-wasi stubs: same signatures, always-fail behaviour. The
+ * `(void)<arg>` casts silence -Wunused-parameter under -Werror. */
+static inline int32_t fc_net_connect_tcp(const uint8_t* host, int32_t port) {
+    (void)host; (void)port; return -1;
+}
+static inline int32_t fc_net_send(int32_t fd, const uint8_t* buf, int32_t len) {
+    (void)fd; (void)buf; (void)len; return -1;
+}
+static inline int32_t fc_net_recv(int32_t fd, uint8_t* buf, int32_t cap) {
+    (void)fd; (void)buf; (void)cap; return -1;
+}
+static inline void fc_net_close(int32_t fd) {
+    (void)fd;
+}
+#endif
+
 /* Test-only accumulator used by examples that need a side-effect
  * sink before closures with captured state exist. Three helpers:
  *   - fc_test_acc_reset(): clear the slot

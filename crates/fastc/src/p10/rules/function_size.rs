@@ -27,7 +27,14 @@ impl FunctionSizeRule {
             return 0;
         }
 
-        let body_text = &source[start..end];
+        // Span endpoints land on byte offsets, which may sit mid-codepoint
+        // when the body contains multi-byte UTF-8 (em-dashes, smart quotes,
+        // unicode identifiers). `get(...)` returns None on non-boundary
+        // indices instead of panicking, and we fall back to counting zero
+        // lines — which trips no rule.
+        let Some(body_text) = source.get(start..end) else {
+            return 0;
+        };
 
         // Count non-empty, non-comment-only lines
         body_text

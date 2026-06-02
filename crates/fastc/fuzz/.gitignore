@@ -1,0 +1,5 @@
+# cargo-fuzz generates these — don't check them in.
+target
+corpus
+artifacts
+coverage

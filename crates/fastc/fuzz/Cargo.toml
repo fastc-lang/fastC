@@ -1,0 +1,55 @@
+# Stage-2.0 hardening (H5) — cargo-fuzz harness for fastC's parser.
+#
+# Not part of the main workspace because cargo-fuzz uses its own
+# build profile (`cargo +nightly fuzz run …`) and we don't want to
+# pull in libfuzzer-sys on every developer's `cargo build`.
+#
+# To run:
+#   cd crates/fastc/fuzz
+#   cargo +nightly fuzz run parse_no_panic -- -max_total_time=300
+#
+# Add seeds to `fuzz/corpus/parse_no_panic/` (the harness will pick
+# them up automatically). The `fastc-fuzz-seed` script in this dir
+# can populate the corpus from `examples/` if you want a richer
+# starting set than the few inline seeds in `fuzz_targets/`.
+
+[package]
+name = "fastc-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+fastc = { path = ".." }
+
+[[bin]]
+name = "parse_no_panic"
+path = "fuzz_targets/parse_no_panic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "check_no_panic"
+path = "fuzz_targets/check_no_panic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "compile_no_panic"
+path = "fuzz_targets/compile_no_panic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "discharge_no_panic"
+path = "fuzz_targets/discharge_no_panic.rs"
+test = false
+doc = false
+bench = false

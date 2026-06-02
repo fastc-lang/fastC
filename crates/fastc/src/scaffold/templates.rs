@@ -379,3 +379,105 @@ MIT
 "#
     )
 }
+
+/// Generate AGENTS.md — the agent-facing entry point that ships with
+/// every new fastC project (stage 1.6 / 2.1 DoD). Tells an LLM
+/// (a) what language this is, (b) which compiler entry points
+/// produce structured artifacts, (c) the capability and contract
+/// surfaces it should query before generating code.
+pub fn agents_md(name: &str, project_type: ProjectType) -> String {
+    let type_desc = match project_type {
+        ProjectType::Binary => "a binary fastC application",
+        ProjectType::Library => "a fastC library",
+        ProjectType::FfiWrapper => "a fastC FFI wrapper around an existing C library",
+    };
+
+    format!(
+        r#"# AGENTS.md — {name}
+
+Self-describing entry point for AI coding agents (Claude Code, Cursor,
+Codex, …) working in this repository. fastC is **C-like, memory-safe
+without a GC, capability-typed I/O, contract-annotated, no executable
+build scripts.** This project is {type_desc}.
+
+## TL;DR for agents
+
+- Source files live in `src/*.fc`. Build with `fastc build`. Run with
+  `fastc run`.
+- Use `fastc explain src/<file>.fc` to get a JSON document of every
+  function in that file: name, params, return type, declared
+  capabilities, `@requires` / `@ensures` contracts, doc comments.
+  Prefer this over reading the source.
+- Use `fastc compile <file> --caps-output=- --discharge-output=- -o /dev/null`
+  to get the **capability surface** and **contract discharge report**
+  of any fastC file. The caps.json lists which `Cap*` tokens each fn
+  demands; the discharge.json shows which contracts were proven
+  statically vs left as runtime asserts.
+- Power-of-10 safety rules are on by default. Use
+  `fastc check src/<file>.fc` to verify; `--safety-level=critical`
+  enforces the full set (no recursion, no heap, bounded loops, etc.).
+- For agent-native diagnostics: `fastc-mcp` runs over stdio
+  JSON-RPC; the binary lives next to `fastc` after `cargo install`.
+  See `docs/mcp.md` in the fastc repo.
+
+## The wedge — what makes fastC different from C / Rust / Zig / Go
+
+1. **Capability-typed I/O.** A function that reads files takes
+   `c: ref(CapFsRead)` as a parameter. A function with no `Cap*`
+   parameters structurally cannot reach the filesystem, the network,
+   the clock, env vars, or anything else — the type system makes
+   ambient authority impossible.
+2. **No executable build scripts.** `fastc.toml` is closed-schema
+   TOML enforced by `#[serde(deny_unknown_fields)]`. There is no
+   place to put code that runs at install / build time — supply
+   chain attacks (faster_log, async_println, CVE-2026-28353) don't
+   apply.
+3. **Compile-time contracts.** `@requires(x > 0)` and
+   `@ensures(result >= 0)` are first-class on every function. A
+   three-tier discharge pipeline (syntactic → SMT → runtime) proves
+   what it can; the rest stays as runtime traps.
+4. **Portable C11 output.** fastC compiles to readable C. gdb,
+   valgrind, perf, ASan, every C compiler optimisation all work.
+   Cross-compile via `fastc build --target=aarch64-linux-musl` etc.
+
+## What to do BEFORE writing code in this repo
+
+1. Read `src/main.fc` (or `src/lib.fc`) to see the existing surface.
+2. Run `fastc explain src/main.fc` for the structured signature.
+3. If you're adding I/O, route it through a `Cap*` token threaded
+   from `main`. Never call `caps::init()` outside `main` — the
+   compiler will reject it.
+4. If you're adding a new contract, add the smallest tier-1
+   tautology if you can — it gets discharged for free.
+
+## Tooling shortcuts
+
+- `fastc compile <file>.fc -o out.c` — emit C without linking.
+- `fastc compile <file>.fc -o out.c --prove --discharge-output=-`
+  — emit C and print the contract discharge report.
+- `fastc target list` — see the cross-compile target matrix.
+- `fastc check --safety-level=critical <file>.fc` — full P10 check.
+- `fastc bench` — run the compile-time budget gate.
+
+## What NOT to do
+
+- Don't add a `build.rs` equivalent. It doesn't exist on purpose.
+- Don't fabricate a `Cap*` struct (`CapFsRead {{}}`) outside `mod caps`
+  — the compiler will reject it.
+- Don't disable Power of 10 rules to silence a warning. Fix the
+  underlying issue or use `--safety-level=relaxed` only as a temporary
+  signal that the code needs to be revisited.
+- Don't pin a dependency without recording its content sha256 in
+  `fastc.lock`. Run `fastc lock` after adding a new dep.
+
+## Reading order if you're new to this project
+
+1. `fastc.toml` — what the project declares about itself.
+2. `src/main.fc` (or `src/lib.fc`) — entry point.
+3. `fastc explain src/<file>.fc` — JSON signature surface for every
+   function. **Use this instead of reading bodies when you're
+   collecting context.**
+4. This file (`AGENTS.md`).
+"#
+    )
+}

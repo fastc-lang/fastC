@@ -18,10 +18,10 @@ fastC is a modern C-like language for a world where most code is written by an A
 | Memory safety without GC | ✗ | ✓ | partial | ✗ (GC) | **✓** |
 | No executable build scripts | ✓ | ✗ `build.rs` | ✗ `build.zig` | ✗ `cgo` | **✓** |
 | Capability-typed I/O | ✗ | ✗ | ✗ | ✗ | **✓** |
-| Compile-time contracts (`@requires` / `@ensures`) | ✗ | ✗ | partial | ✗ | **✓** |
+| Compile-time contracts (`@requires` / `@ensures`, SMT-discharged) | ✗ | ✗ | partial | ✗ | **✓ (three-tier: syntactic → Z3 → runtime)** |
 | Outputs portable C11 | is C | ✗ | ✗ | ✗ | **✓** |
 | Vendor-first deps (no central registry) | N/A | crates.io | Zon | modules | **✓** |
-| Sigstore / SLSA provenance | ✗ | ✗ | ✗ | ✗ | **scheduled** |
+| Sigstore / SLSA provenance | ✗ | ✗ | ✗ | ✗ | **✓ (enforced sha256 + cosign keyless + SLSA L3)** |
 | Stripped binary (hello) | 33 KB | 341 KB | 50 KB | 2.4 MB | **53 KB** |
 | Cross-compile, no sysroot setup | depends on toolchain | rustup per-target dance | ✓ (`zig cc`, 50+) | ✓ (`GOOS`/`GOARCH`) | **✓ (8 presets via `zig cc`, any C cross-toolchain via `--cc-override`)** |
 
@@ -86,6 +86,10 @@ The [supply-chain side-by-side demo](examples/supply_chain_demo/) shows `cargo b
 
 **Cross-compile, one flag.** `fastc build --target=<triple>` ships eight pre-wired presets via `zig cc` (aarch64/x86_64 × linux-musl/linux-gnu, aarch64/x86_64-macos, wasm32-wasi, riscv64-linux-musl). One `brew install zig` and `fastc build --target=aarch64-linux-musl` produces a statically-linked ARM Linux binary, or `--target=wasm32-wasi` a `.wasm` for sandboxed runtimes. `--cc-override=<path>` swaps in a proprietary toolchain when needed. fastC emits portable C11, so any C cross-compiler in the world targets fastC binaries — we just default to the best one. See [docs/cross-compile.md](docs/cross-compile.md) and `fastc target list` for the live matrix.
 
+**fastc-core launch set (stage 1.8 preview).** Five batteries-included modules ship in the prelude: `mod cli` (argv + flag parsing), `mod log` (debug/info/warn/error + structured kv pairs), `mod json` (encoder + a `find_int` decoder slice for top-level fields), `mod toml` (flat-table `find_int` / `find_bool` for config files), and `mod http` (`get_status` over a real TCP socket, gated on `CapNetConnect`). The integrated demo at [examples/launch_set_demo.fc](examples/launch_set_demo.fc) uses all five from a single program — CLI flags → TOML default → log → cap-typed HTTP call → JSON field extract. The eventual split to standalone vendor packages (`fastc-core/cli`, `fastc-core/http`, …) is a 1.7 packaging change, not a code change; the surface is final.
+
+**SMT contract discharge (stage 2.1 preview).** `fastc compile --prove` runs every `@requires` / `@ensures` clause through a three-tier pipeline: a syntactic discharger (constant-fold + tautological-comparison detection, always on, no Z3 dependency) catches the free wins; an opt-in Z3 tier handles linear-integer tautologies with a 500 ms per-obligation budget; anything tier-1 and tier-2 can't prove falls back to the existing runtime `fc_trap`. **Proven obligations cost zero at runtime.** The build emits a `discharge.json` per-obligation report listing proven/runtime/unknown counts plus tier. Z3-not-on-PATH degrades to runtime tier with a structured reason (no build break). See `examples/cli_demo.fc` for a working program with mixed proven and runtime clauses.
+
 ## Quick Start
 
 ```bash
@@ -103,11 +107,16 @@ cc hello.c -o hello && ./hello && echo OK
 fastc new my_project
 cd my_project
 fastc run
+
+# Add a vendored dependency — shows capabilities + content hash before writing
+fastc add https://github.com/Skelf-Research/fastc-http
+# Records sha256 in fastc.toml + fastc.lock; subsequent builds verify the
+# fetched cache against that hash and fail loudly on any drift.
 ```
 
 ## Status
 
-Stage 1.5 (contracts, runtime tier) is the latest checkpoint. 222 tests pass across the workspace. The read-side capability-typed I/O surfaces (`mod time` / `mod env` / `mod rand` / `mod fs`) are all live and exercised end-to-end. Closures-with-captures, SMT contract discharge, Sigstore fetch-side enforcement are the remaining multi-week items for v1.0.
+**fastC is v1.0 feature-complete.** Stages 0.1–1.9 plus the core of 2.1 (SMT contract discharge) are shipped: capability-typed I/O with fabrication check + `caps.json` artifact, vendor-first dependencies with enforced sha256 + cosign keyless + SLSA L3, the five-module fastc-core launch set, cross-compilation to eight targets via `zig cc`, three-tier contract discharge (syntactic + Z3 + runtime). 270+ tests pass across the workspace. The v1.0 stability commitment is documented in [docs/v1.0.md](docs/v1.0.md); roadmap items remaining for v1.x (body-aware SMT, vendor-package split, global build cache, captured-closures) are listed at the top of [docs/roadmap.md](docs/roadmap.md).
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the slice-by-slice history.
 

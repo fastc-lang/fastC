@@ -130,8 +130,16 @@ impl Parser<'_> {
             } else {
                 false
             };
-            if !self.check(&Token::Fn) {
-                return Err(self.error("expected 'fn' inside impl block"));
+            // K1: an impl method may carry `@requires(...)` / `@ensures(...)`
+            // / `@pure` / `@noalloc` / `@nodiverg` annotations before the
+            // `fn` keyword — the same set top-level fns accept. We hand
+            // off to `parse_fn_decl`, which absorbs the annotations
+            // itself and then requires `fn`. The legacy hard check on
+            // `Token::Fn` rejected impl methods that had contracts on
+            // them and forced users to declare every method's
+            // precondition externally.
+            if !is_impl_method_start(self.current()) {
+                return Err(self.error("expected 'fn' (or contract annotation) inside impl block"));
             }
             methods.push(self.parse_fn_decl(is_unsafe)?);
         }
@@ -751,6 +759,26 @@ fn attach_doc_comments(item: Item, docs: Vec<String>) -> Item {
         // Use/Opaque/Extern/Mod don't carry docs in v1.
         other => other,
     }
+}
+
+/// K1: the legal start tokens for a method declaration inside an
+/// `impl Type { … }` block. `Fn` is the historical case; the four
+/// annotation tokens cover `@requires` / `@ensures` / `@pure` /
+/// `@noalloc` / `@nodiverg` interleaved before the `fn` keyword.
+/// `parse_fn_decl` consumes the annotations itself; this helper
+/// only needs to recognize their token shape so the impl-block
+/// loop doesn't bail out before the handoff.
+fn is_impl_method_start(tok: &crate::lexer::Token) -> bool {
+    use crate::lexer::Token;
+    matches!(
+        tok,
+        Token::Fn
+            | Token::AtRequires
+            | Token::AtEnsures
+            | Token::AtPure
+            | Token::AtNoalloc
+            | Token::AtNodiverg
+    )
 }
 
 /// Merge two annotation vectors, keeping order and deduplicating

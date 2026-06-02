@@ -15,7 +15,14 @@ pub struct Lockfile {
     pub packages: Vec<LockedPackage>,
 }
 
-/// A locked package with exact version information
+/// A locked package with exact version information.
+///
+/// Stage 1.7 added `sha256`: the content-hash of the fetched tree
+/// (sans `.git/`). It's the verifier's source of truth when the
+/// manifest entry doesn't carry its own `sha256`. The build cross-
+/// checks both: if both are set and disagree, the build fails;
+/// if only one is set, that one is enforced; if neither, the build
+/// warns but proceeds (gradual-adoption escape hatch).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LockedPackage {
     /// Package name
@@ -27,6 +34,10 @@ pub struct LockedPackage {
     /// Resolved Git commit hash (if applicable)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved: Option<String>,
+    /// Content-tree SHA-256 (lowercase hex) recorded at fetch time.
+    /// Written by `fastc lock`; verified on every subsequent fetch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
     /// Dependencies of this package
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependencies: Vec<String>,
@@ -102,6 +113,9 @@ impl std::fmt::Display for Lockfile {
             if let Some(resolved) = &pkg.resolved {
                 writeln!(f, "resolved = \"{}\"", resolved)?;
             }
+            if let Some(sha256) = &pkg.sha256 {
+                writeln!(f, "sha256 = \"{}\"", sha256)?;
+            }
             if !pkg.dependencies.is_empty() {
                 write!(f, "dependencies = [")?;
                 for (i, dep) in pkg.dependencies.iter().enumerate() {
@@ -161,6 +175,9 @@ mod tests {
             version: "1.0.0".to_string(),
             source: "git+https://github.com/user/mylib?tag=v1.0.0".to_string(),
             resolved: Some("abc123def456".to_string()),
+            sha256: Some(
+                "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            ),
             dependencies: vec!["utils".to_string()],
         });
         lockfile.add_package(LockedPackage {
@@ -168,6 +185,7 @@ mod tests {
             version: "0.5.0".to_string(),
             source: "git+https://github.com/user/utils?branch=main".to_string(),
             resolved: Some("789xyz".to_string()),
+            sha256: None,
             dependencies: vec![],
         });
 
@@ -188,6 +206,7 @@ mod tests {
             version: "1.0.0".to_string(),
             source: "old".to_string(),
             resolved: None,
+            sha256: None,
             dependencies: vec![],
         });
 
@@ -196,6 +215,7 @@ mod tests {
             version: "2.0.0".to_string(),
             source: "new".to_string(),
             resolved: None,
+            sha256: None,
             dependencies: vec![],
         });
 

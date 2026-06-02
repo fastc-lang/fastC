@@ -1,0 +1,84 @@
+name: Fuzz
+
+# Stage-2.0 hardening (H5) — run a short cargo-fuzz pass on every
+# PR that touches the parser or lexer surface. The 5-minute budget
+# keeps the workflow fast enough for the inner loop; longer runs
+# are kicked off out-of-band when the upstream branch surface
+# changes shape (a separate `fuzz-long.yml` workflow lives in a
+# follow-up).
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'crates/fastc/src/lexer/**'
+      - 'crates/fastc/src/parser/**'
+      - 'crates/fastc/fuzz/**'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'crates/fastc/src/lexer/**'
+      - 'crates/fastc/src/parser/**'
+      - 'crates/fastc/fuzz/**'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  fuzz:
+    name: ${{ matrix.target }} (${{ matrix.budget_s }}s budget)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Per-target budget tuned to per-iteration cost — the
+        # parser is the cheapest, full-compile the most expensive.
+        # 5-minute total budget across the matrix keeps the
+        # workflow under the inner-loop cycle time.
+        include:
+          - target: parse_no_panic
+            budget_s: 120
+          - target: check_no_panic
+            budget_s: 90
+          - target: discharge_no_panic
+            budget_s: 60
+          - target: compile_no_panic
+            budget_s: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Cache fuzz target build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            crates/fastc/fuzz/target
+          key: ${{ runner.os }}-fuzz-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Seed corpus from examples/
+        run: |
+          mkdir -p crates/fastc/fuzz/corpus/${{ matrix.target }}
+          cp examples/*.fc crates/fastc/fuzz/corpus/${{ matrix.target }}/
+
+      - name: Run ${{ matrix.target }}
+        working-directory: crates/fastc/fuzz
+        run: |
+          cargo +nightly fuzz run ${{ matrix.target }} -- \
+            -max_total_time=${{ matrix.budget_s }} \
+            -timeout=10 \
+            -rss_limit_mb=2048
+
+      - name: Upload crash artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-crashes
+          path: crates/fastc/fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore

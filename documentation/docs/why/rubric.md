@@ -5,10 +5,10 @@
 | Memory safety (without GC) | ✗ | ✓ | partial | ✗ (GC) | **✓** |
 | No executable build scripts | ✓ | ✗ `build.rs` | ✗ `build.zig` | ✗ `cgo` | **✓ declarative only** |
 | Capability-typed I/O | ✗ | ✗ | ✗ | ✗ | **✓ in type system** |
-| Compile-time contracts | ✗ | ✗ | partial (`comptime`) | ✗ | **✓ `@requires` / `@ensures`** |
+| Compile-time contracts | ✗ | ✗ | partial (`comptime`) | ✗ | **✓ `@requires` / `@ensures` (SMT-discharged via Z3 + three-tier pipeline)** |
 | Outputs portable C11 | (is C) | ✗ | ✗ | ✗ | **✓** |
 | Central package registry | N/A | crates.io | Zon | Go modules | **none (vendor-first)** |
-| Sigstore / SLSA provenance | ✗ | ✗ | ✗ | ✗ | **✓ (scheduled)** |
+| Sigstore / SLSA provenance | ✗ | ✗ | ✗ | ✗ | **✓ (enforced sha256 + cosign keyless + SLSA L3)** |
 | Native MCP server | ✗ | ✗ | ✗ | ✗ | **✓ `fastc-mcp`** |
 | Mandatory module annotations | ✗ | ✗ | ✗ | ✗ | **✓ (`@owns` / `@arch` / …)** |
 | Binary size (stripped, hello) | 33 KB | 341 KB | 50 KB | 2.4 MB | **53 KB** |
@@ -32,7 +32,7 @@ A `fn` in C, Rust, Zig, or Go that wants to read a file just calls `open()`. The
 
 ### Compile-time contracts
 
-`@requires(x > 0)` is parsed and lowered to `if (!cond) fc_trap();` at function entry. `@ensures(result >= 0)` is checked at every return site. In v2.1 these go to an SMT solver and what can be proven becomes free at runtime. No other production language ships this in 2026 — SPARK Ada and F* have it but neither has the syntax fastC has, and neither compiles to C.
+`@requires(x > 0)` is parsed and lowered to `if (!cond) fc_trap();` at function entry. `@ensures(result >= 0)` is checked at every return site. **Stage 2.1 shipped a three-tier discharge pipeline**: tier-1 syntactic (constant-fold + tautology detection, always on) catches `@requires(true)` and similar trivia for free; tier-2 SMT (shells out to `z3`, opt-in via `--prove`) handles linear-integer tautologies like `(a > 0) || (a == 0) || (a < 0)`; tier-3 runtime is the safe fallback. **Proven obligations elide their `fc_trap` guard — zero runtime cost.** No other production language ships this in 2026 — SPARK Ada and F* have it but neither has the syntax fastC has, and neither compiles to C. The per-build `discharge.json` report makes the proven/runtime/unknown split auditable.
 
 ### Outputs portable C11
 
@@ -86,7 +86,7 @@ Zig is fastC's closest competitor by the empirical numbers — same binary-size 
 
 5. **Mandatory module-header annotations.** `@owns` / `@arch` / `@depends` / `@threading` / `@invariants` are compiler-checked in fastC. Every module declares its architectural contract at the top of the file. Zig has no such convention; reviewers grep for context.
 
-6. **Vendor-first dependencies with Sigstore (scheduled).** Zig has the Zon registry. fastC has no central registry — every dep is git URL + commit + sha256 + Sigstore bundle. There's nothing to compromise on a registry server because there is no registry server.
+6. **Vendor-first dependencies with enforced sha256 + Sigstore (shipped, stage 1.7).** Zig has the Zon registry. fastC has no central registry — every dep is git URL + commit + sha256 + optional Sigstore bundle. The `sha256` is *enforced* on every `fastc fetch`: a tampered cache tree fails the build with the expected/got diagnostic before any source compiles. `fastc lock` anchors the lockfile; `fastc add` shows the dep's capability surface before you accept it. Compiler binaries themselves ship with cosign keyless signatures and SLSA L3 provenance via `.github/workflows/release.yml`. There's nothing to compromise on a registry server because there is no registry server.
 
 7. **Native MCP server.** Zig agent tools text-scrape `zig build` output. fastC ships `fastc-mcp` as a first-class agent interface — AST, types, caps, contracts served over Model Context Protocol without text parsing.
 

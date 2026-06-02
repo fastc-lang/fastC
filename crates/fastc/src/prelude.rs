@@ -626,6 +626,20 @@ mod log {
         print_int(value);
         put_char(32);            // ' '
     }
+
+    /// Structured key="value" pair where the value is a cstr.
+    /// Same line-non-terminating contract as `kv_int`. The value is
+    /// wrapped in plain ASCII double quotes without JSON-style
+    /// escaping — v1 keeps it cheap. Use the `json` module if you
+    /// need quote-escape correctness.
+    pub fn kv_str(key: raw(u8), value: raw(u8)) -> void {
+        write_cstr_no_newline(key);
+        put_char(61);            // '='
+        put_char(34);            // '"'
+        write_cstr_no_newline(value);
+        put_char(34);
+        put_char(32);            // ' '
+    }
 }
 
 // --- json: minimal JSON encoder (fastc-core preview) ---
@@ -780,6 +794,199 @@ mod json {
     /// disposes the Str.
     pub fn release_builder(b: mref(JsonBuilder)) -> void {
         release(addrm((deref(b)).out.data));
+    }
+
+    // --- Decoder slice ---
+    //
+    // The encoder above covers the "produce JSON" side. The
+    // decoder side is intentionally minimal in v1: a single
+    // `find_int(text, key, fallback)` that locates a top-level
+    // `"key": <integer>` in a JSON document and returns the
+    // parsed integer, or `fallback` when the key is absent /
+    // malformed / nested below the top level.
+    //
+    // What this covers: most "parse this HTTP response for a
+    // numeric field" cases. What it doesn't cover: nested
+    // objects, arrays, escaped strings, unicode escapes, float
+    // values. The full decoder (DOM + streaming) lands when
+    // fastc-core/json graduates to its own vendor package; until
+    // then, use this for the 80% case and hand-roll parsers for
+    // anything richer.
+
+    /// Scan `text` for `"key": <int>` at the top level and
+    /// return the parsed integer. Returns `fallback` if the
+    /// key isn't found, the value isn't a base-10 integer
+    /// (possibly with leading `-`), or the JSON is malformed
+    /// (mismatched braces / brackets).
+    ///
+    /// "Top level" means depth 0 — keys inside nested
+    /// `{...}` / `[...]` containers are skipped over. This is
+    /// what you want for the common case of pulling a count or
+    /// id out of an API response object.
+    pub fn find_int(text: raw(u8), key: raw(u8), fallback: i64) -> i64 {
+        unsafe {
+            let depth: i32 = 0;
+            let i: usize = cast(usize, 0);
+            let max: usize = cast(usize, 65536);
+            while (i < max) {
+                let b: u8 = at(text, i);
+                if (b == cast(u8, 0)) { return fallback; }
+                if (b == cast(u8, 123)) {
+                    depth = (depth + 1);
+                    i = (i + cast(usize, 1));
+                    continue;
+                }
+                if (b == cast(u8, 125)) {
+                    depth = (depth - 1);
+                    i = (i + cast(usize, 1));
+                    continue;
+                }
+                if (b == cast(u8, 91)) {
+                    depth = (depth + 1);
+                    i = (i + cast(usize, 1));
+                    continue;
+                }
+                if (b == cast(u8, 93)) {
+                    depth = (depth - 1);
+                    i = (i + cast(usize, 1));
+                    continue;
+                }
+                if (b != cast(u8, 34)) {
+                    i = (i + cast(usize, 1));
+                    continue;
+                }
+                // We're at an opening quote. If depth != 1 this is a
+                // value-string (or a nested-object key), skip it.
+                if (depth != 1) {
+                    i = skip_quoted(text, (i + cast(usize, 1)), max);
+                    continue;
+                }
+                // Try to match this key against the requested name.
+                let after_key: usize = match_key(text, (i + cast(usize, 1)), key, max);
+                if (after_key == cast(usize, 0)) {
+                    // No match — fast-forward past the close quote
+                    // and continue scanning.
+                    i = skip_quoted(text, (i + cast(usize, 1)), max);
+                    continue;
+                }
+                // Key matched. `after_key` points to the byte after
+                // the closing `"`. Walk past whitespace + colon +
+                // whitespace, then try to parse the int.
+                let j: usize = skip_ws_colon_ws(text, after_key, max);
+                if (j >= max) { return fallback; }
+                return parse_int_at(text, j, fallback);
+            }
+            return fallback;
+        }
+    }
+
+    /// Internal: advance past a quoted string body. `start` points
+    /// to the byte after the opening `"`. Returns the index AFTER
+    /// the closing `"`. v1 doesn't honor JSON `\\` escapes — a
+    /// backslash before a quote will incorrectly terminate the
+    /// scan. Sufficient for the integer-field use case; the full
+    /// escape pass lands with fastc-core/json proper.
+    fn skip_quoted(text: raw(u8), start: usize, max: usize) -> usize {
+        unsafe {
+            let i: usize = start;
+            while (i < max) {
+                let b: u8 = at(text, i);
+                if (b == cast(u8, 0)) { return i; }
+                if (b == cast(u8, 34)) {
+                    return (i + cast(usize, 1));
+                }
+                i = (i + cast(usize, 1));
+            }
+            return i;
+        }
+    }
+
+    /// Internal: from byte `start` inside `text` (right after an
+    /// opening quote), check whether the next bytes match `key`
+    /// followed by a closing `"`. Returns the index AFTER the
+    /// closing `"` on a match, or 0 to mean "no match". 0 is a
+    /// safe sentinel because match_key is only ever called past
+    /// the first byte of text.
+    fn match_key(text: raw(u8), start: usize, key: raw(u8), max: usize) -> usize {
+        unsafe {
+            let i: usize = start;
+            let j: usize = cast(usize, 0);
+            while (i < max) {
+                let k: u8 = at(key, j);
+                if (k == cast(u8, 0)) {
+                    if (at(text, i) == cast(u8, 34)) {
+                        return (i + cast(usize, 1));
+                    }
+                    return cast(usize, 0);
+                }
+                if (at(text, i) != k) {
+                    return cast(usize, 0);
+                }
+                i = (i + cast(usize, 1));
+                j = (j + cast(usize, 1));
+            }
+            return cast(usize, 0);
+        }
+    }
+
+    /// Internal: from byte index `start`, walk past whitespace,
+    /// require one `:`, then walk past more whitespace. Returns
+    /// the index of the first non-whitespace-non-colon byte. On
+    /// any unexpected byte (missing `:` etc) returns `max` to
+    /// signal "give up".
+    fn skip_ws_colon_ws(text: raw(u8), start: usize, max: usize) -> usize {
+        unsafe {
+            let i: usize = start;
+            while (i < max) {
+                let b: u8 = at(text, i);
+                if (b == cast(u8, 32)) { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 9))  { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 10)) { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 13)) { i = (i + cast(usize, 1)); continue; }
+                break;
+            }
+            if (i >= max) { return max; }
+            if (at(text, i) != cast(u8, 58)) { return max; }
+            i = (i + cast(usize, 1));
+            while (i < max) {
+                let b: u8 = at(text, i);
+                if (b == cast(u8, 32)) { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 9))  { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 10)) { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 13)) { i = (i + cast(usize, 1)); continue; }
+                break;
+            }
+            return i;
+        }
+    }
+
+    /// Internal: parse a base-10 i64 at `text[start]`. Honors a
+    /// leading `-`. Stops at the first non-digit. Returns
+    /// `fallback` if no digits are seen.
+    fn parse_int_at(text: raw(u8), start: usize, fallback: i64) -> i64 {
+        unsafe {
+            let i: usize = start;
+            let sign: i64 = cast(i64, 1);
+            let first: u8 = at(text, i);
+            if (first == cast(u8, 45)) {
+                sign = cast(i64, -1);
+                i = (i + cast(usize, 1));
+            }
+            let acc: i64 = cast(i64, 0);
+            let saw: bool = false;
+            let max: usize = (i + cast(usize, 20));
+            while (i < max) {
+                let b: u8 = at(text, i);
+                if (b < cast(u8, 48)) { break; }
+                if (b > cast(u8, 57)) { break; }
+                let d: i64 = cast(i64, (b - cast(u8, 48)));
+                acc = ((acc * cast(i64, 10)) + d);
+                saw = true;
+                i = (i + cast(usize, 1));
+            }
+            if (saw == false) { return fallback; }
+            return (acc * sign);
+        }
     }
 }
 
@@ -969,6 +1176,623 @@ mod rand {
         unsafe {
             return fc_rand_u32();
         }
+    }
+}
+
+// --- http: HTTP/1.1 client preview (fastc-core preview) ---
+//
+// Stage 1.8 launch-set member. v1 covers the smallest meaningful
+// HTTP client: `get_status(c, host, port, path) -> i32` opens a TCP
+// connection, sends a fixed GET request, reads the first response
+// line, and parses the three-digit status code.
+//
+// Gated on `CapNetConnect`: every call site declares its intent to
+// reach the network at the type level. That's the wedge — no
+// `mod http` function can be invoked without holding the cap, and
+// the cap can only be minted in `main`.
+//
+// What's out of scope until fastc-core/http graduates to its own
+// vendor package: TLS, HTTP/2, chunked transfer encoding, redirect
+// following, header introspection, body delivery to caller, request
+// methods beyond GET. v1 is enough to verify "the network endpoint
+// is up and returning 2xx" — the lowest-rung observability check.
+
+mod http {
+    extern "C" {
+        // Defined in fastc_runtime.h. Each helper returns a status-
+        // style i32: socket fd / bytes-transferred / -1 on error.
+        unsafe fn fc_net_connect_tcp(host: raw(u8), port: i32) -> i32;
+        unsafe fn fc_net_send(fd: i32, buf: raw(u8), len: i32) -> i32;
+        unsafe fn fc_net_recv(fd: i32, buf: rawm(u8), cap: i32) -> i32;
+        unsafe fn fc_net_close(fd: i32) -> void;
+    }
+
+    /// Open a TCP connection, send `GET <path> HTTP/1.1`, read the
+    /// first response line, parse and return the HTTP status code.
+    /// Returns -1 on connect / send / recv failure.
+    ///
+    /// Requires `CapNetConnect`. The cap is borrowed (`ref`) not
+    /// consumed — one cap can fuel many requests.
+    ///
+    /// Builds the request request line by hand (no `Str` builder
+    /// dependency) so this helper stays self-contained.
+    pub fn get_status(_c: ref(CapNetConnect), host: raw(u8), port: i32, path: raw(u8)) -> i32 {
+        unsafe {
+            let fd: i32 = fc_net_connect_tcp(host, port);
+            if (fd < 0) { return -1; }
+            // Send the request in pieces — no string builder needed,
+            // and the order is deterministic.
+            if (send_chunk(fd, cstr("GET ")) < 0)        { fc_net_close(fd); return -1; }
+            if (send_cstr(fd, path) < 0)                 { fc_net_close(fd); return -1; }
+            if (send_chunk(fd, cstr(" HTTP/1.1\r\n")) < 0) { fc_net_close(fd); return -1; }
+            if (send_chunk(fd, cstr("Host: ")) < 0)      { fc_net_close(fd); return -1; }
+            if (send_cstr(fd, host) < 0)                 { fc_net_close(fd); return -1; }
+            if (send_chunk(fd, cstr("\r\n")) < 0)        { fc_net_close(fd); return -1; }
+            if (send_chunk(fd, cstr("Connection: close\r\n\r\n")) < 0) { fc_net_close(fd); return -1; }
+
+            // Read the first 16 bytes — enough to cover "HTTP/1.1 NNN".
+            let buf: rawm(u8) = mem::alloc(cast(usize, 32));
+            let got: i32 = fc_net_recv(fd, buf, 32);
+            fc_net_close(fd);
+            if (got < 12) {
+                mem::free_bytes(buf);
+                return -1;
+            }
+            let status: i32 = parse_status(buf);
+            mem::free_bytes(buf);
+            return status;
+        }
+    }
+
+    /// Internal: count cstr length up to `max=8192`, then send.
+    fn send_cstr(fd: i32, s: raw(u8)) -> i32 {
+        unsafe {
+            let len: i32 = cstr_len(s, 8192);
+            return fc_net_send(fd, s, len);
+        }
+    }
+
+    /// Internal: same as send_cstr, just a clearer name at call
+    /// sites that are passing literal byte chunks.
+    fn send_chunk(fd: i32, s: raw(u8)) -> i32 {
+        unsafe {
+            return send_cstr(fd, s);
+        }
+    }
+
+    /// Internal: count bytes up to (but not including) the first null,
+    /// capped at `max`. Returns the byte length as i32.
+    fn cstr_len(s: raw(u8), max: i32) -> i32 {
+        unsafe {
+            let i: i32 = 0;
+            while (i < max) {
+                if (at(s, cast(usize, i)) == cast(u8, 0)) {
+                    return i;
+                }
+                i = (i + 1);
+            }
+            return max;
+        }
+    }
+
+    /// Internal: parse the HTTP status code from the first response
+    /// line. Expects `HTTP/1.1 NNN ...` and reads three digits
+    /// starting at byte 9. Returns -1 if the format doesn't match.
+    fn parse_status(buf: rawm(u8)) -> i32 {
+        unsafe {
+            let h: u8 = at(buf, cast(usize, 0));
+            if (h != cast(u8, 72)) { return -1; }
+            let d0: u8 = at(buf, cast(usize, 9));
+            let d1: u8 = at(buf, cast(usize, 10));
+            let d2: u8 = at(buf, cast(usize, 11));
+            if (d0 < cast(u8, 48)) { return -1; }
+            if (d0 > cast(u8, 57)) { return -1; }
+            if (d1 < cast(u8, 48)) { return -1; }
+            if (d1 > cast(u8, 57)) { return -1; }
+            if (d2 < cast(u8, 48)) { return -1; }
+            if (d2 > cast(u8, 57)) { return -1; }
+            let n: i32 = ((cast(i32, (d0 - cast(u8, 48))) * 100)
+                + ((cast(i32, (d1 - cast(u8, 48))) * 10)
+                + cast(i32, (d2 - cast(u8, 48)))));
+            return n;
+        }
+    }
+}
+
+// --- toml: read-only flat-table parser (fastc-core preview) ---
+//
+// Stage 1.8 launch-set member. v1 covers what 80% of real-world
+// configs need: `find_int(text, key, fallback)` and `find_bool(text,
+// key, fallback)` over top-level `key = value` entries.
+//
+// Out of scope until fastc-core/toml graduates to its own vendor
+// package: arrays of tables, inline tables, dotted-key paths, date /
+// time values, multi-line strings, full RFC-compliant unicode escape
+// handling. The discipline is the same as `json::find_int` — ship the
+// common case; defer the rich AST to the vendor package.
+//
+// Section headers (`[package]`, `[dependencies]`) are tracked as a
+// "current section" string and findings are scoped to either a named
+// section (`find_int_in(text, "package", "version", -1)`) or the root
+// table (`find_int(text, "n_workers", 4)`). v1 doesn't expose the
+// `find_int_in` variant yet — it's a follow-up — but the parser walks
+// section headers correctly so the root-only variant works on configs
+// that have sections.
+
+mod toml {
+    extern "C" {
+        unsafe fn fc_raw_null() -> raw(u8);
+        unsafe fn fc_raw_is_null(p: raw(u8)) -> bool;
+    }
+
+    /// Scan a TOML document for a top-level `key = <integer>` and
+    /// return the parsed value. Returns `fallback` if the key isn't
+    /// at the top level (i.e. above any `[section]` header) or its
+    /// value isn't a base-10 integer.
+    ///
+    /// Top-level = the bytes between the start of the document and
+    /// the first `[section]` header (if any). Section-scoped lookups
+    /// are a v1.1 follow-up.
+    pub fn find_int(text: raw(u8), key: raw(u8), fallback: i64) -> i64 {
+        unsafe {
+            let i: usize = cast(usize, 0);
+            let max: usize = cast(usize, 65536);
+            let in_root: bool = true;
+            while (i < max) {
+                let b: u8 = at(text, i);
+                if (b == cast(u8, 0)) { return fallback; }
+                // Skip whitespace at line start (already handled by
+                // the per-byte step; this is for clarity).
+                if (b == cast(u8, 32)) { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 9))  { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 10)) { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 13)) { i = (i + cast(usize, 1)); continue; }
+                // Comments — skip to end of line.
+                if (b == cast(u8, 35)) {
+                    i = skip_to_eol(text, i, max);
+                    continue;
+                }
+                // Section header — flip out of root scope.
+                if (b == cast(u8, 91)) {
+                    in_root = false;
+                    i = skip_to_eol(text, i, max);
+                    continue;
+                }
+                // Try to match the key at byte i.
+                if (in_root) {
+                    let after_key: usize = match_bare_key(text, i, key, max);
+                    if (after_key != cast(usize, 0)) {
+                        let v_start: usize = skip_ws_eq_ws(text, after_key, max);
+                        if (v_start < max) {
+                            return parse_int_at(text, v_start, fallback);
+                        }
+                    }
+                }
+                i = skip_to_eol(text, i, max);
+            }
+            return fallback;
+        }
+    }
+
+    /// Like `find_int` but for `key = true` / `key = false`.
+    /// Returns `fallback` for absent / malformed / non-bool values.
+    pub fn find_bool(text: raw(u8), key: raw(u8), fallback: bool) -> bool {
+        unsafe {
+            let i: usize = cast(usize, 0);
+            let max: usize = cast(usize, 65536);
+            let in_root: bool = true;
+            while (i < max) {
+                let b: u8 = at(text, i);
+                if (b == cast(u8, 0)) { return fallback; }
+                if (b == cast(u8, 32)) { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 9))  { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 10)) { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 13)) { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 35)) {
+                    i = skip_to_eol(text, i, max);
+                    continue;
+                }
+                if (b == cast(u8, 91)) {
+                    in_root = false;
+                    i = skip_to_eol(text, i, max);
+                    continue;
+                }
+                if (in_root) {
+                    let after_key: usize = match_bare_key(text, i, key, max);
+                    if (after_key != cast(usize, 0)) {
+                        let v_start: usize = skip_ws_eq_ws(text, after_key, max);
+                        if (v_start < max) {
+                            return parse_bool_at(text, v_start, fallback);
+                        }
+                    }
+                }
+                i = skip_to_eol(text, i, max);
+            }
+            return fallback;
+        }
+    }
+
+    /// Internal: skip from `i` to the byte after the next newline (or
+    /// to `max` if EOL never arrives). Used for comments, section
+    /// headers, and mismatched key lines.
+    fn skip_to_eol(text: raw(u8), start: usize, max: usize) -> usize {
+        unsafe {
+            let i: usize = start;
+            while (i < max) {
+                let b: u8 = at(text, i);
+                if (b == cast(u8, 0)) { return i; }
+                if (b == cast(u8, 10)) {
+                    return (i + cast(usize, 1));
+                }
+                i = (i + cast(usize, 1));
+            }
+            return i;
+        }
+    }
+
+    /// Internal: from `start`, attempt to match the bare key
+    /// `key` followed by `=` or whitespace. Returns the index of
+    /// the first byte AFTER `key` on a match, or 0 to signal no
+    /// match. 0 is a safe sentinel because match_bare_key is
+    /// only called from position >= 0 and the prefix check
+    /// guarantees we advance at least one byte before returning
+    /// success.
+    fn match_bare_key(text: raw(u8), start: usize, key: raw(u8), max: usize) -> usize {
+        unsafe {
+            let i: usize = start;
+            let j: usize = cast(usize, 0);
+            while (i < max) {
+                let k: u8 = at(key, j);
+                if (k == cast(u8, 0)) {
+                    let nb: u8 = at(text, i);
+                    if (nb == cast(u8, 32)) { return i; }
+                    if (nb == cast(u8, 9))  { return i; }
+                    if (nb == cast(u8, 61)) { return i; }
+                    return cast(usize, 0);
+                }
+                if (at(text, i) != k) {
+                    return cast(usize, 0);
+                }
+                i = (i + cast(usize, 1));
+                j = (j + cast(usize, 1));
+            }
+            return cast(usize, 0);
+        }
+    }
+
+    /// Internal: walk past whitespace, require `=`, walk past more
+    /// whitespace. Returns the index of the value start, or `max`
+    /// to signal "malformed".
+    fn skip_ws_eq_ws(text: raw(u8), start: usize, max: usize) -> usize {
+        unsafe {
+            let i: usize = start;
+            while (i < max) {
+                let b: u8 = at(text, i);
+                if (b == cast(u8, 32)) { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 9))  { i = (i + cast(usize, 1)); continue; }
+                break;
+            }
+            if (i >= max) { return max; }
+            if (at(text, i) != cast(u8, 61)) { return max; }
+            i = (i + cast(usize, 1));
+            while (i < max) {
+                let b: u8 = at(text, i);
+                if (b == cast(u8, 32)) { i = (i + cast(usize, 1)); continue; }
+                if (b == cast(u8, 9))  { i = (i + cast(usize, 1)); continue; }
+                break;
+            }
+            return i;
+        }
+    }
+
+    /// Internal: parse base-10 i64 at `text[start]`. Handles
+    /// leading `-`. Stops at the first non-digit. Returns
+    /// `fallback` when no digits are seen.
+    fn parse_int_at(text: raw(u8), start: usize, fallback: i64) -> i64 {
+        unsafe {
+            let i: usize = start;
+            let sign: i64 = cast(i64, 1);
+            let first: u8 = at(text, i);
+            if (first == cast(u8, 45)) {
+                sign = cast(i64, -1);
+                i = (i + cast(usize, 1));
+            }
+            let acc: i64 = cast(i64, 0);
+            let saw: bool = false;
+            let bound: usize = (i + cast(usize, 20));
+            while (i < bound) {
+                let b: u8 = at(text, i);
+                if (b < cast(u8, 48)) { break; }
+                if (b > cast(u8, 57)) { break; }
+                let d: i64 = cast(i64, (b - cast(u8, 48)));
+                acc = ((acc * cast(i64, 10)) + d);
+                saw = true;
+                i = (i + cast(usize, 1));
+            }
+            if (saw == false) { return fallback; }
+            return (acc * sign);
+        }
+    }
+
+    /// Internal: parse `true` / `false` at `text[start]`. Returns
+    /// `fallback` for any other byte sequence.
+    fn parse_bool_at(text: raw(u8), start: usize, fallback: bool) -> bool {
+        unsafe {
+            let i: usize = start;
+            if (at(text, i) == cast(u8, 116)) {
+                if (at(text, (i + cast(usize, 1))) == cast(u8, 114)) {
+                    if (at(text, (i + cast(usize, 2))) == cast(u8, 117)) {
+                        if (at(text, (i + cast(usize, 3))) == cast(u8, 101)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            if (at(text, i) == cast(u8, 102)) {
+                if (at(text, (i + cast(usize, 1))) == cast(u8, 97)) {
+                    if (at(text, (i + cast(usize, 2))) == cast(u8, 108)) {
+                        if (at(text, (i + cast(usize, 3))) == cast(u8, 115)) {
+                            if (at(text, (i + cast(usize, 4))) == cast(u8, 101)) {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+            return fallback;
+        }
+    }
+}
+
+// --- cli: command-line argument parsing (fastc-core preview) ---
+//
+// Wraps the argv array the runtime stashes via `fc_args_init` (the
+// emit pass inserts the call at the start of every binary's `main`
+// wrapper). v1 covers argv access plus three high-level helpers:
+// `has_flag(name)`, `flag_value(name)`, and `flag_int(name, default)`.
+//
+// Cap policy: argv is read-only process state that's already been
+// dropped on you by the OS — there's nothing to mediate. We treat
+// it as ambient like stdin and don't require a capability token. A
+// future `CapEnvRead` extension may revisit this if the threat model
+// for argv-injection tightens (e.g. a parent process passing flags
+// the child trusts).
+//
+// `flag_value` and `flag_int` accept both `--name=value` and `--name
+// value` shapes — common across coreutils, cargo, fastc itself, and
+// most other CLI tools. The first matching occurrence wins; later
+// duplicates are ignored. A future v1.1 will return a richer
+// `opt(raw(u8))` to distinguish "absent" from "empty" once Option
+// has nicer ergonomics across module boundaries.
+
+mod cli {
+    extern "C" {
+        // Defined in fastc_runtime.h. `fc_args_init(argc, argv)` is
+        // called by the auto-generated `int main(int argc, char**
+        // argv)` wrapper the emit pass inserts; user code only sees
+        // the read-side helpers below.
+        unsafe fn fc_args_count() -> i32;
+        unsafe fn fc_args_at(i: i32) -> raw(u8);
+        // Null-pointer plumbing. fastC has no `cast(raw(u8), 0)`
+        // syntax — see fastc_runtime.h for the rationale.
+        unsafe fn fc_raw_null() -> raw(u8);
+        unsafe fn fc_raw_is_null(p: raw(u8)) -> bool;
+    }
+
+    /// Return a NULL raw(u8) pointer. Use this as the "argument
+    /// absent" sentinel for `flag_value`. Exposed so callers can
+    /// pattern-match without dropping into unsafe / extern blocks.
+    pub fn null_arg() -> raw(u8) {
+        unsafe {
+            return fc_raw_null();
+        }
+    }
+
+    /// True when `p` is the NULL pointer. Pair with `flag_value`
+    /// to test for "flag was absent" cleanly.
+    pub fn is_null(p: raw(u8)) -> bool {
+        unsafe {
+            return fc_raw_is_null(p);
+        }
+    }
+
+    /// Number of command-line arguments, including argv[0] (the
+    /// program path). Always >= 1 for a normal invocation.
+    pub fn count() -> i32 {
+        unsafe {
+            return fc_args_count();
+        }
+    }
+
+    /// Argument at index `i` as a null-terminated cstr. Returns a
+    /// NULL pointer if `i` is out of range — callers should check
+    /// against `cast(raw(u8), 0)` before dereferencing. argv[0] is
+    /// the program path. Named `arg_at` rather than `at` because
+    /// `at` is a reserved keyword (raw-pointer indexing).
+    pub fn arg_at(i: i32) -> raw(u8) {
+        unsafe {
+            return fc_args_at(i);
+        }
+    }
+
+    /// Program name (argv[0]). The OS chooses the form — relative
+    /// path, absolute path, or basename depending on how the binary
+    /// was invoked. Useful for usage messages.
+    pub fn program_name() -> raw(u8) {
+        unsafe {
+            return fc_args_at(0);
+        }
+    }
+
+    /// True if `--name` appears anywhere in argv (anywhere after
+    /// argv[0]). The `--name=value` form also matches — the flag
+    /// is present, the value is discarded by this helper. Use
+    /// `flag_value` to get the value back.
+    ///
+    /// Strict prefix match: `name` must be a complete word. `-n` is
+    /// not implemented in v1 (single-dash short flags are deferred
+    /// until a real user asks).
+    pub fn has_flag(name: raw(u8)) -> bool {
+        let n: i32 = count();
+        let i: i32 = 1;
+        while (i < n) {
+            let arg: raw(u8) = arg_at(i);
+            if (arg_matches(arg, name)) {
+                return true;
+            }
+            i = (i + 1);
+        }
+        return false;
+    }
+
+    /// Look up `--name=value` (one-token form) or `--name value`
+    /// (two-token form). Returns the value as a cstr, or a NULL
+    /// pointer if the flag isn't present.
+    ///
+    /// The two-token form consumes the next argv slot, so callers
+    /// can't use the same arg for both a flag and a positional
+    /// value. That's standard for argv parsers and matches how
+    /// fastc / cargo / coreutils behave.
+    pub fn flag_value(name: raw(u8)) -> raw(u8) {
+        let n: i32 = count();
+        let i: i32 = 1;
+        while (i < n) {
+            let arg: raw(u8) = arg_at(i);
+            // One-token form: --name=value
+            let eq_idx: i32 = find_eq_after_match(arg, name);
+            if (eq_idx >= 0) {
+                unsafe {
+                    return raw_offset(arg, cast(usize, (eq_idx + 1)));
+                }
+            }
+            // Two-token form: --name (consume next arg)
+            if (arg_matches(arg, name)) {
+                if ((i + 1) < n) {
+                    return arg_at((i + 1));
+                }
+                return null_arg();
+            }
+            i = (i + 1);
+        }
+        return null_arg();
+    }
+
+    /// Convenience: parse `--name=N` or `--name N` as a base-10
+    /// integer. Returns `fallback` if the flag is absent or its
+    /// value doesn't parse cleanly (leading minus is allowed; any
+    /// trailing non-digit ends the parse).
+    pub fn flag_int(name: raw(u8), fallback: i32) -> i32 {
+        let v: raw(u8) = flag_value(name);
+        if (is_null(v)) {
+            return fallback;
+        }
+        return parse_i32(v, fallback);
+    }
+
+    /// Internal: does the argv element `arg` exactly equal the
+    /// double-dashed form of `name`? `name` is passed without the
+    /// leading `--` so callers write `has_flag(cstr("verbose"))`
+    /// not `has_flag(cstr("--verbose"))`.
+    fn arg_matches(arg: raw(u8), name: raw(u8)) -> bool {
+        unsafe {
+            if (at(arg, cast(usize, 0)) != cast(u8, 45)) { return false; }
+            if (at(arg, cast(usize, 1)) != cast(u8, 45)) { return false; }
+            let i: usize = cast(usize, 2);
+            let j: usize = cast(usize, 0);
+            while (true) {
+                let a: u8 = at(arg, i);
+                let b: u8 = at(name, j);
+                if (b == cast(u8, 0)) {
+                    return (a == cast(u8, 0));
+                }
+                if (a != b) { return false; }
+                i = (i + cast(usize, 1));
+                j = (j + cast(usize, 1));
+            }
+            return false;
+        }
+    }
+
+    /// Internal: if `arg` is `--<name>=<...>`, return the byte
+    /// index of the `=`; otherwise return -1.
+    fn find_eq_after_match(arg: raw(u8), name: raw(u8)) -> i32 {
+        unsafe {
+            if (at(arg, cast(usize, 0)) != cast(u8, 45)) { return -1; }
+            if (at(arg, cast(usize, 1)) != cast(u8, 45)) { return -1; }
+            let i: usize = cast(usize, 2);
+            let j: usize = cast(usize, 0);
+            while (true) {
+                let a: u8 = at(arg, i);
+                let b: u8 = at(name, j);
+                if (b == cast(u8, 0)) {
+                    if (a == cast(u8, 61)) {
+                        return cast(i32, i);
+                    }
+                    return -1;
+                }
+                if (a != b) { return -1; }
+                i = (i + cast(usize, 1));
+                j = (j + cast(usize, 1));
+            }
+            return -1;
+        }
+    }
+
+    /// Internal: parse a base-10 i32 from a cstr. Empty / unparseable
+    /// input returns `default`. A leading `-` is honored; subsequent
+    /// non-digit characters terminate the scan (so `42xyz` parses
+    /// as 42, matching how strtol behaves).
+    fn parse_i32(s: raw(u8), fallback: i32) -> i32 {
+        unsafe {
+            let i: usize = cast(usize, 0);
+            let sign: i32 = 1;
+            let first: u8 = at(s, i);
+            if (first == cast(u8, 0)) { return fallback; }
+            if (first == cast(u8, 45)) {
+                sign = -1;
+                i = (i + cast(usize, 1));
+            }
+            let acc: i32 = 0;
+            let saw_digit: bool = false;
+            while (true) {
+                let b: u8 = at(s, i);
+                if (b < cast(u8, 48)) { break; }
+                if (b > cast(u8, 57)) { break; }
+                acc = ((acc * 10) + cast(i32, (b - cast(u8, 48))));
+                saw_digit = true;
+                i = (i + cast(usize, 1));
+            }
+            if (saw_digit == false) { return fallback; }
+            return (acc * sign);
+        }
+    }
+
+    /// Internal: pointer arithmetic on a `raw(u8)`. fastC doesn't
+    /// expose pointer-add on raw types directly today; this isolates
+    /// the unsafe cast so the call sites above stay readable.
+    fn raw_offset(p: raw(u8), n: usize) -> raw(u8) {
+        unsafe {
+            let i: usize = cast(usize, 0);
+            let cur: raw(u8) = p;
+            while (i < n) {
+                cur = step_one(cur);
+                i = (i + cast(usize, 1));
+            }
+            return cur;
+        }
+    }
+
+    /// Internal: advance a raw(u8) pointer by exactly one byte.
+    /// Implemented as a tiny extern "C" helper so we don't need
+    /// pointer-add inside fastC.
+    fn step_one(p: raw(u8)) -> raw(u8) {
+        unsafe {
+            return fc_raw_step(p);
+        }
+    }
+
+    extern "C" {
+        unsafe fn fc_raw_step(p: raw(u8)) -> raw(u8);
     }
 }
 

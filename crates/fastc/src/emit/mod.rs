@@ -228,10 +228,19 @@ impl Emitter {
                 .join(", ")
         };
 
+        // The user's `main` is emitted as `fc_user_main`; keep the
+        // forward declaration in sync so the generated wrapper at
+        // the bottom of the file can resolve it. See emit_fn_def.
+        let decl_name = if def.name == "main" && def.params.is_empty() {
+            "fc_user_main"
+        } else {
+            &def.name
+        };
+
         self.line(&format!(
             "{} {}({});",
             self.type_to_string(&def.return_type),
-            def.name,
+            decl_name,
             params
         ));
     }
@@ -251,10 +260,38 @@ impl Emitter {
                 .join(", ")
         };
 
+        // J1 source-map: emit `#line N "<file>"` immediately before
+        // the fn definition so the C compiler propagates the .fc line
+        // number into DWARF debug info. gdb/lldb users see fastC
+        // lines for breakpoints + stack traces. Synthetic functions
+        // (closures, generated glue) without a source line just skip
+        // the directive — a `#line 0 "synthetic"` would mislead more
+        // than it helps.
+        if let (Some(line), Some(file)) = (def.source_line, def.source_file.as_deref()) {
+            self.line(&format!(
+                "#line {} \"{}\"",
+                line,
+                escape_c_string_path(file)
+            ));
+        }
+
+        // Special-case the user's top-level `main`: rename to
+        // `fc_user_main` and append a `int main(int argc, char** argv)`
+        // wrapper that stashes argv into the runtime's globals before
+        // invoking the user body. This is what makes `mod cli`'s
+        // `count()` / `at(i)` work without changing fastC's `fn main()
+        // -> i32` source signature.
+        let is_user_main = def.name == "main" && def.params.is_empty();
+        let emitted_name = if is_user_main {
+            "fc_user_main"
+        } else {
+            &def.name
+        };
+
         self.line(&format!(
             "{} {}({}) {{",
             self.type_to_string(&def.return_type),
-            def.name,
+            emitted_name,
             params
         ));
         self.indent += 1;
@@ -265,6 +302,16 @@ impl Emitter {
 
         self.indent -= 1;
         self.line("}");
+
+        if is_user_main {
+            self.line("");
+            self.line("int main(int argc, char** argv) {");
+            self.indent += 1;
+            self.line("fc_args_init(argc, argv);");
+            self.line("return fc_user_main();");
+            self.indent -= 1;
+            self.line("}");
+        }
     }
 
     fn emit_stmt(&mut self, stmt: &CStmt) {
@@ -413,6 +460,21 @@ impl Emitter {
             }
             CStmt::Break => {
                 self.line("break;");
+            }
+            CStmt::Continue => {
+                self.line("continue;");
+            }
+            CStmt::SourceMark { line, file } => {
+                // J2: emitted at column 1 (no indentation) because
+                // the C preprocessor requires `#` directives to start
+                // the line. `Emitter::line` would normally apply the
+                // current indent — push raw text to bypass that for
+                // this one case.
+                self.output.push_str(&format!(
+                    "#line {} \"{}\"\n",
+                    line,
+                    escape_c_string_path(file)
+                ));
             }
         }
     }
@@ -668,6 +730,22 @@ impl Default for Emitter {
 /// outer parens when it already produced a parenthesized form. Avoids the
 /// `if ((x == y))` double-paren pattern that trips clang's
 /// `-Wparentheses-equality` warning under `-Werror`.
+/// Escape a filesystem path for safe embedding in a C `#line N "..."`
+/// directive. C string syntax wants `\` and `"` escaped; on Windows
+/// paths typically contain `\` so we double them. Everything else
+/// passes through untouched — the C preprocessor accepts UTF-8.
+fn escape_c_string_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for c in path.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn paren_cond(cond_str: &str) -> String {
     if cond_str.starts_with('(') && cond_str.ends_with(')') {
         cond_str.to_string()

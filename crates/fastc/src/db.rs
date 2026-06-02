@@ -111,7 +111,7 @@ impl InputHash {
 /// Lightweight SHA-256 implementation. Hand-rolled to avoid pulling in the
 /// `sha2` crate; this code path is not perf-critical (it runs once per query
 /// input) and the algorithm is small and well-known.
-fn sha256(bytes: &[u8]) -> [u8; 32] {
+pub fn sha256(bytes: &[u8]) -> [u8; 32] {
     // Initial hash values: first 32 bits of fractional parts of sqrt of first 8 primes.
     const H0: [u32; 8] = [
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
