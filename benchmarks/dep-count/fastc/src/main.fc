@@ -1,0 +1,12 @@
+use http::get_status;
+use caps::init;
+
+// Toy HTTP-fetch program used to measure fastC's transitive dep
+// footprint for the dep-count benchmark (D3). All I/O flows
+// through cap-typed prelude modules — no external deps needed.
+
+fn main() -> i32 {
+    let caps: Caps = init();
+    let status: i32 = get_status(addr(caps.net_connect), cstr("http://example.com"));
+    return status;
+}

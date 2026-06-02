@@ -1,0 +1,8 @@
+.{
+    .name = "dep_count_zig",
+    .version = "0.1.0",
+    .dependencies = .{
+        // Zig stdlib has std.http; no external deps required.
+        // For the dep-count benchmark the program uses only stdlib.
+    },
+}

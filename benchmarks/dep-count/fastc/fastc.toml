@@ -1,0 +1,12 @@
+[package]
+name = "dep_count_fastc"
+version = "0.1.0"
+fastc-version = "1.0"
+
+# The HTTP/JSON program below uses the prelude's mod http + mod json.
+# For v1.x dep-count purposes the prelude is structural (compiled
+# in, not vendored), so the actual `[dependencies]` here is empty.
+# Post-cutover (E1), this section will list the fastc-core packages
+# the program imports.
+
+[dependencies]

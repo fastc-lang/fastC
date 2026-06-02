@@ -1,0 +1,8 @@
+language,total_deps,build_scripts,host,timestamp,git_sha
+fastc,0,0,DS-MBP.local 25.4.0 arm64,2026-06-02T22:57:11Z,17dd358
+rust,       0
+0,0,DS-MBP.local 25.4.0 arm64,2026-06-02T22:57:11Z,17dd358
+go,0,0,DS-MBP.local 25.4.0 arm64,2026-06-02T22:57:11Z,17dd358
+zig,0
+0,0,DS-MBP.local 25.4.0 arm64,2026-06-02T22:57:11Z,17dd358
+c,1,0,DS-MBP.local 25.4.0 arm64,2026-06-02T22:57:11Z,17dd358
