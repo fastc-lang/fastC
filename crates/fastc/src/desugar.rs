@@ -356,6 +356,11 @@ impl ClosureLifter {
             return_type: f.return_type.clone(),
             body: self.rewrite_block(&f.body),
             span: f.span.clone(),
+            mem: f.mem.clone(),
+            panics: f.panics.clone(),
+            purity: f.purity.clone(),
+            complexity: f.complexity.clone(),
+            is_test: f.is_test,
         }
     }
 
@@ -579,6 +584,11 @@ impl ClosureLifter {
                     return_type: ret.clone(),
                     body: new_body,
                     span: span.clone(),
+                    mem: None,
+                    panics: None,
+                    purity: None,
+                    complexity: None,
+                    is_test: false,
                 });
                 Expr::Ident {
                     name,
@@ -702,6 +712,11 @@ fn lift_method(block: &ImplBlock, method: &FnDecl) -> FnDecl {
         return_type: subst_self(&method.return_type, &block.target),
         body: subst_self_in_block(&method.body, &block.target),
         span: method.span.clone(),
+        mem: method.mem.clone(),
+        panics: method.panics.clone(),
+        purity: method.purity.clone(),
+        complexity: method.complexity.clone(),
+        is_test: method.is_test,
     }
 }
 
@@ -1072,6 +1087,11 @@ mod tests {
                     span: mk_span(),
                 },
                 span: mk_span(),
+                mem: None,
+                panics: None,
+                purity: None,
+                complexity: None,
+                is_test: false,
             }],
             span: mk_span(),
             doc_comments: vec![],
@@ -1115,6 +1135,11 @@ mod tests {
                     span: mk_span(),
                 },
                 span: mk_span(),
+                mem: None,
+                panics: None,
+                purity: None,
+                complexity: None,
+                is_test: false,
             })],
         };
         let out = desugar(&file);

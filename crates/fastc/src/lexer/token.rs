@@ -231,6 +231,16 @@ pub enum Token {
     AtRequires,
     #[token("@ensures")]
     AtEnsures,
+    #[token("@mem")]
+    AtMem,
+    #[token("@panics")]
+    AtPanics,
+    #[token("@purity")]
+    AtPurity,
+    #[token("@complexity")]
+    AtComplexity,
+    #[token("@test")]
+    AtTest,
 
     // Operators
     #[token("+")]
@@ -451,6 +461,11 @@ impl fmt::Display for Token {
             Token::AtPure => write!(f, "@pure"),
             Token::AtRequires => write!(f, "@requires"),
             Token::AtEnsures => write!(f, "@ensures"),
+            Token::AtMem => write!(f, "@mem"),
+            Token::AtPanics => write!(f, "@panics"),
+            Token::AtPurity => write!(f, "@purity"),
+            Token::AtComplexity => write!(f, "@complexity"),
+            Token::AtTest => write!(f, "@test"),
             Token::Plus => write!(f, "+"),
             Token::Minus => write!(f, "-"),
             Token::Star => write!(f, "*"),

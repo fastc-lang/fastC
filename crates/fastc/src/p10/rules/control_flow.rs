@@ -428,6 +428,11 @@ mod tests {
                         span: 0..10,
                     },
                     span: 0..20,
+                    mem: None,
+                    panics: None,
+                    purity: None,
+                    complexity: None,
+                    is_test: false,
                 })
             })
             .collect();

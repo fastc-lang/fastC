@@ -1386,8 +1386,32 @@ fn render_fn_explain(f: &fastc::ast::FnDecl, module: Option<&str>) -> String {
         Some(m) => format!("\"{}\"", escape_json(m)),
         None => "null".to_string(),
     };
+    // v1.3 structured annotations. Emitted as JSON-null when unset
+    // so consumers can detect "not annotated" from "annotated false".
+    let mem_field = match &f.mem {
+        Some(m) => format!("\"arena={}\"", escape_json(&m.arena)),
+        None => "null".to_string(),
+    };
+    let panics_field = match &f.panics {
+        Some(fastc::ast::PanicsAnnot::Never) => "\"never\"".to_string(),
+        Some(fastc::ast::PanicsAnnot::Always) => "\"always\"".to_string(),
+        Some(fastc::ast::PanicsAnnot::On(e)) => {
+            format!("\"on({})\"", escape_json(&expr_to_string(e)))
+        }
+        None => "null".to_string(),
+    };
+    let purity_field = match &f.purity {
+        Some(fastc::ast::PurityLevel::Pure) => "\"pure\"".to_string(),
+        Some(fastc::ast::PurityLevel::Effect) => "\"effect\"".to_string(),
+        Some(fastc::ast::PurityLevel::Io) => "\"io\"".to_string(),
+        None => "null".to_string(),
+    };
+    let complexity_field = match &f.complexity {
+        Some(c) => format!("\"{}\"", bigo_to_string(c)),
+        None => "null".to_string(),
+    };
     format!(
-        "    {{\n      \"name\": \"{}\",\n      \"module\": {},\n      \"params\": [{}\n      ],\n      \"return\": \"{}\",\n      \"annotations\": [{}],\n      \"caps\": [{}],\n      \"requires\": [{}],\n      \"ensures\": [{}],\n      \"is_unsafe\": {},\n      \"doc_comments\": [{}]\n    }}",
+        "    {{\n      \"name\": \"{}\",\n      \"module\": {},\n      \"params\": [{}\n      ],\n      \"return\": \"{}\",\n      \"annotations\": [{}],\n      \"caps\": [{}],\n      \"requires\": [{}],\n      \"ensures\": [{}],\n      \"mem\": {},\n      \"panics\": {},\n      \"purity\": {},\n      \"complexity\": {},\n      \"is_test\": {},\n      \"is_unsafe\": {},\n      \"doc_comments\": [{}]\n    }}",
         escape_json(&f.name),
         module_field,
         if f.params.is_empty() {
@@ -1400,9 +1424,27 @@ fn render_fn_explain(f: &fastc::ast::FnDecl, module: Option<&str>) -> String {
         caps,
         requires,
         ensures,
+        mem_field,
+        panics_field,
+        purity_field,
+        complexity_field,
+        f.is_test,
         f.is_unsafe,
         doc_comments
     )
+}
+
+fn bigo_to_string(b: &fastc::ast::BigO) -> String {
+    use fastc::ast::BigO;
+    match b {
+        BigO::Const => "O(1)".to_string(),
+        BigO::N => "O(n)".to_string(),
+        BigO::Log => "O(log n)".to_string(),
+        BigO::NLogN => "O(n log n)".to_string(),
+        BigO::NPow(k) => format!("O(n^{})", k),
+        BigO::Exp => "O(2^n)".to_string(),
+        BigO::Other(s) => format!("O({})", s),
+    }
 }
 
 /// Walk a function's params and return the set of `Cap*` struct

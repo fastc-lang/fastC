@@ -193,6 +193,12 @@ pub fn compile_with_p10_and_discharge(
         crate::noalloc_check::check_noalloc(&ast, source)
     })?;
 
+    // v1.3 annotation enforcement: `@panics(never)` and
+    // `@purity(pure)` against the transitive call set.
+    time_pass("annotation_check", || {
+        crate::annotation_check::check_annotations(&ast, source)
+    })?;
+
     time_pass("p10", || {
         let p10_checker = P10Checker::new(p10_config);
         p10_checker.check_and_report(&ast, source)
@@ -312,6 +318,12 @@ pub fn compile_project(
     // fails if its transitive call set reaches the heap allocator.
     time_pass("noalloc_check", || {
         crate::noalloc_check::check_noalloc(&ast, source)
+    })?;
+
+    // v1.3 annotation enforcement: `@panics(never)` and
+    // `@purity(pure)` against the transitive call set.
+    time_pass("annotation_check", || {
+        crate::annotation_check::check_annotations(&ast, source)
     })?;
 
     time_pass("p10", || {

@@ -198,6 +198,11 @@ mod tests {
                 span: body_span,
             },
             span: 0..100,
+            mem: None,
+            panics: None,
+            purity: None,
+            complexity: None,
+            is_test: false,
         }
     }
 

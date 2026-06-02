@@ -2,6 +2,60 @@
 
 use super::{Block, ConstExpr, Span, TypeExpr};
 
+/// `@mem(arena = <ident>)` — names the memory region this function
+/// allocates from. v1.x is documentation-only; arena-aware allocators
+/// land in v2.x. Stored verbatim so `fastc explain` can echo it and
+/// downstream tools can consume it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemAnnot {
+    pub arena: String,
+}
+
+/// `@panics(never | always | on = <expr>)` — declares the function's
+/// panic surface. `Never` cross-checks against the call graph to ensure
+/// no path reaches `fc_trap`. `Always` is documentation. `On(cond)`
+/// declares the panic happens iff `cond` holds (documentation in v1.x;
+/// SMT-discharged in a future stage).
+#[derive(Debug, Clone)]
+pub enum PanicsAnnot {
+    Never,
+    Always,
+    On(super::Expr),
+}
+
+/// `@purity(pure | effect | io)` — observable-effect classification.
+/// `Pure` ⇒ no allocation, no global mutation, no I/O. `Effect` ⇒ may
+/// mutate parameters or globals but no I/O. `Io` ⇒ consumes a cap
+/// token; observable outside the process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PurityLevel {
+    Pure,
+    Effect,
+    Io,
+}
+
+/// `@complexity(O(<expr>))` — informational time-complexity bound.
+/// v1.x is documentation-only; the expression is parsed into a small
+/// DSL (Const / N / Log / Mul / Add / Pow) so downstream tools can
+/// reason about it without re-parsing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BigO {
+    /// `O(1)` — constant time
+    Const,
+    /// `O(n)` — linear in the size variable
+    N,
+    /// `O(log n)`
+    Log,
+    /// `O(n log n)`
+    NLogN,
+    /// `O(n^k)` for k ≥ 2
+    NPow(u32),
+    /// `O(2^n)` — exponential
+    Exp,
+    /// Fallback: opaque big-O string for shapes we don't classify
+    Other(String),
+}
+
 /// A top-level item
 #[derive(Debug, Clone)]
 pub enum Item {
@@ -90,6 +144,23 @@ pub struct FnDecl {
     /// the return. v2.1 will hand these to the SMT discharge
     /// pipeline alongside `@requires`.
     pub ensures: Vec<super::Expr>,
+    /// `@mem(arena = ident)` — optional memory-region declaration.
+    /// Documentation-only in v1.x; surfaced through `fastc explain`.
+    pub mem: Option<MemAnnot>,
+    /// `@panics(never | always | on = expr)` — optional panic-surface
+    /// declaration. `Never` is enforced by the annotation-check pass;
+    /// the other variants are documentation-only in v1.x.
+    pub panics: Option<PanicsAnnot>,
+    /// `@purity(pure | effect | io)` — optional effect classification.
+    /// `Pure` is enforced (no alloc, no global mutation, no I/O).
+    pub purity: Option<PurityLevel>,
+    /// `@complexity(O(<expr>))` — informational complexity bound.
+    /// Documentation-only in v1.x; surfaced through `fastc explain`.
+    pub complexity: Option<BigO>,
+    /// `@test` — function is a unit test, only emitted under `--test`.
+    /// B3 inline `test { }` blocks set this implicitly on every fn
+    /// inside the block; users can also annotate free functions.
+    pub is_test: bool,
 }
 
 /// A declared type parameter, e.g. the `T` in `fn id[T](x: T) -> T`.

@@ -316,6 +316,11 @@ fn rewrite_fn_struct_refs(
         return_type: mangle_type_refs(&f.return_type, generic_structs, struct_insts),
         body: mangle_block_struct_refs(f.body, generic_structs, struct_insts),
         span: f.span,
+        mem: f.mem,
+        panics: f.panics,
+        purity: f.purity,
+        complexity: f.complexity,
+        is_test: f.is_test,
     }
 }
 
@@ -1530,6 +1535,11 @@ fn specialize_fn(
         return_type: substitute(&generic_fn.return_type, subst),
         body: rewrite_block(&generic_fn.body, subst, ctx, &mut env, &mut drop_stack),
         span: generic_fn.span.clone(),
+        mem: generic_fn.mem.clone(),
+        panics: generic_fn.panics.clone(),
+        purity: generic_fn.purity.clone(),
+        complexity: generic_fn.complexity.clone(),
+        is_test: generic_fn.is_test,
     }
 }
 
@@ -1552,6 +1562,11 @@ fn rewrite_fn(f: &FnDecl, subst: &HashMap<String, TypeExpr>, ctx: &MonoCtx) -> F
         return_type: f.return_type.clone(),
         body: rewrite_block(&f.body, subst, ctx, &mut env, &mut drop_stack),
         span: f.span.clone(),
+        mem: f.mem.clone(),
+        panics: f.panics.clone(),
+        purity: f.purity.clone(),
+        complexity: f.complexity.clone(),
+        is_test: f.is_test,
     }
 }
 

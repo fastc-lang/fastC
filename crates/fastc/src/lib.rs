@@ -4,6 +4,7 @@
 //! safety-critical code, providing strong static guarantees and
 //! predictable behavior.
 
+pub mod annotation_check;
 pub mod ast;
 pub mod bench;
 pub mod build;
