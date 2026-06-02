@@ -171,6 +171,14 @@ enum Commands {
         /// caches that key off the C output across machines.
         #[arg(long)]
         reproducible: bool,
+
+        /// Output format. `text` (default) writes the C source to
+        /// `--output`. `json` writes a unified JSON envelope to
+        /// stdout: `{"status": "ok", "c_path": "...", "diagnostics": [...]}`
+        /// on success, `{"status": "error", "diagnostics": [...]}` on
+        /// failure. Diagnostics follow the schema in `diag::json`.
+        #[arg(long, value_enum, default_value = "text")]
+        output_format: CliCheckFormat,
     },
 
     /// Type-check a FastC source file without emitting C
@@ -256,6 +264,12 @@ enum Commands {
         /// Check if the file is already formatted (exit with error if not)
         #[arg(long)]
         check: bool,
+
+        /// Output format. `text` (default) writes formatted source.
+        /// `json` writes `{"status": "ok", "formatted": "...",
+        /// "changed": bool}` on stdout.
+        #[arg(long, value_enum, default_value = "text")]
+        output_format: CliCheckFormat,
     },
 
     /// Create a new FastC project
@@ -535,7 +549,9 @@ fn main() -> Result<()> {
             discharge_output,
             caps_output,
             reproducible,
+            output_format,
         } => {
+            let json_mode = matches!(output_format, CliCheckFormat::Json);
             let source = std::fs::read_to_string(&input).into_diagnostic()?;
             // L2: in --reproducible mode, label the source with just
             // its basename so `#line` directives don't bake the
@@ -647,7 +663,35 @@ fn main() -> Result<()> {
                 }
             }
 
-            if output == "-" {
+            if json_mode {
+                // B4: unified JSON envelope on success. Writes the C
+                // to the requested output path (defaulting to stdout
+                // suppressed when --output-format=json) so structured
+                // consumers don't get the C body inline in stdout.
+                let c_path = if output == "-" {
+                    "<stdout>".to_string()
+                } else {
+                    std::fs::write(&output, &c_code).into_diagnostic()?;
+                    output.clone()
+                };
+                let header_path = if let Some(ref h) = header {
+                    let p = output.replace(".c", ".h");
+                    if output != "-" {
+                        std::fs::write(&p, h).into_diagnostic()?;
+                    }
+                    Some(p)
+                } else {
+                    None
+                };
+                println!(
+                    "{{\n  \"status\": \"ok\",\n  \"c_path\": \"{}\",\n  \"header_path\": {},\n  \"diagnostics\": []\n}}",
+                    c_path.replace('\\', "\\\\").replace('"', "\\\""),
+                    match header_path {
+                        Some(p) => format!("\"{}\"", p.replace('\\', "\\\\").replace('"', "\\\"")),
+                        None => "null".to_string(),
+                    }
+                );
+            } else if output == "-" {
                 println!("{}", c_code);
                 if let Some(h) = header {
                     eprintln!("\n--- Header ---\n{}", h);
@@ -837,13 +881,24 @@ fn main() -> Result<()> {
             input,
             output,
             check,
+            output_format,
         } => {
+            let json_mode = matches!(output_format, CliCheckFormat::Json);
             let source = std::fs::read_to_string(&input).into_diagnostic()?;
             let filename = input.display().to_string();
 
             if check {
                 // Check mode: verify already formatted
-                if fastc::check_formatted(&source, &filename)? {
+                let already = fastc::check_formatted(&source, &filename)?;
+                if json_mode {
+                    println!(
+                        "{{\n  \"status\": \"ok\",\n  \"already_formatted\": {},\n  \"diagnostics\": []\n}}",
+                        already
+                    );
+                    if !already {
+                        std::process::exit(1);
+                    }
+                } else if already {
                     eprintln!("File is already formatted.");
                 } else {
                     eprintln!(
@@ -855,18 +910,36 @@ fn main() -> Result<()> {
             } else {
                 // Format mode
                 let formatted = fastc::format(&source, &filename)?;
-
-                match output.as_deref() {
-                    Some("-") => {
-                        print!("{}", formatted);
+                if json_mode {
+                    let changed = formatted != source;
+                    let escaped = formatted
+                        .replace('\\', "\\\\")
+                        .replace('"', "\\\"")
+                        .replace('\n', "\\n");
+                    println!(
+                        "{{\n  \"status\": \"ok\",\n  \"changed\": {},\n  \"formatted\": \"{}\",\n  \"diagnostics\": []\n}}",
+                        changed, escaped
+                    );
+                    // Side effect: if the user passed an output path
+                    // (not stdout), also write the file.
+                    if let Some(path) = output.as_deref() {
+                        if path != "-" {
+                            std::fs::write(path, &formatted).into_diagnostic()?;
+                        }
                     }
-                    Some(path) => {
-                        std::fs::write(path, &formatted).into_diagnostic()?;
-                    }
-                    None => {
-                        // In-place formatting
-                        std::fs::write(&input, &formatted).into_diagnostic()?;
-                        eprintln!("Formatted {}.", input.display());
+                } else {
+                    match output.as_deref() {
+                        Some("-") => {
+                            print!("{}", formatted);
+                        }
+                        Some(path) => {
+                            std::fs::write(path, &formatted).into_diagnostic()?;
+                        }
+                        None => {
+                            // In-place formatting
+                            std::fs::write(&input, &formatted).into_diagnostic()?;
+                            eprintln!("Formatted {}.", input.display());
+                        }
                     }
                 }
             }
