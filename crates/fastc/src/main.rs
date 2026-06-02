@@ -1307,14 +1307,93 @@ fn explain_to_string(file: &fastc::ast::File) -> String {
 fn print_explain_json(file: &fastc::ast::File) {
     let mut entries: Vec<String> = Vec::new();
     walk_for_explain(&file.items, None, &mut entries);
+    let mut module_entries: Vec<String> = Vec::new();
+    walk_for_module_explain(&file.items, None, &mut module_entries);
     println!("{{");
     println!("  \"functions\": [");
     for (i, e) in entries.iter().enumerate() {
         let comma = if i + 1 < entries.len() { "," } else { "" };
         println!("{}{}", e, comma);
     }
+    println!("  ],");
+    println!("  \"modules\": [");
+    for (i, e) in module_entries.iter().enumerate() {
+        let comma = if i + 1 < module_entries.len() {
+            ","
+        } else {
+            ""
+        };
+        println!("{}{}", e, comma);
+    }
     println!("  ]");
     println!("}}");
+}
+
+/// Walk every inline `mod` declaration and emit its header (when set)
+/// as a JSON entry. Empty when no modules carry headers — agents
+/// can use the presence of header info to detect v1.3-style sources.
+fn walk_for_module_explain(
+    items: &[fastc::ast::Item],
+    parent: Option<&str>,
+    out: &mut Vec<String>,
+) {
+    for item in items {
+        if let fastc::ast::Item::Mod(m) = item {
+            let path = match parent {
+                Some(p) => format!("{}::{}", p, m.name),
+                None => m.name.clone(),
+            };
+            if let Some(h) = &m.header {
+                out.push(render_module_header_json(&path, h));
+            }
+            if let Some(body) = &m.body {
+                walk_for_module_explain(body, Some(&path), out);
+            }
+        }
+    }
+}
+
+fn render_module_header_json(path: &str, h: &fastc::ast::ModuleHeader) -> String {
+    let owns = h
+        .owns
+        .iter()
+        .map(|s| format!("\"{}\"", escape_json(s)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let depends = h
+        .depends
+        .iter()
+        .map(|s| format!("\"{}\"", escape_json(s)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let invariants = h
+        .invariants
+        .iter()
+        .map(|s| format!("\"{}\"", escape_json(s)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let module_name = match &h.module_name {
+        Some(n) => format!("\"{}\"", escape_json(n)),
+        None => "null".to_string(),
+    };
+    let arch = match &h.arch {
+        Some(a) => format!("\"{}\"", escape_json(a)),
+        None => "null".to_string(),
+    };
+    let threading = match &h.threading {
+        Some(t) => format!("\"{}\"", escape_json(t)),
+        None => "null".to_string(),
+    };
+    format!(
+        "    {{\n      \"path\": \"{}\",\n      \"module\": {},\n      \"owns\": [{}],\n      \"arch\": {},\n      \"depends\": [{}],\n      \"threading\": {},\n      \"invariants\": [{}]\n    }}",
+        escape_json(path),
+        module_name,
+        owns,
+        arch,
+        depends,
+        threading,
+        invariants
+    )
 }
 
 fn walk_for_explain(items: &[fastc::ast::Item], module: Option<&str>, out: &mut Vec<String>) {
