@@ -1270,10 +1270,53 @@ fn handle_mcp_request(req: serde_json::Value) -> serde_json::Value {
                         "inputSchema": {
                             "type": "object",
                             "properties": {
-                                "path": {
-                                    "type": "string",
-                                    "description": "Filesystem path to a .fc source file."
-                                }
+                                "path": { "type": "string", "description": "Filesystem path to a .fc source file." }
+                            },
+                            "required": ["path"]
+                        }
+                    },
+                    {
+                        "name": "check",
+                        "description": "Type-check a fastC source file and return any diagnostics. Returns {ok: bool, diagnostics: [...]} as JSON.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "path": { "type": "string", "description": "Filesystem path to a .fc source file." }
+                            },
+                            "required": ["path"]
+                        }
+                    },
+                    {
+                        "name": "context",
+                        "description": "Return a markdown surface of every pub item in the project. Optimized for AI context windows — signatures only, no bodies.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "path": { "type": "string", "description": "Filesystem path to a .fc source file (entrypoint or root)." },
+                                "module": { "type": "string", "description": "Restrict to a specific module path." }
+                            },
+                            "required": ["path"]
+                        }
+                    },
+                    {
+                        "name": "diff",
+                        "description": "Compute a semantic AST-level diff between two fastC sources. Returns {added: [...], removed: [...], changed: [...]} as JSON.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "old": { "type": "string", "description": "Path to the old source." },
+                                "new": { "type": "string", "description": "Path to the new source." }
+                            },
+                            "required": ["old", "new"]
+                        }
+                    },
+                    {
+                        "name": "caps_summary",
+                        "description": "Return the capability graph (caps.json) for a fastC source — which functions accept which Cap* tokens.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "path": { "type": "string", "description": "Filesystem path to a .fc source file." }
                             },
                             "required": ["path"]
                         }
@@ -1329,8 +1372,246 @@ fn handle_tools_call(req: serde_json::Value, id: serde_json::Value) -> serde_jso
                 }
             }
         }
+        "check" => {
+            let path = match args.get("path").and_then(|p| p.as_str()) {
+                Some(p) => p.to_string(),
+                None => {
+                    return mcp_error_response(id, -32602, "Missing required 'path' argument");
+                }
+            };
+            let source = match std::fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(e) => {
+                    return mcp_error_response(
+                        id,
+                        -32000,
+                        &format!("Failed to read {}: {}", path, e),
+                    );
+                }
+            };
+            let (ok, msg) = match fastc::check(&source, &path) {
+                Ok(()) => (true, String::new()),
+                Err(e) => (false, format!("{:?}", e)),
+            };
+            let json = format!(
+                "{{\n  \"ok\": {},\n  \"diagnostics\": [{}]\n}}",
+                ok,
+                if msg.is_empty() {
+                    String::new()
+                } else {
+                    format!("\"{}\"", escape_json(&msg))
+                }
+            );
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": { "content": [{ "type": "text", "text": json }] }
+            })
+        }
+        "context" => {
+            let path = match args.get("path").and_then(|p| p.as_str()) {
+                Some(p) => p.to_string(),
+                None => {
+                    return mcp_error_response(id, -32602, "Missing required 'path' argument");
+                }
+            };
+            let source = match std::fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(e) => {
+                    return mcp_error_response(
+                        id,
+                        -32000,
+                        &format!("Failed to read {}: {}", path, e),
+                    );
+                }
+            };
+            match fastc::parse(&source, &path) {
+                Ok(file) => {
+                    let md = context_to_markdown(&file);
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "content": [{ "type": "text", "text": md }] }
+                    })
+                }
+                Err(e) => mcp_error_response(id, -32000, &format!("Parse failed: {:?}", e)),
+            }
+        }
+        "diff" => {
+            let old_path = match args.get("old").and_then(|p| p.as_str()) {
+                Some(p) => p.to_string(),
+                None => return mcp_error_response(id, -32602, "Missing required 'old' argument"),
+            };
+            let new_path = match args.get("new").and_then(|p| p.as_str()) {
+                Some(p) => p.to_string(),
+                None => return mcp_error_response(id, -32602, "Missing required 'new' argument"),
+            };
+            let old_src = std::fs::read_to_string(&old_path).unwrap_or_default();
+            let new_src = std::fs::read_to_string(&new_path).unwrap_or_default();
+            let old_file = match fastc::parse(&old_src, &old_path) {
+                Ok(f) => f,
+                Err(e) => {
+                    return mcp_error_response(id, -32000, &format!("Old parse failed: {:?}", e));
+                }
+            };
+            let new_file = match fastc::parse(&new_src, &new_path) {
+                Ok(f) => f,
+                Err(e) => {
+                    return mcp_error_response(id, -32000, &format!("New parse failed: {:?}", e));
+                }
+            };
+            let md = diff_to_markdown(&old_file, &new_file);
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": { "content": [{ "type": "text", "text": md }] }
+            })
+        }
+        "caps_summary" => {
+            let path = match args.get("path").and_then(|p| p.as_str()) {
+                Some(p) => p.to_string(),
+                None => {
+                    return mcp_error_response(id, -32602, "Missing required 'path' argument");
+                }
+            };
+            let source = match std::fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(e) => {
+                    return mcp_error_response(
+                        id,
+                        -32000,
+                        &format!("Failed to read {}: {}", path, e),
+                    );
+                }
+            };
+            match fastc::parse(&source, &path) {
+                Ok(file) => {
+                    let summary = fastc::caps_summary::CapsSummary::from_file(&file);
+                    let json = summary.to_json();
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "content": [{ "type": "text", "text": json }] }
+                    })
+                }
+                Err(e) => mcp_error_response(id, -32000, &format!("Parse failed: {:?}", e)),
+            }
+        }
         _ => mcp_error_response(id, -32601, &format!("Unknown tool: {}", name)),
     }
+}
+
+/// Build the same markdown context that `fastc context` prints to
+/// stdout, but return it as a String for the MCP `context` tool.
+fn context_to_markdown(file: &fastc::ast::File) -> String {
+    let mut out = String::new();
+    out.push_str("# Project Surface\n\n");
+    walk_for_context_md_str(&file.items, None, &mut out);
+    out
+}
+
+fn walk_for_context_md_str(items: &[fastc::ast::Item], path: Option<&str>, out: &mut String) {
+    use std::fmt::Write;
+    let mut emitted_header = false;
+    for item in items {
+        match item {
+            fastc::ast::Item::Mod(m) => {
+                let nested = match path {
+                    Some(p) => format!("{}::{}", p, m.name),
+                    None => m.name.clone(),
+                };
+                if let Some(body) = &m.body {
+                    walk_for_context_md_str(body, Some(&nested), out);
+                }
+            }
+            fastc::ast::Item::Fn(f) => {
+                if !emitted_header {
+                    let _ = writeln!(out, "## Module `{}`\n", path.unwrap_or("(root)"));
+                    emitted_header = true;
+                }
+                let params = f
+                    .params
+                    .iter()
+                    .map(|p| format!("{}: {}", p.name, type_to_string(&p.ty)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(
+                    out,
+                    "- `fn {}({}) -> {}`",
+                    f.name,
+                    params,
+                    type_to_string(&f.return_type)
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Same shape as `fastc diff` markdown output, but as a String.
+fn diff_to_markdown(old: &fastc::ast::File, new: &fastc::ast::File) -> String {
+    use std::collections::BTreeMap;
+    use std::fmt::Write;
+
+    let old_fns = collect_pub_fns(&old.items);
+    let new_fns = collect_pub_fns(&new.items);
+    let mut old_map: BTreeMap<String, &fastc::ast::FnDecl> = BTreeMap::new();
+    let mut new_map: BTreeMap<String, &fastc::ast::FnDecl> = BTreeMap::new();
+    for (k, v) in &old_fns {
+        old_map.insert(k.clone(), *v);
+    }
+    for (k, v) in &new_fns {
+        new_map.insert(k.clone(), *v);
+    }
+    let mut added: Vec<String> = Vec::new();
+    let mut removed: Vec<String> = Vec::new();
+    let mut changed: Vec<(String, String, String)> = Vec::new();
+    for (k, f_new) in &new_map {
+        match old_map.get(k) {
+            None => added.push(k.clone()),
+            Some(f_old) => {
+                let old_sig = fn_signature_summary(f_old);
+                let new_sig = fn_signature_summary(f_new);
+                if old_sig != new_sig {
+                    changed.push((k.clone(), old_sig, new_sig));
+                }
+            }
+        }
+    }
+    for k in old_map.keys() {
+        if !new_map.contains_key(k) {
+            removed.push(k.clone());
+        }
+    }
+    let mut s = String::new();
+    let _ = writeln!(s, "# Semantic diff\n");
+    if added.is_empty() && removed.is_empty() && changed.is_empty() {
+        s.push_str("_No semantic changes._");
+        return s;
+    }
+    if !added.is_empty() {
+        let _ = writeln!(s, "## Added (+{})\n", added.len());
+        for k in &added {
+            let _ = writeln!(s, "- {}", k);
+        }
+        s.push('\n');
+    }
+    if !removed.is_empty() {
+        let _ = writeln!(s, "## Removed (-{})\n", removed.len());
+        for k in &removed {
+            let _ = writeln!(s, "- {}", k);
+        }
+        s.push('\n');
+    }
+    if !changed.is_empty() {
+        let _ = writeln!(s, "## Changed ({})\n", changed.len());
+        for (k, old_sig, new_sig) in &changed {
+            let _ = writeln!(s, "- **{}**", k);
+            let _ = writeln!(s, "  - was: `{}`", old_sig);
+            let _ = writeln!(s, "  - now: `{}`", new_sig);
+        }
+    }
+    s
 }
 
 fn mcp_error_response(id: serde_json::Value, code: i64, message: &str) -> serde_json::Value {
