@@ -4,15 +4,48 @@ This roadmap is a living plan. Dates are intentionally omitted until implementat
 
 ## v1.0 status (2026-05-27)
 
-**Every stage through 2.1 is shipped — fastC is feature-complete.** Stages 0.1 through 2.1 plus the v2.0 hardening follow-ups: body-aware SMT discharge, call-site precondition discharge for direct calls + method calls + **function-pointer bindings** (N1), `@requires` / `@ensures` annotations inside `impl` blocks, tier-1 expansion (unsigned-nonneg / excluded-middle / identity arithmetic), per-function and per-statement source-map `#line` directives, `--reproducible` flag for cross-directory byte-identical C, four libfuzzer targets across the full pipeline, multi-source-file project build cache (46× warm-vs-cold), **`[workspace]` manifest support with per-member incremental** (N3), **closures with by-value literal captures** (N4), **compiler-binary reproducibility via `SOURCE_DATE_EPOCH` + `--remap-path-prefix` in the release workflow** (N5), **fastc-core launch set split into five public repos under [Skelf-Research/fastc-core-{cli,log,json,toml,http}](https://github.com/Skelf-Research)** (N2), on-disk discharge cache, structured fix-it hints, and single-file global build cache. **313+ tests pass** across the workspace.
+**fastC is feature-complete through stage 2.1.** Stages 0.1 through 2.1 plus the v2.0 hardening follow-ups (N1–N6) plus the stage-1.3 annotation surface (A1–A3) plus the stage-1.6 agent-first expansion slice (B2 / B5) plus the stage-1.7 supply-chain polish (C1 / C2). Headline features:
+
+- body-aware SMT discharge; call-site precondition discharge for direct calls + method calls + **function-pointer bindings** (N1);
+- `@requires` / `@ensures` annotations inside `impl` blocks; tier-1 expansion (unsigned-nonneg / excluded-middle / identity arithmetic);
+- per-function and per-statement source-map `#line` directives;
+- `--reproducible` flag on both `fastc compile` and `fastc build` (C2) for cross-directory byte-identical C;
+- four libfuzzer targets across the full pipeline;
+- multi-source-file project build cache (46× warm-vs-cold);
+- `[workspace]` manifest support with per-member incremental (N3);
+- closures with by-value literal captures (N4);
+- compiler-binary reproducibility via `SOURCE_DATE_EPOCH` + `--remap-path-prefix` in the release workflow (N5);
+- fastc-core launch set split into five public repos under [Skelf-Research/fastc-core-{cli,log,json,toml,http}](https://github.com/Skelf-Research) (N2);
+- on-disk discharge cache; structured fix-it hints; single-file global build cache;
+- **stage-1.3 function-level annotation surface** (A1): `@mem(arena = ident)`, `@panics(never|always|on=expr)`, `@purity(pure|effect|io)`, `@complexity(O(...))` parsing + AST + structured storage. `@panics(never)` and `@purity(pure)` are enforced against the transitive call graph;
+- **stage-1.3 module-level mandatory headers** (A2): `//! @module / @owns / @arch / @depends / @threading / @invariants`. Lenient mode (the default) accepts header-less modules; cross-module checks (@owns uniqueness, @depends exhaustiveness, @arch DAG layering) fire when any module declares a header. Strict mode is opt-in via `strict_modules = true` in `fastc.toml` for greenfield projects;
+- **`fastc explain` JSON extended** (A3) with the new annotation fields and a top-level `modules` array;
+- **`fastc context` + `fastc diff` subcommands** (B2): markdown / JSON dumps of the project's pub type surface and AST-level diffs between two snapshots;
+- **MCP method expansion** (B5): the embedded `fastc mcp` server now exposes `check`, `compile`, `caps_summary`, `context`, `diff` alongside the existing `explain`;
+- **dep_content_hash in the build cache key** (C1) closes the cache-invalidation loop on dep churn;
+- **multi-file project reproducibility** (C2) verified by `crates/fastc/tests/reproducibility.rs::multi_file_project_reproducible_across_dirs`.
+
+**325+ tests pass across the workspace.**
 
 fastC v1.0 is feature-complete for launch — every item in the "What's stable at v1.0" list of [docs/v1.0.md](v1.0.md) is implemented, tested, and exercised end-to-end by the integrated demo at `examples/launch_set_demo.fc`.
 
-Items still open as post-launch follow-ups (none gate v1.0):
+### Open v1.x follow-ups (none gate v1.0)
 
-1. **Whole-program function-pointer discharge** — direct calls, method dispatch, and fn-pointer bindings (`let f = direct_fn; apply(f, x)`) all discharge. Truly opaque fn-pointer parameters (`fn apply(f: fn(i32) -> i32, ...)` called from a caller whose closure source isn't visible) still fall through. Whole-program callee inference is a v2.x slice.
-2. **Closures with non-literal by-value captures** (v2.0) — IntLit / BoolLit / FloatLit + unary-negated literal captures inline. Non-literal captures (function results, struct fields, mutable bindings) still emit the closure-aware "undefined name" diagnostic. Full env-struct synthesis is the v2.0 follow-up.
-3. **fastc-core packages on `fastc add` flow** — the five `Skelf-Research/fastc-core-{cli,log,json,toml,http}` repos exist publicly; their public APIs are still shipped inside the fastC prelude for v1.0. Cutting the prelude over to vendored `fastc add` is a v1.1 packaging slice with no API change.
+Smaller polish items, in priority order:
+
+1. **`fastc fix` subcommand + structured fix-it spans** (B1) — extends `CompileError` variants with `Fixit { span, replacement, label }` triples so mechanical fixes ("wrap in unsafe", "add `addr(`", "import X") can be auto-applied. Infrastructure first, then per-diagnostic backfill.
+2. **Inline `test { }` blocks + `--test` flag** (B3) — `test { fn foo() { assert(...) } }` blocks with `--test` generating a test-runner main. Reuses the `@test` AST field A1 already shipped.
+3. **Unified JSON diagnostic envelope** (B4) — single `Diagnostic` shape across compile / check / fmt / cert-report / discharge / caps, plus `--output-format=json` on `compile` and `fmt`.
+4. **LSP code actions + semantic tokens + workspace rename** (B6) — `crates/fastc-lsp/` already has diagnostics / hover / goto-def / completions; adding the three remaining LSP capabilities closes the editor story.
+5. **Whole-program function-pointer discharge** (C3) — direct calls, method dispatch, and bound fn-pointer assignments (`let f = direct_fn; apply(f, x)`) all discharge after N1. Opaque fn-pointer *parameters* (`fn apply(f: fn(i32) -> i32, x: i32)` called from outside) still fall through. Whole-program callee inference is the closing slice.
+6. **Closures with non-literal by-value captures** (v2.0) — IntLit / BoolLit / FloatLit + unary-negated literal captures inline. Non-literal captures (function results, struct fields, mutable bindings) still emit the closure-aware diagnostic. Full env-struct synthesis is the v2.0 follow-up.
+7. **`fastc fmt --annotate`** (A3 follow-up) — infer `@panics(never)` / `@purity(pure)` per fn and module headers from existing code structure, write them back. Migration aid; legacy code compiles without it.
+
+Larger external work, scoped but deferred to a dedicated sprint:
+
+- **Stage 1.2 benchmark expansion** (D): five more CLBG programs across 5 languages, compile-time isolation (split fastc-step from cc -O2), dep-count benchmark, `benchmarks/run_all.sh` umbrella.
+- **Stage 1.8 fastc-core packaging cutover** (E1): move the existing five fastc-core packages off the prelude onto the `fastc add` flow with Sigstore-signed v1.0.0 releases on every repo.
+- **Stage 1.8 fastc-core six-month set** (E2): six new public repos under `Skelf-Research/fastc-core-{time,base64,uuid,crypto-primitives,regex,sqlite}`. Per-package effort: time 200 LoC, base64 150 LoC, uuid 180 LoC, crypto-primitives 500 LoC (hand-rolled SHA-256), regex 800 LoC (Thompson NFA), sqlite 600 LoC + runtime shim (libsqlite3 FFI). Estimated 4–8 weeks of focused authoring.
 
 Anything in stages 2.2+ (safety-critical certification, async/await, etc.) is post-v1.0 and not blocked by the launch.
 
