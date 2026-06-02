@@ -17,6 +17,7 @@ pub mod desugar;
 pub mod diag;
 pub mod discharge;
 pub mod emit;
+pub mod fixit;
 pub mod fmt;
 pub mod lexer;
 pub mod lower;

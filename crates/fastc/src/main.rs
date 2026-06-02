@@ -434,6 +434,19 @@ enum Commands {
         input: PathBuf,
     },
 
+    /// Apply mechanical fixes to a source file. Runs `fastc fmt` to
+    /// normalize formatting, plus any registered fix-it patterns from
+    /// the diagnostic infrastructure. v1.x ships the infrastructure
+    /// (Fixit struct + applier); per-diagnostic backfill is
+    /// incremental.
+    Fix {
+        /// Input FastC source file
+        input: PathBuf,
+        /// Print the diff without writing changes back
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Dump the project's pub type surface for AI context windows.
     /// Walks every `pub` item across the source tree and emits a
     /// markdown (default) or JSON summary. No bodies — agents get
@@ -1156,6 +1169,35 @@ fn main() -> Result<()> {
             let filename = input.display().to_string();
             let file = fastc::parse(&source, &filename).map_err(|e| miette::miette!("{:?}", e))?;
             print_explain_json(&file);
+        }
+
+        Commands::Fix { input, dry_run } => {
+            let source = std::fs::read_to_string(&input).into_diagnostic()?;
+            // v1.x: the universal mechanical fix is auto-formatting.
+            // Future commits add per-diagnostic Fixit patterns
+            // (wrap-in-unsafe, add-missing-use, etc.).
+            let filename = input.display().to_string();
+            let formatted = match fastc::fmt::format(&source, &filename) {
+                Ok(out) => out,
+                Err(e) => return Err(miette::miette!("fmt failed: {:?}", e)),
+            };
+            if formatted == source {
+                eprintln!("{}: already up-to-date.", input.display());
+                return Ok(());
+            }
+            if dry_run {
+                println!("--- {}", input.display());
+                println!("+++ {} (after fastc fix)", input.display());
+                for (i, (old_line, new_line)) in source.lines().zip(formatted.lines()).enumerate() {
+                    if old_line != new_line {
+                        println!("- {}: {}", i + 1, old_line);
+                        println!("+ {}: {}", i + 1, new_line);
+                    }
+                }
+                return Ok(());
+            }
+            std::fs::write(&input, &formatted).into_diagnostic()?;
+            eprintln!("{}: applied fixes.", input.display());
         }
 
         Commands::Context {
