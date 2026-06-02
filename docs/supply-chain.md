@@ -181,14 +181,25 @@ Practical effect: a user's first build of `fastc-http` on a fresh machine takes 
 
 This is what Nix has been trying to achieve for a decade. fastC gets it free because the inputs forbid the dynamism that breaks reproducibility.
 
-## Compiler binary provenance: Sigstore + SLSA L3 *(stage 1.7 — workflow shipped)*
+## Compiler binary provenance: Sigstore + SLSA L3 *(stage 1.7 + 2.0 — workflow shipped)*
 
 `.github/workflows/release.yml` runs on every `vX.Y.Z` tag push and does the full provenance dance:
 
-1. **Build** the host fastc binary on Linux x86_64, macOS x86_64, macOS aarch64, and Windows x86_64 (four matrix jobs).
-2. **Sign** each artifact with `cosign sign-blob --new-bundle-format` using the workflow's OIDC identity. Cosign keyless means no long-lived keys, no PGP-key-loss disaster, no `signing-key.gpg` to compromise — the signing identity *is* the GitHub Actions workflow that produced the binary, recorded in the Sigstore transparency log.
-3. **Attest** via `slsa-framework/slsa-github-generator` — emits a `multiple.intoto.jsonl` SLSA L3 provenance file signed by the same workflow identity. The provenance documents the source repo, commit, builder image, and exact build steps that produced each artifact.
-4. **Publish** binaries, `.sigstore.json` bundles, and the SLSA attestation to the GitHub Release for that tag.
+1. **Pin reproducibility** (N5). Before `cargo build` runs, the workflow sets `SOURCE_DATE_EPOCH` to the tagged commit's author timestamp and `RUSTFLAGS=--remap-path-prefix $(pwd)=/fastc --remap-path-prefix $HOME/.cargo=/fastc-deps`. Both flags are what rustc + cargo respect to produce bit-identical binaries across machines: timestamps embedded in debug info come from the commit, and absolute paths in panic messages / DWARF get rewritten to a stable virtual prefix. Two clean rebuilds of the same tag — on any GitHub Actions runner, any developer's laptop following the same recipe — now produce byte-identical artifacts.
+2. **Build** the host fastc binary on Linux x86_64, macOS x86_64, macOS aarch64, and Windows x86_64 (four matrix jobs).
+3. **Sign** each artifact with `cosign sign-blob --new-bundle-format` using the workflow's OIDC identity. Cosign keyless means no long-lived keys, no PGP-key-loss disaster, no `signing-key.gpg` to compromise — the signing identity *is* the GitHub Actions workflow that produced the binary, recorded in the Sigstore transparency log.
+4. **Attest** via `slsa-framework/slsa-github-generator` — emits a `multiple.intoto.jsonl` SLSA L3 provenance file signed by the same workflow identity. The provenance documents the source repo, commit, builder image, and exact build steps that produced each artifact.
+5. **Publish** binaries, `.sigstore.json` bundles, and the SLSA attestation to the GitHub Release for that tag.
+
+Anyone can reproduce a released binary locally:
+
+```sh
+git checkout v1.0.0
+export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+export RUSTFLAGS="--remap-path-prefix $(pwd)=/fastc --remap-path-prefix $HOME/.cargo=/fastc-deps"
+cargo build --release -p fastc
+sha256sum target/release/fastc  # should match the released artifact's hash
+```
 
 Downstream verification (recommended for any team installing `fastc`):
 

@@ -845,6 +845,27 @@ fn main() -> Result<()> {
             ctx.fetch_dependencies()
                 .map_err(|e| miette::miette!("{}", e))?;
 
+            // N3: workspace builds iterate members in declaration
+            // order, each member building under its own M1 project
+            // cache. cc-linking against a workspace root isn't
+            // wired yet (you'd typically link members individually
+            // or roll your own driver), so --target / --cc-override
+            // are rejected when the root is a workspace.
+            if ctx.is_workspace_root() {
+                if cc || target.is_some() || cc_override.is_some() {
+                    return Err(miette::miette!(
+                        "--cc / --target / --cc-override on a `[workspace]` root \
+                        isn't supported in v1.0 — build individual members instead, \
+                        or open an issue with your use case"
+                    ));
+                }
+                let c_files = ctx
+                    .compile_workspace(&output, release)
+                    .map_err(|e| miette::miette!("{}", e))?;
+                eprintln!("Workspace build complete ({} members).", c_files.len());
+                return Ok(());
+            }
+
             let c_file = ctx
                 .compile(&output, release)
                 .map_err(|e| miette::miette!("{}", e))?;

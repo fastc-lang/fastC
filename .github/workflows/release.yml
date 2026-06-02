@@ -86,6 +86,30 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-rel-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Pin reproducibility env (N5)
+        shell: bash
+        run: |
+          # Bind SOURCE_DATE_EPOCH to the tagged commit's author
+          # timestamp. Any build step that embeds a timestamp
+          # (mtimes inside .a archives, cargo's build metadata
+          # interpolation, embedded RFC-3339 dates in error
+          # messages) now reads from this single deterministic
+          # value rather than `now()`.
+          SDE=$(git log -1 --format=%ct ${{ github.ref_name }} 2>/dev/null || git log -1 --format=%ct)
+          echo "SOURCE_DATE_EPOCH=$SDE" >> $GITHUB_ENV
+
+          # `--remap-path-prefix` rewrites the absolute source
+          # paths rustc embeds in debug info + panic messages to
+          # a stable virtual prefix. Without it, a binary built
+          # at /home/runner/work/fastc/fastc differs byte-for-byte
+          # from one built at /Users/dipankar/Github/fastC, even
+          # when the source tree is identical. The two-segment
+          # remap covers both the workspace path and ~/.cargo's
+          # registry paths.
+          {
+            echo "RUSTFLAGS=--remap-path-prefix $(pwd)=/fastc --remap-path-prefix $HOME/.cargo=/fastc-deps"
+          } >> $GITHUB_ENV
+
       - name: Build release
         run: cargo build --release -p fastc
 

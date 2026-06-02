@@ -19,6 +19,29 @@ pub struct Manifest {
     pub build: BuildConfig,
     #[serde(default)]
     pub dependencies: HashMap<String, Dependency>,
+    /// N3: `[workspace]` table — declares this manifest as a
+    /// workspace root that owns one or more member projects.
+    /// `fastc build` from a workspace root iterates its members in
+    /// declaration order, building each via the standard per-project
+    /// flow (which carries its own M1 incremental cache). The root's
+    /// own `[package]` still has to be present — v1 keeps the
+    /// invariant that every manifest names a package. Pure
+    /// workspace-orchestrator manifests can declare an empty
+    /// `type = "library"` package as a stub.
+    #[serde(default)]
+    pub workspace: Option<WorkspaceConfig>,
+}
+
+/// N3: workspace configuration. `members` is a list of directory
+/// paths relative to the workspace root; each path must contain
+/// its own `fastc.toml`. The workspace root itself doesn't ship
+/// code — it just orchestrates the members.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceConfig {
+    /// Member project paths. Each must point at a directory
+    /// containing a `fastc.toml` with its own `[package]` block.
+    pub members: Vec<String>,
 }
 
 /// Package metadata

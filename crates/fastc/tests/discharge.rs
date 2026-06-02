@@ -377,6 +377,44 @@ fn callsite_discharge_works_through_method_calls() {
 }
 
 #[test]
+fn callsite_discharge_works_through_fn_pointer_binding() {
+    // N1: `let f: fn(i32) -> i32 = safe;` binds f to safe at the
+    // local level; the call-site discharger resolves `f(5)` to a
+    // `safe(5)` call and substitutes args into the callee's
+    // precondition just like a direct call would.
+    let src = r#"
+        @requires(x > 0)
+        fn safe(x: i32) -> i32 { return x; }
+
+        fn caller() -> i32 {
+            let f: fn(i32) -> i32 = safe;
+            return f(5);
+        }
+    "#;
+    let (_c, report) = run(src, DischargeConfig::default());
+    let cs = report
+        .obligations
+        .iter()
+        .find(|o| matches!(o.kind, ObligationKind::CallSite))
+        .expect("expected a CallSite obligation through the fn-ptr binding");
+    assert!(
+        matches!(
+            cs.status,
+            Status::Proven {
+                tier: Tier::Syntactic
+            }
+        ),
+        "expected fn-ptr discharge to prove `x > 0` via literal substitution, got {:?}",
+        cs.status
+    );
+    assert!(
+        cs.function.ends_with("->safe"),
+        "obligation should target `safe` (resolved through fn-ptr binding), got {}",
+        cs.function
+    );
+}
+
+#[test]
 fn callsite_bad_literal_falls_to_runtime() {
     // I1: divisor_safe(0) substitutes x=0 into @requires(x > 0),
     // constant folds to false → can't prove → Runtime.

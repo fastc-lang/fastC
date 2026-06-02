@@ -146,7 +146,22 @@ fn walk_items(
                     unsigned_param_names: caller_unsigned_param_names(f),
                 };
                 let mut counter: usize = 0;
-                walk_block(&f.body, &caller, &mut counter, callees, cfg, smt, report);
+                // N1: function-pointer bindings observed in this body.
+                // `let f: fn(...) -> ... = some_fn;` records `f →
+                // "some_fn"`. Subsequent `f(args)` call sites resolve
+                // to the underlying free fn and route through the
+                // same discharge path direct calls take.
+                let mut fn_ptr_bindings: HashMap<String, String> = HashMap::new();
+                walk_block(
+                    &f.body,
+                    &caller,
+                    &mut counter,
+                    callees,
+                    &mut fn_ptr_bindings,
+                    cfg,
+                    smt,
+                    report,
+                );
             }
             Item::Mod(m) => {
                 if let Some(body) = &m.body {
@@ -177,12 +192,13 @@ fn walk_block(
     caller: &CallerCtx,
     counter: &mut usize,
     callees: &HashMap<String, CalleeContract>,
+    fn_ptrs: &mut HashMap<String, String>,
     cfg: &DischargeConfig,
     smt: Option<&super::smt::SmtBackend>,
     report: &mut DischargeReport,
 ) {
     for stmt in &block.stmts {
-        walk_stmt(stmt, caller, counter, callees, cfg, smt, report);
+        walk_stmt(stmt, caller, counter, callees, fn_ptrs, cfg, smt, report);
     }
 }
 
@@ -191,25 +207,38 @@ fn walk_stmt(
     caller: &CallerCtx,
     counter: &mut usize,
     callees: &HashMap<String, CalleeContract>,
+    fn_ptrs: &mut HashMap<String, String>,
     cfg: &DischargeConfig,
     smt: Option<&super::smt::SmtBackend>,
     report: &mut DischargeReport,
 ) {
     match stmt {
-        Stmt::Let { init, .. } => walk_expr(init, caller, counter, callees, cfg, smt, report),
-        Stmt::Assign { rhs, .. } => walk_expr(rhs, caller, counter, callees, cfg, smt, report),
+        Stmt::Let { name, init, .. } => {
+            // N1: when the RHS is an ident that names a known free
+            // fn, record the binding so subsequent calls through
+            // this local resolve to the underlying callee.
+            if let Expr::Ident { name: rhs_name, .. } = init {
+                if callees.contains_key(rhs_name) {
+                    fn_ptrs.insert(name.clone(), rhs_name.clone());
+                }
+            }
+            walk_expr(init, caller, counter, callees, fn_ptrs, cfg, smt, report);
+        }
+        Stmt::Assign { rhs, .. } => {
+            walk_expr(rhs, caller, counter, callees, fn_ptrs, cfg, smt, report)
+        }
         Stmt::Return { value: Some(e), .. } => {
-            walk_expr(e, caller, counter, callees, cfg, smt, report)
+            walk_expr(e, caller, counter, callees, fn_ptrs, cfg, smt, report)
         }
         Stmt::Expr { expr, .. } | Stmt::Discard { expr, .. } => {
-            walk_expr(expr, caller, counter, callees, cfg, smt, report)
+            walk_expr(expr, caller, counter, callees, fn_ptrs, cfg, smt, report)
         }
         Stmt::Block(b) | Stmt::Unsafe { body: b, .. } | Stmt::Defer { body: b, .. } => {
-            walk_block(b, caller, counter, callees, cfg, smt, report)
+            walk_block(b, caller, counter, callees, fn_ptrs, cfg, smt, report)
         }
         Stmt::While { cond, body, .. } => {
-            walk_expr(cond, caller, counter, callees, cfg, smt, report);
-            walk_block(body, caller, counter, callees, cfg, smt, report);
+            walk_expr(cond, caller, counter, callees, fn_ptrs, cfg, smt, report);
+            walk_block(body, caller, counter, callees, fn_ptrs, cfg, smt, report);
         }
         Stmt::If {
             cond,
@@ -217,15 +246,17 @@ fn walk_stmt(
             else_block,
             ..
         } => {
-            walk_expr(cond, caller, counter, callees, cfg, smt, report);
-            walk_block(then_block, caller, counter, callees, cfg, smt, report);
+            walk_expr(cond, caller, counter, callees, fn_ptrs, cfg, smt, report);
+            walk_block(
+                then_block, caller, counter, callees, fn_ptrs, cfg, smt, report,
+            );
             if let Some(eb) = else_block {
                 match eb {
                     crate::ast::ElseBranch::Else(b) => {
-                        walk_block(b, caller, counter, callees, cfg, smt, report)
+                        walk_block(b, caller, counter, callees, fn_ptrs, cfg, smt, report)
                     }
                     crate::ast::ElseBranch::ElseIf(inner) => {
-                        walk_stmt(inner, caller, counter, callees, cfg, smt, report)
+                        walk_stmt(inner, caller, counter, callees, fn_ptrs, cfg, smt, report)
                     }
                 }
             }
@@ -239,30 +270,48 @@ fn walk_expr(
     caller: &CallerCtx,
     counter: &mut usize,
     callees: &HashMap<String, CalleeContract>,
+    fn_ptrs: &mut HashMap<String, String>,
     cfg: &DischargeConfig,
     smt: Option<&super::smt::SmtBackend>,
     report: &mut DischargeReport,
 ) {
     if let Expr::Call { callee, args, .. } = expr {
+        // N1: resolve the call's target through three lookups:
+        //   1. Direct callee name (`f(args)` for a known free fn).
+        //   2. Fn-pointer binding (`let f = some_fn; f(args)` →
+        //      look up `f` in `fn_ptrs`, fall back to direct).
+        //   3. Anything else (method calls, indirect-through-struct,
+        //      unresolved idents) is skipped at this layer; post-mono
+        //      it'll already be the rewritten free-fn form (per K1).
         if let Some(name) = callee_name(callee) {
-            if let Some(contract) = callees.get(&name) {
-                discharge_call(caller, &name, contract, args, counter, cfg, smt, report);
+            let resolved_name = fn_ptrs.get(&name).cloned().unwrap_or(name);
+            if let Some(contract) = callees.get(&resolved_name) {
+                discharge_call(
+                    caller,
+                    &resolved_name,
+                    contract,
+                    args,
+                    counter,
+                    cfg,
+                    smt,
+                    report,
+                );
             }
         }
         // Recurse into args so nested calls discharge too.
         for a in args {
-            walk_expr(a, caller, counter, callees, cfg, smt, report);
+            walk_expr(a, caller, counter, callees, fn_ptrs, cfg, smt, report);
         }
     }
 
     // Recurse into compound expressions.
     match expr {
         Expr::Binary { lhs, rhs, .. } => {
-            walk_expr(lhs, caller, counter, callees, cfg, smt, report);
-            walk_expr(rhs, caller, counter, callees, cfg, smt, report);
+            walk_expr(lhs, caller, counter, callees, fn_ptrs, cfg, smt, report);
+            walk_expr(rhs, caller, counter, callees, fn_ptrs, cfg, smt, report);
         }
         Expr::Unary { operand, .. } | Expr::Paren { inner: operand, .. } => {
-            walk_expr(operand, caller, counter, callees, cfg, smt, report);
+            walk_expr(operand, caller, counter, callees, fn_ptrs, cfg, smt, report);
         }
         _ => {}
     }

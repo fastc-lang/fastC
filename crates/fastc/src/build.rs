@@ -556,6 +556,55 @@ impl BuildContext {
         Ok(c_file)
     }
 
+    /// N3: is this build context a workspace root? True when the
+    /// manifest has a `[workspace]` block with at least one member.
+    pub fn is_workspace_root(&self) -> bool {
+        self.manifest
+            .workspace
+            .as_ref()
+            .map(|w| !w.members.is_empty())
+            .unwrap_or(false)
+    }
+
+    /// N3: build every workspace member in declaration order. Each
+    /// member is built via its own `BuildContext::compile` call,
+    /// which means each member gets its own M1 project cache key
+    /// — editing one member only invalidates that member's cache.
+    /// Returns the list of emitted `.c` paths (one per member).
+    ///
+    /// `output_dir` is interpreted relative to each member's
+    /// project root, so workspace builds produce per-member
+    /// `<member>/build/*.c` artifacts rather than dumping
+    /// everything into a shared output tree.
+    pub fn compile_workspace(
+        &self,
+        output_dir: &Path,
+        release: bool,
+    ) -> Result<Vec<PathBuf>, BuildError> {
+        let Some(ws) = self.manifest.workspace.as_ref() else {
+            return Err(BuildError::Io(
+                "compile_workspace called on a non-workspace root".to_string(),
+            ));
+        };
+        let mut out = Vec::with_capacity(ws.members.len());
+        for member in &ws.members {
+            let member_root = self.project_root.join(member);
+            if !member_root.join("fastc.toml").exists() {
+                return Err(BuildError::ManifestError(format!(
+                    "workspace member '{}' has no fastc.toml at {}",
+                    member,
+                    member_root.display()
+                )));
+            }
+            eprintln!("--- workspace member: {} ---", member);
+            let member_ctx = BuildContext::new(&member_root)?;
+            let member_output = member_root.join(output_dir);
+            let c_file = member_ctx.compile(&member_output, release)?;
+            out.push(c_file);
+        }
+        Ok(out)
+    }
+
     /// M1: compute a content-hash key for the entire project that
     /// is keyed off everything affecting the lex → emit output:
     ///

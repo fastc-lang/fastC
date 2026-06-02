@@ -71,6 +71,25 @@ pub fn desugar(file: &File) -> File {
 struct ClosureLifter {
     counter: usize,
     lifted: Vec<FnDecl>,
+    /// N4 closure captures: scope-stack of `let`-bound idents
+    /// whose RHS reduced to a literal (`IntLit` / `BoolLit` /
+    /// `FloatLit` / a unary-negated literal). When a closure body
+    /// references one of these, the literal value is substituted
+    /// inline so the lifted fn has no free variables and the
+    /// resolver accepts it. Each entry in the stack is one block
+    /// scope; pushed on `rewrite_block` entry, popped on exit.
+    ///
+    /// What this v1 captures:
+    ///   - `let n = 5; |x| x + n`      → lambda body has `x + 5`
+    ///   - `let b = true; || b`         → lambda body has `true`
+    ///   - `let neg = -3; |x| x + neg` → lambda body has `x + (-3)`
+    ///
+    /// What it doesn't:
+    ///   - non-literal captures (let n = foo(); …) — still rejected
+    ///     by the closure-aware resolver diagnostic
+    ///   - `mut` reassignment after binding (we don't track muts)
+    ///   - structs / enums as captures (only the four literal kinds)
+    constant_scopes: Vec<std::collections::HashMap<String, Expr>>,
 }
 
 impl ClosureLifter {
@@ -78,6 +97,7 @@ impl ClosureLifter {
         Self {
             counter: 0,
             lifted: Vec::new(),
+            constant_scopes: Vec::new(),
         }
     }
 
@@ -89,6 +109,238 @@ impl ClosureLifter {
         let n = self.counter;
         self.counter += 1;
         format!("__lambda_{}", n)
+    }
+
+    /// N4: classify a `Stmt::Let`'s init expression as a "literal
+    /// constant" suitable for capture inlining. Returns the literal
+    /// expression to substitute (`Some(lit)`) or `None` for non-
+    /// literal bindings.
+    fn classify_literal_init(&self, e: &Expr) -> Option<Expr> {
+        match e {
+            Expr::IntLit { .. } | Expr::BoolLit { .. } | Expr::FloatLit { .. } => Some(e.clone()),
+            Expr::Unary {
+                op: crate::ast::UnaryOp::Neg,
+                operand,
+                ..
+            } => {
+                if matches!(
+                    operand.as_ref(),
+                    Expr::IntLit { .. } | Expr::FloatLit { .. }
+                ) {
+                    Some(e.clone())
+                } else {
+                    None
+                }
+            }
+            Expr::Paren { inner, .. } => self.classify_literal_init(inner),
+            _ => None,
+        }
+    }
+
+    /// N4: look up `name` in the current scope stack and return its
+    /// literal value if any frame holds it. Inner shadowing wins.
+    fn lookup_constant(&self, name: &str) -> Option<Expr> {
+        for scope in self.constant_scopes.iter().rev() {
+            if let Some(e) = scope.get(name) {
+                return Some(e.clone());
+            }
+        }
+        None
+    }
+
+    /// N4: walk a closure body and substitute every captured-
+    /// constant ident with its literal value. The closure's own
+    /// params are EXCLUDED from substitution (they're not captures
+    /// — they're real parameters whose runtime value flows in via
+    /// the call site).
+    fn inline_captures_in_block(
+        &self,
+        body: &Block,
+        closure_params: &[crate::ast::Param],
+    ) -> Block {
+        let param_names: std::collections::HashSet<&str> =
+            closure_params.iter().map(|p| p.name.as_str()).collect();
+        Block {
+            stmts: body
+                .stmts
+                .iter()
+                .map(|s| self.inline_captures_in_stmt(s, &param_names))
+                .collect(),
+            span: body.span.clone(),
+        }
+    }
+
+    fn inline_captures_in_stmt(&self, s: &Stmt, skip: &std::collections::HashSet<&str>) -> Stmt {
+        match s {
+            Stmt::Let {
+                name,
+                ty,
+                init,
+                span,
+            } => Stmt::Let {
+                name: name.clone(),
+                ty: ty.clone(),
+                init: self.inline_captures_in_expr(init, skip),
+                span: span.clone(),
+            },
+            Stmt::Return { value, span } => Stmt::Return {
+                value: value
+                    .as_ref()
+                    .map(|e| self.inline_captures_in_expr(e, skip)),
+                span: span.clone(),
+            },
+            Stmt::Expr { expr, span } => Stmt::Expr {
+                expr: self.inline_captures_in_expr(expr, skip),
+                span: span.clone(),
+            },
+            Stmt::Discard { expr, span } => Stmt::Discard {
+                expr: self.inline_captures_in_expr(expr, skip),
+                span: span.clone(),
+            },
+            Stmt::Assign { lhs, rhs, span } => Stmt::Assign {
+                lhs: self.inline_captures_in_expr(lhs, skip),
+                rhs: self.inline_captures_in_expr(rhs, skip),
+                span: span.clone(),
+            },
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+                span,
+            } => Stmt::If {
+                cond: self.inline_captures_in_expr(cond, skip),
+                then_block: Block {
+                    stmts: then_block
+                        .stmts
+                        .iter()
+                        .map(|s| self.inline_captures_in_stmt(s, skip))
+                        .collect(),
+                    span: then_block.span.clone(),
+                },
+                else_block: else_block.as_ref().map(|eb| match eb {
+                    crate::ast::ElseBranch::Else(b) => crate::ast::ElseBranch::Else(Block {
+                        stmts: b
+                            .stmts
+                            .iter()
+                            .map(|s| self.inline_captures_in_stmt(s, skip))
+                            .collect(),
+                        span: b.span.clone(),
+                    }),
+                    crate::ast::ElseBranch::ElseIf(inner) => crate::ast::ElseBranch::ElseIf(
+                        Box::new(self.inline_captures_in_stmt(inner, skip)),
+                    ),
+                }),
+                span: span.clone(),
+            },
+            Stmt::While { cond, body, span } => Stmt::While {
+                cond: self.inline_captures_in_expr(cond, skip),
+                body: Block {
+                    stmts: body
+                        .stmts
+                        .iter()
+                        .map(|s| self.inline_captures_in_stmt(s, skip))
+                        .collect(),
+                    span: body.span.clone(),
+                },
+                span: span.clone(),
+            },
+            Stmt::Block(b) => Stmt::Block(Block {
+                stmts: b
+                    .stmts
+                    .iter()
+                    .map(|s| self.inline_captures_in_stmt(s, skip))
+                    .collect(),
+                span: b.span.clone(),
+            }),
+            Stmt::Unsafe { body, span } => Stmt::Unsafe {
+                body: Block {
+                    stmts: body
+                        .stmts
+                        .iter()
+                        .map(|s| self.inline_captures_in_stmt(s, skip))
+                        .collect(),
+                    span: body.span.clone(),
+                },
+                span: span.clone(),
+            },
+            other => other.clone(),
+        }
+    }
+
+    fn inline_captures_in_expr(&self, e: &Expr, skip: &std::collections::HashSet<&str>) -> Expr {
+        match e {
+            Expr::Ident { name, .. } => {
+                if skip.contains(name.as_str()) {
+                    return e.clone();
+                }
+                if let Some(lit) = self.lookup_constant(name) {
+                    return lit;
+                }
+                e.clone()
+            }
+            Expr::Binary { op, lhs, rhs, span } => Expr::Binary {
+                op: *op,
+                lhs: Box::new(self.inline_captures_in_expr(lhs, skip)),
+                rhs: Box::new(self.inline_captures_in_expr(rhs, skip)),
+                span: span.clone(),
+            },
+            Expr::Unary { op, operand, span } => Expr::Unary {
+                op: *op,
+                operand: Box::new(self.inline_captures_in_expr(operand, skip)),
+                span: span.clone(),
+            },
+            Expr::Paren { inner, span } => Expr::Paren {
+                inner: Box::new(self.inline_captures_in_expr(inner, skip)),
+                span: span.clone(),
+            },
+            Expr::Call { callee, args, span } => Expr::Call {
+                callee: Box::new(self.inline_captures_in_expr(callee, skip)),
+                args: args
+                    .iter()
+                    .map(|a| self.inline_captures_in_expr(a, skip))
+                    .collect(),
+                span: span.clone(),
+            },
+            _ => e.clone(),
+        }
+    }
+
+    /// N4: substitute every captured-constant ident in `expr`
+    /// with its literal value. Recurses through binary / unary /
+    /// paren / call / field / addr / deref / at / cast.
+    fn inline_captured_constants(&self, expr: &Expr) -> Expr {
+        match expr {
+            Expr::Ident { name, .. } => {
+                if let Some(lit) = self.lookup_constant(name) {
+                    return lit;
+                }
+                expr.clone()
+            }
+            Expr::Binary { op, lhs, rhs, span } => Expr::Binary {
+                op: *op,
+                lhs: Box::new(self.inline_captured_constants(lhs)),
+                rhs: Box::new(self.inline_captured_constants(rhs)),
+                span: span.clone(),
+            },
+            Expr::Unary { op, operand, span } => Expr::Unary {
+                op: *op,
+                operand: Box::new(self.inline_captured_constants(operand)),
+                span: span.clone(),
+            },
+            Expr::Paren { inner, span } => Expr::Paren {
+                inner: Box::new(self.inline_captured_constants(inner)),
+                span: span.clone(),
+            },
+            Expr::Call { callee, args, span } => Expr::Call {
+                callee: Box::new(self.inline_captured_constants(callee)),
+                args: args
+                    .iter()
+                    .map(|a| self.inline_captured_constants(a))
+                    .collect(),
+                span: span.clone(),
+            },
+            _ => expr.clone(),
+        }
     }
 
     fn rewrite_fn(&mut self, f: &FnDecl) -> FnDecl {
@@ -126,8 +378,15 @@ impl ClosureLifter {
     }
 
     fn rewrite_block(&mut self, b: &Block) -> Block {
+        // N4: open a new constant scope on block entry; inner
+        // `let x = <literal>;` bindings get recorded here and
+        // closures inside the block can substitute them. Popped
+        // on exit so siblings don't see this block's bindings.
+        self.constant_scopes.push(std::collections::HashMap::new());
+        let stmts: Vec<Stmt> = b.stmts.iter().map(|s| self.rewrite_stmt(s)).collect();
+        self.constant_scopes.pop();
         Block {
-            stmts: b.stmts.iter().map(|s| self.rewrite_stmt(s)).collect(),
+            stmts,
             span: b.span.clone(),
         }
     }
@@ -139,12 +398,24 @@ impl ClosureLifter {
                 ty,
                 init,
                 span,
-            } => Stmt::Let {
-                name: name.clone(),
-                ty: ty.clone(),
-                init: self.rewrite_expr(init),
-                span: span.clone(),
-            },
+            } => {
+                let rewritten_init = self.rewrite_expr(init);
+                // N4: register the binding in the current scope when
+                // its init reduces to a literal. Closures lifted from
+                // statements later in this block (or any nested block)
+                // can substitute the literal in for the bare ident.
+                if let Some(lit) = self.classify_literal_init(&rewritten_init) {
+                    if let Some(scope) = self.constant_scopes.last_mut() {
+                        scope.insert(name.clone(), lit);
+                    }
+                }
+                Stmt::Let {
+                    name: name.clone(),
+                    ty: ty.clone(),
+                    init: rewritten_init,
+                    span: span.clone(),
+                }
+            }
             Stmt::Assign { lhs, rhs, span } => Stmt::Assign {
                 lhs: self.rewrite_expr(lhs),
                 rhs: self.rewrite_expr(rhs),
@@ -275,6 +546,18 @@ impl ClosureLifter {
         match e {
             // The interesting case: lift to a synthetic top-level fn
             // and replace this expression with a reference by name.
+            //
+            // N4: closure captures-by-value via literal-constant
+            // inlining. Before lifting, walk the closure body and
+            // substitute every reference to a `let x = <literal>`
+            // ident in the enclosing scopes with the literal value
+            // itself. The lifted fn becomes self-contained; the
+            // resolver accepts it without a closure-aware error.
+            //
+            // Non-literal captures (function results, struct
+            // fields, etc.) are still rejected — they need an env
+            // struct + a different fn-ptr shape, which is the
+            // larger v2.0 closure work.
             Expr::Closure {
                 params,
                 ret,
@@ -282,7 +565,8 @@ impl ClosureLifter {
                 span,
             } => {
                 let name = self.fresh_name();
-                let new_body = self.rewrite_block(body);
+                let inlined_body = self.inline_captures_in_block(body, params);
+                let new_body = self.rewrite_block(&inlined_body);
                 self.lifted.push(FnDecl {
                     is_unsafe: false,
                     name: name.clone(),

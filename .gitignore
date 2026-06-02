@@ -60,3 +60,4 @@ __pycache__/
 /benchmarks/cross-lang/first-compile/prog
 examples/supply_chain_demo/cargo_attack/target/
 examples/supply_chain_demo/cargo_attack/Cargo.lock
+fastc-core/
