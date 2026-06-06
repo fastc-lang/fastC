@@ -7,11 +7,22 @@
 //! run and applies them in reverse-span order so earlier edits
 //! don't shift later spans.
 //!
-//! v1.x infrastructure: the `Fixit` type ships now so diagnostic
-//! emitters can opt in. Per-diagnostic backfill (wrapping unsafe,
-//! adding missing `use`, etc.) is incremental work that adds
-//! `fixit: Some(Fixit { ... })` to existing `.with_help(...)`
-//! call sites.
+//! ## How emitters register fixits
+//!
+//! Diagnostic emitters opt in via `registry::push(Fixit::new(...))`
+//! alongside the existing `.with_help(...)` text. The registry is a
+//! thread-local accumulator drained by `fastc fix` after the check
+//! pipeline runs. This sidesteps an enum-wide refactor of
+//! `CompileError`: the variants don't carry fixits as a field;
+//! instead, the registry is the side-channel.
+//!
+//! ## How `fastc fix` consumes them
+//!
+//! 1. `registry::clear()` at the start of the run.
+//! 2. Run `fastc check`.
+//! 3. `registry::drain()` returns every Fixit pushed during the run.
+//! 4. `apply_all` writes the rewritten source back to disk (or
+//!    prints a unified diff under `--dry-run`).
 
 use crate::lexer::Span;
 
@@ -69,6 +80,45 @@ pub fn apply_all(source: &str, mut fixits: Vec<Fixit>) -> String {
         last_start = fix.span.start;
     }
     out
+}
+
+/// Thread-local fix-it registry.
+///
+/// Diagnostic emitters call `push()` to record a structured fix
+/// alongside their text hint. `fastc fix` drains the registry after
+/// the check pipeline and applies via `apply_all`. The registry is
+/// per-thread because the compile pipeline is single-threaded per
+/// file; multiple compile invocations on different threads each
+/// have their own accumulator.
+pub mod registry {
+    use super::Fixit;
+    use std::cell::RefCell;
+
+    thread_local! {
+        static FIXITS: RefCell<Vec<Fixit>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Record a fix-it for the current compile pipeline.
+    pub fn push(fix: Fixit) {
+        FIXITS.with(|cell| cell.borrow_mut().push(fix));
+    }
+
+    /// Drain every recorded fix-it. The registry is empty after.
+    pub fn drain() -> Vec<Fixit> {
+        FIXITS.with(|cell| std::mem::take(&mut *cell.borrow_mut()))
+    }
+
+    /// Clear the registry without returning the values. Call at the
+    /// start of a fresh compile.
+    pub fn clear() {
+        FIXITS.with(|cell| cell.borrow_mut().clear());
+    }
+
+    /// Read the registry without consuming it. Used by tests and
+    /// diagnostic introspection.
+    pub fn len() -> usize {
+        FIXITS.with(|cell| cell.borrow().len())
+    }
 }
 
 #[cfg(test)]

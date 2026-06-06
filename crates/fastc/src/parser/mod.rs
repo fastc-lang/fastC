@@ -116,6 +116,21 @@ impl<'a> Parser<'a> {
             self.advance();
             Ok(())
         } else {
+            // C-phase fix-it backfill: when the parser was expecting
+            // a semicolon and didn't find one, register a structured
+            // Fixit that inserts `;` at the end of the previous
+            // token's span. `fastc fix` will apply this mechanically.
+            // The missing-`;` case is the single highest-frequency
+            // parser diagnostic in agent-loop usage; a one-keystroke
+            // mechanical fix is the wedge here.
+            if matches!(expected, Token::Semi) {
+                let prev = self.previous_span();
+                crate::fixit::registry::push(crate::fixit::Fixit::new(
+                    prev.end..prev.end,
+                    ";",
+                    "insert missing ';'",
+                ));
+            }
             Err(self.error(message))
         }
     }

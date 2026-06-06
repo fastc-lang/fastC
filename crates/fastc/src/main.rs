@@ -1246,14 +1246,31 @@ fn main() -> Result<()> {
 
         Commands::Fix { input, dry_run } => {
             let source = std::fs::read_to_string(&input).into_diagnostic()?;
-            // v1.x: the universal mechanical fix is auto-formatting.
-            // Future commits add per-diagnostic Fixit patterns
-            // (wrap-in-unsafe, add-missing-use, etc.).
             let filename = input.display().to_string();
-            let formatted = match fastc::fmt::format(&source, &filename) {
-                Ok(out) => out,
-                Err(e) => return Err(miette::miette!("fmt failed: {:?}", e)),
+
+            // C-phase: run check and collect structured Fixits the
+            // pipeline registers via fixit::registry. Mechanical
+            // fixes (missing semicolons, wrap-in-unsafe, etc.) get
+            // applied first. After that we still run fmt for the
+            // universal mechanical fix.
+            fastc::fixit::registry::clear();
+            let _ = fastc::check(&source, &filename);
+            let fixits = fastc::fixit::registry::drain();
+            let fixed_source = if fixits.is_empty() {
+                source.clone()
+            } else {
+                fastc::fixit::apply_all(&source, fixits.clone())
             };
+
+            // Then run fmt for the universal formatting fix.
+            let formatted = match fastc::fmt::format(&fixed_source, &filename) {
+                Ok(out) => out,
+                // fmt may fail on still-broken source even after
+                // fixit application. Fall back to the structured-fix
+                // output without formatting.
+                Err(_) => fixed_source.clone(),
+            };
+
             if formatted == source {
                 eprintln!("{}: already up-to-date.", input.display());
                 return Ok(());
@@ -1261,6 +1278,12 @@ fn main() -> Result<()> {
             if dry_run {
                 println!("--- {}", input.display());
                 println!("+++ {} (after fastc fix)", input.display());
+                if !fixits.is_empty() {
+                    println!("# structured fixits applied ({}):", fixits.len());
+                    for f in &fixits {
+                        println!("#   - {} (at {}..{})", f.label, f.span.start, f.span.end);
+                    }
+                }
                 for (i, (old_line, new_line)) in source.lines().zip(formatted.lines()).enumerate() {
                     if old_line != new_line {
                         println!("- {}: {}", i + 1, old_line);
@@ -1270,7 +1293,15 @@ fn main() -> Result<()> {
                 return Ok(());
             }
             std::fs::write(&input, &formatted).into_diagnostic()?;
-            eprintln!("{}: applied fixes.", input.display());
+            if fixits.is_empty() {
+                eprintln!("{}: applied formatting fixes.", input.display());
+            } else {
+                eprintln!(
+                    "{}: applied {} structured fixit(s) + formatting.",
+                    input.display(),
+                    fixits.len()
+                );
+            }
         }
 
         Commands::Context {
