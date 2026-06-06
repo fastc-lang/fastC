@@ -1,0 +1,14 @@
+[package]
+name = "fastc-core-consumer"
+version = "0.1.0"
+fastc-version = "1.0"
+
+# Eleven public preview packages live under Skelf-Research.
+# Today their implementations ship inside the fastC v1.0 prelude;
+# v1.1 cuts over to vendored consumption via this manifest.
+[dependencies]
+fastc-core-cli  = { git = "https://github.com/Skelf-Research/fastc-core-cli",  rev = "v0.1.0" }
+fastc-core-log  = { git = "https://github.com/Skelf-Research/fastc-core-log",  rev = "v0.1.0" }
+fastc-core-json = { git = "https://github.com/Skelf-Research/fastc-core-json", rev = "v0.1.0" }
+fastc-core-http = { git = "https://github.com/Skelf-Research/fastc-core-http", rev = "v0.1.0" }
+fastc-core-time = { git = "https://github.com/Skelf-Research/fastc-core-time", rev = "v0.1.0" }

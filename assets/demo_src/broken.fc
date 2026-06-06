@@ -1,0 +1,8 @@
+// Two deliberately-broken patterns that `fastc fix` cleans up:
+//  1. Missing `;` at the end of a return statement.
+//  2. Compressed formatting that `fastc fmt` normalizes.
+fn  add(a:i32, b:i32)->i32{return (a+b)}
+
+fn main() -> i32 {
+    return add(1, 2);
+}

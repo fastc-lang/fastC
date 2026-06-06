@@ -1,0 +1,31 @@
+// fastC v1.3: structured annotations flow through `fastc explain`
+// JSON so agents reading the project surface know exactly what
+// each function promises.
+use caps::init;
+
+@purity(pure)
+@complexity(O(n))
+fn sum_n(n: i32) -> i32 {
+    let mut acc: i32 = 0;
+    let mut i: i32 = 0;
+    while (i < n) {
+        acc = (acc + i);
+        i = (i + 1);
+    }
+    return acc;
+}
+
+@panics(never)
+fn add(a: i32, b: i32) -> i32 {
+    return (a + b);
+}
+
+fn read_clock(c: ref(CapTimeRead)) -> i64 {
+    return time::now(c);
+}
+
+fn main() -> i32 {
+    let bundle: Caps = init();
+    let _t: i64 = read_clock(addr(bundle.time_read));
+    return sum_n(10);
+}
