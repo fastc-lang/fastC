@@ -59,6 +59,7 @@ FastC is under active development. Current features:
 ## Links
 
 - [GitHub Repository](https://github.com/Skelf-Research/fastc)
+- [Marketing site](https://fastc.skelfresearch.com/) — overview, comparisons, blog
 - [Issue Tracker](https://github.com/Skelf-Research/fastc/issues)
 - [Skelf Research](https://skelfresearch.com)
 
