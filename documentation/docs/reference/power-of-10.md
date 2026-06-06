@@ -353,6 +353,30 @@ fn process(data: ref(i32)) -> i32 {
 
 ---
 
+### v1.3 strengthening: `@panics(never)`
+
+The v1.3 `@panics(never)` annotation provides a *per-function* compile-time guarantee that strengthens Rule 1 (Simple Control Flow). A function carrying `@panics(never)` is rejected by the compiler if any path through it — including paths through callees, transitively — can reach `fc_trap()`. This forbids unreachable trap branches that the optimizer would otherwise leave behind, and gives the call-graph analyser the property that "trap" is not in the reachable set.
+
+```c
+// COMPLIANT: no trap path, all callees also @panics(never)
+@panics(never)
+fn safe_divide_known(a: i32) -> i32 {
+    return (a / 2);  // divisor is a literal, no trap
+}
+
+// REJECTED: at() may trap, so @panics(never) is unprovable
+@panics(never)
+fn first_element(s: slice(i32)) -> i32 {
+    return at(s, 0);  // error: bounds check may trap
+}
+```
+
+The check is a BFS over the call graph in `crates/fastc/src/annotation_check.rs`; the same engine enforces `@purity(pure)`. Combined with Rule 1's ban on recursion and Rule 2's bounded loops, `@panics(never)` lets the compiler prove termination *and* trap-freedom for designated functions — the property a real-time scheduler or interrupt handler needs.
+
+See [Annotations](../language/annotations.md) for the full annotation surface.
+
+---
+
 ### Rule 10: Zero Warnings
 
 > "All code must be compiled with all compiler warnings enabled at the most pedantic setting. All code must compile without warnings and pass all static analyzers with zero warnings."

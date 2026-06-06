@@ -329,8 +329,142 @@ The compliance report includes tool qualification information:
 3. **Document safety level** - Explain why Standard vs Critical
 4. **Combine with test reports** - Show coverage alongside compliance
 
+## v1.0 Evidence Artifacts
+
+In addition to `cert-report`, a v1.0 build emits three machine-readable artifacts alongside the generated C. An auditor with these three files can verify Power-of-10 compliance, capability-flow, and contract discharge *without re-running the compiler*. This is the cert-side surface FastC ships.
+
+### `discharge.json` — per-build contract discharge report
+
+Every `@requires` / `@ensures` clause in the program produces an obligation. Each obligation is resolved by one of three tiers — syntactic (always on), SMT (when built with `--prove`), or runtime trap — and the result is written to `discharge.json` at the build output root.
+
+**Schema:**
+
+```json
+{
+  "proven": 47,
+  "runtime": 12,
+  "unknown": 0,
+  "obligations": [
+    {
+      "function": "checked_div",
+      "clause": "requires",
+      "index": 0,
+      "status": "proven",
+      "tier": "syntactic"
+    },
+    {
+      "function": "checked_div",
+      "clause": "ensures",
+      "index": 0,
+      "status": "proven",
+      "tier": "smt"
+    },
+    {
+      "function": "binary_search",
+      "clause": "call_site",
+      "index": 2,
+      "status": "runtime"
+    }
+  ]
+}
+```
+
+Field semantics:
+
+- `function` — the FastC function the obligation belongs to
+- `clause` — one of `requires`, `ensures`, or `call_site` (a discharge generated at the caller of a function whose pre-condition could not be proved statically)
+- `index` — position of the clause within its function (or within the call site)
+- `status` — one of `proven` (statically discharged), `runtime` (lowered to a runtime trap), or `unknown` (the SMT solver returned `unknown`; build fails in `--prove` mode)
+- `tier` — present when `status == "proven"`; one of `syntactic` or `smt`
+
+The discharge engine is body-aware: for straight-line returns of the form `return e;` the post-condition is checked directly against `e`, allowing many `@ensures` clauses to discharge at tier-1 without invoking the SMT solver. Call-site discharge fires for direct calls, method dispatch, and bound `fn`-pointers — every place a callee's pre-condition is visible to the caller.
+
+See `crates/fastc/src/discharge/mod.rs` for the encoder. The artifact is regenerated on every build, with an on-disk cache keyed by obligation content so unchanged clauses are not re-solved. See [Contracts](../language/contracts.md) for the language-level surface.
+
+### `caps.json` — per-build capability graph
+
+Every function that accepts a capability handle via a `ref(...)` parameter is recorded in `caps.json`. This is the cap-flow record an auditor uses to verify that I/O, allocation, and external access are gated through the expected capability boundaries.
+
+**Schema:**
+
+```json
+{
+  "schema": "fastc.caps.v1",
+  "functions": [
+    {
+      "name": "fetch_status",
+      "module": "http",
+      "caps": ["CapNet", "CapAlloc"]
+    },
+    {
+      "name": "read_config",
+      "module": "main",
+      "caps": ["CapFsRead"]
+    }
+  ]
+}
+```
+
+Field semantics:
+
+- `schema` — pinned to `"fastc.caps.v1"`; consumers should reject unknown versions
+- `functions[].name` — the FastC function name (post-mangling-free; this is the source-level identifier)
+- `functions[].module` — owning module path
+- `functions[].caps` — the list of `Cap*` types the function accepts as parameters (e.g. `CapAlloc`, `CapFsRead`, `CapNet`, `CapTime`, `CapRand`, `CapStdout`)
+
+Because capabilities can only enter a function through a parameter — there is no global capability table — the union of `caps` across the graph is the complete I/O / allocation / external-access surface of the program. A function with empty `caps` is provably hermetic at this level.
+
+See `crates/fastc/src/caps_summary.rs` for the emitter. See [Capabilities](../language/capabilities.md) for the language surface.
+
+### Unified diagnostic envelope
+
+Every diagnostic the compiler emits — parse error, type error, P10 violation, capability violation, contract violation, discharge failure, annotation violation — serializes through one shape. Certification pipelines that need to ingest all diagnostics uniformly can rely on this single shape; there is no per-rule format to special-case.
+
+**Schema:**
+
+```json
+{
+  "kind": "p10",
+  "rule_id": "p10.rule_4",
+  "severity": "error",
+  "span": {
+    "file": "src/control.fc",
+    "start": 1284,
+    "end": 1297
+  },
+  "message": "function 'compute_trajectory' exceeds 60-line limit (74 lines)",
+  "hint": "decompose into focused helpers per Rule 4"
+}
+```
+
+Field semantics:
+
+- `kind` — coarse category: `parse`, `type`, `resolve`, `p10`, `capability`, `contract`, `discharge`, `annotation`
+- `rule_id` — stable identifier (e.g. `p10.rule_4`, `cap.unauthorized`, `contract.requires_failed`, `discharge.unknown`)
+- `severity` — `error`, `warning`, or `info`
+- `span` — source location with `file` (path as the compiler saw it; basename under `--reproducible`), `start`, `end` byte offsets
+- `message` — primary diagnostic text
+- `hint` — optional remediation guidance
+
+Emit this envelope by running any subcommand with `--diagnostics-format=json`. See `crates/fastc/src/diag/json.rs` for the canonical encoder.
+
+### Putting the three together
+
+For a DO-178C or ISO 26262 evidence package, ship the four files together:
+
+| File | Verifies |
+|------|----------|
+| `cert-report.json` | Power-of-10 rule compliance |
+| `discharge.json` | Contract clause discharge (proven vs runtime vs unknown) |
+| `caps.json` | I/O / allocation / external-access surface (cap-flow) |
+| Diagnostic stream (envelope) | All warnings and errors during the build, in one shape |
+
+An auditor can then re-verify the program's safety surface without needing a FastC compiler — every property visible in these files is grounded in static analysis at build time.
+
 ## See Also
 
 - [Power of 10 Rules](power-of-10.md) - Complete rule documentation
 - [Safety Guarantees](safety.md) - Memory safety features
+- [Contracts](../language/contracts.md) - `@requires` / `@ensures` and discharge tiers
+- [Capabilities](../language/capabilities.md) - Cap types and `ref(...)` plumbing
 - [CLI Reference](../cli/index.md) - All commands and options

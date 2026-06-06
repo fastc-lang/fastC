@@ -1,6 +1,6 @@
 # Safety Guarantees
 
-FastC provides memory safety guarantees while maintaining C interoperability. For safety-critical applications, FastC also enforces NASA/JPL's [Power of 10 rules](power-of-10.md).
+FastC provides memory safety guarantees while maintaining C interoperability. For safety-critical applications, FastC also enforces NASA/JPL's [Power of 10 rules](power-of-10.md). v1.3 adds a per-function annotation layer that the compiler enforces transitively, so safety properties can be proved at the call-graph level rather than reasoned about by hand.
 
 ## Overview
 
@@ -302,6 +302,30 @@ When safety checks fail, `fc_trap()` is called:
 
 Default behavior: program abort.
 
+## v1.3 annotations as a structural safety layer
+
+FastC v1.3 introduces a small set of function-level annotations that compose into a structural safety proof. When a function carries all three of `@panics(never)`, `@purity(pure)`, and `@mem(arena = none)` (or has no `@mem` annotation in a `@noalloc` context), the compiler can prove — by walking the transitive call graph — that the function cannot allocate, log, perform I/O, or trap. The proof is performed by a BFS over the call graph in `crates/fastc/src/annotation_check.rs`, so the obligation propagates to every callee.
+
+| Annotation | Guarantees | Enforced by |
+|------------|------------|-------------|
+| `@panics(never)` | No `fc_trap()` is reachable from this function. No `unwrap` on `none`, no out-of-bounds `at()`, no divide-by-zero on unchecked integer paths. | Call-graph BFS over panic sites |
+| `@purity(pure)` | No observable side effects. No I/O, no logging, no global mutation, no calls to impure functions. | Call-graph BFS over effect set |
+| `@mem(arena = none)` / `@noalloc` | No dynamic allocation. No calls into the allocator, transitively. | Call-graph BFS over allocator entry points |
+
+Together these mean: a function carrying all three annotations is *provably* a leaf in the side-effect graph. This is what enables high-assurance code regions — interrupt handlers, real-time control loops, cryptographic primitives — to be verified at compile time rather than reviewed by hand.
+
+The annotations are checked transitively. If `f` is `@panics(never)` and calls `g` which is not `@panics(never)`, the compiler rejects `f` with a clear diagnostic pointing at the offending call site. See [Annotations](../language/annotations.md) for the full surface.
+
+## Module-graph validation
+
+In addition to per-function checks, v1.3 validates the module graph as a whole:
+
+- **Uniqueness** — every public name in a module is unique within its scope
+- **Exhaustiveness** — every `use` import resolves to a declared item
+- **DAG layering** — the module dependency graph is acyclic; circular `mod` / `use` chains are rejected at build time
+
+These checks run as part of every build. The implementation lives in `crates/fastc/src/module_graph.rs`. See [Modules](../language/modules.md) for the language-level view.
+
 ## Comparison with C
 
 | C Problem | FastC Solution |
@@ -317,6 +341,8 @@ Default behavior: program abort.
 
 - [Power of 10 Rules](power-of-10.md) - NASA/JPL safety-critical coding rules
 - [Certification & AI](certification.md) - Compliance reports for CI/CD and AI agents
+- [Annotations](../language/annotations.md) - `@panics` / `@purity` / `@mem` / `@complexity`
+- [Modules](../language/modules.md) - Module graph and headers
 - [Unsafe Code](../language/unsafe.md) - Using unsafe blocks
 - [Optionals](../language/optionals.md) - Safe null handling
 - [Results](../language/results.md) - Safe error handling

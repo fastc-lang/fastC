@@ -1,6 +1,20 @@
 # Benchmarks
 
-Real, measured numbers for the claims in the [rubric](rubric.md). Every number on this page comes from a script committed to the repo under `benchmarks/cross-lang/`. Re-running takes one command and ~5 minutes total wall-clock for the perf and token-count suites.
+Real, measured numbers for the claims in the [rubric](rubric.md). Every number on this page comes from a script committed to the repo under `benchmarks/cross-lang/`. Re-running takes one command and ~5 minutes total wall-clock for the perf and token-count suites. The umbrella harness lives at `scripts/bench.sh` and wraps the underlying suites.
+
+## Benchmark surface
+
+fastC ships five measurable sub-harnesses, each owned by a script under `benchmarks/`:
+
+| Sub-harness | Path | What it measures |
+|---|---|---|
+| Cross-language perf | `benchmarks/cross-lang/run.sh` | Compile time / binary size / runtime on `hello` / `sum` / `fib40` / `mandelbrot` across fastC / C / Rust / Zig / Go |
+| Token count | `benchmarks/cross-lang/token-count/count_tokens.py` | LLM token count per program per language via `tiktoken` `cl100k_base` |
+| First-compile success | `benchmarks/cross-lang/first-compile/run.py` | Does the LLM produce code that compiles on the first try, per language per model |
+| Dep count | `benchmarks/cross-lang/dep-count/` | Transitive dep count for a representative HTTP+JSON workload, per language |
+| Monomorphization profile | `benchmarks/mono-profile/` | Generic instantiation count and emit cost for fastC's generics surface |
+
+The umbrella `bash scripts/bench.sh` invokes all five suites end-to-end. Each writes its own `results.csv` in place; the committed versions are the local-M3 golden runs with a date stamp at the top.
 
 ## Compile time, binary size, runtime
 
@@ -173,6 +187,19 @@ What's still missing:
 - Other safety axes: buffer over-read, use-after-free, missing null-terminator. Each needs a task.
 - A capability-typed I/O task — the wedge most central to fastC's identity is still unmeasured here.
 
+## Test harness
+
+The perf benchmarks above measure cross-language behaviour. The compiler's own correctness is gated by **340+ tests passing workspace-wide** — `crates/fastc/tests/*.rs` integration suites (CLI, supply chain, discharge, source map, incremental, reproducibility, HTTP module, CLI module, …), the per-file `#[test]` units, and the doc tests. The harness scripts in `scripts/` wrap `cargo test`:
+
+```bash
+bash scripts/test.sh           # full: build + tests + format + examples smoke
+bash scripts/test.sh quick     # ~20s — unit + integration only
+bash scripts/test.sh ci        # mirror what CI runs (fmt + clippy + tests)
+bash scripts/bench.sh          # this page's umbrella benchmark suite
+```
+
+See [`../getting-started/testing.md`](../getting-started/testing.md) for the per-suite breakdown, how to add a new test surface, and what CI runs on every PR.
+
 ## Reproducing
 
 ```bash
@@ -191,9 +218,12 @@ OLLAMA_API_KEY=... python3 run.py --n 3 --llms glm kimi deepseek qwen
 # Or full grid with Ollama + the proprietary three:
 ANTHROPIC_API_KEY=... OPENAI_API_KEY=... GOOGLE_API_KEY=... \
 OLLAMA_API_KEY=... python3 run.py --n 10     # ~2.5-4 hours
+
+# Umbrella (all five sub-harnesses)
+bash scripts/bench.sh                      # ~5 minutes
 ```
 
-All three scripts overwrite their own `results.csv` in place. The committed versions are the local-M3 golden runs with a date stamp at the top.
+All scripts overwrite their own `results.csv` in place. The committed versions are the local-M3 golden runs with a date stamp at the top.
 
 ## What this page deliberately doesn't measure
 

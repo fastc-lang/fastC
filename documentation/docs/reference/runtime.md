@@ -39,6 +39,10 @@ Called when a safety violation occurs:
 
 Default behavior calls `abort()`. Replace for custom handling.
 
+## Reproducible builds
+
+By default, the `#line` directives emitted into the generated C carry the full source path. Under `fastc compile --reproducible`, the compiler normalizes these directives to the *basename* of the source file. The same FastC bytes compiled from different working directories therefore produce byte-identical C output — which is what downstream caches, content-addressed build systems, and certification toolchains need. See [`fastc compile`](../cli/compile.md) for the full flag surface.
+
 ## Memory Allocation
 
 ```c
@@ -260,6 +264,7 @@ FC_DEFINE_SLICE(double, fc_slice_double);
 ## See Also
 
 - [Installation](../getting-started/installation.md) - Finding runtime path
+- [`fastc compile`](../cli/compile.md) - The `--reproducible` flag and other emitter options
 - [Build Systems](../c-interop/build-systems.md) - Setting include paths
 - [Unsafe Code](../language/unsafe.md) - When runtime functions are used
 

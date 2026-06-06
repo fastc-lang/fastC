@@ -37,3 +37,9 @@ The cap argument is unused at runtime — the compiler erases it. But its presen
 ## What about C++? Objective-C?
 
 Out of scope. fastC emits C11. Wrap a C++ library in an `extern "C"` shim if you need it.
+
+## A real worked example
+
+[`fastc-core-sqlite`](../language/fastc-core.md#sqlite) is the canonical fastC-to-C FFI binding. It opens a libsqlite3 handle through an `extern "C"` block, wraps the API with cap-typed safe entry points (`open(path: Str, c: ref(CapFsWrite)) -> res(Db, SqliteError)`), and runs queries through the typed `Cursor` interface. The opaque-pointer wrapper lives in `runtime/sqlite_shim.h`. Read the package's [public surface](https://github.com/Skelf-Research/fastc-core-sqlite) for the full pattern.
+
+The same shape applies to any C library: `extern "C"` declarations, an `unsafe` wrapper, a cap-typed public API. The cost is structural — every C dep is one `extern "C"` block; every external effect needs a cap.

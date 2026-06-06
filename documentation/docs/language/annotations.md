@@ -399,7 +399,7 @@ struct Header {
 }
 ```
 
-See [C Interop](c-interop.md) for the full FFI surface.
+See [C Interop](../c-interop/index.md) for the full FFI surface.
 
 ## How annotations flow through agent tooling
 

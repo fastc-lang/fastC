@@ -263,9 +263,57 @@ From lowest to highest:
 | 11 | `-` `!` `~` (unary) | Right |
 | 12 | `.` `()` `[]` | Left |
 
+## Annotations (v1.3)
+
+Function-level annotations precede `fn` and stack in any order. The annotation accumulator loop accepts each at most once except `@requires` / `@ensures` which accumulate.
+
+```
+function-annotation ::= "@noalloc"
+                      | "@nodiverg"
+                      | "@pure"
+                      | "@test"
+                      | "@requires" "(" expr ")"
+                      | "@ensures" "(" expr ")"
+                      | "@mem" "(" "arena" "=" ident ")"
+                      | "@panics" "(" panic-kind ")"
+                      | "@purity" "(" purity-level ")"
+                      | "@complexity" "(" "O" "(" bigo-shape ")" ")"
+
+panic-kind   ::= "never" | "always" | "on" "=" expr
+purity-level ::= "pure" | "effect" | "io"
+bigo-shape   ::= "1"
+               | "n"
+               | "log" "n"
+               | "n" "log" "n"
+               | "n" "^" integer       (* 2 ≤ k ≤ 32 *)
+               | "2" "^" "n"
+```
+
+See [Annotations](../language/annotations.md) for semantics + enforcement rules.
+
+## Module headers (v1.3)
+
+Module-level headers are `//!` inner-doc comment lines at the top of a `mod foo { ... }` body, before any item. Each header line is one `@key = "value"` pair.
+
+```
+module-header-line ::= "//!" "@module"     "=" string
+                     | "//!" "@owns"       "=" string   (* comma-separated namespaces *)
+                     | "//!" "@arch"       "=" string
+                     | "//!" "@depends"    "=" string   (* comma-separated module names *)
+                     | "//!" "@threading"  "=" string   (* "single" | "thread_safe" | "concurrent" *)
+                     | "//!" "@invariants" "=" string   (* multiple lines accumulate *)
+                     | "//!" free-text                  (* accepted, ignored *)
+```
+
+A module that contains any `//!` line must declare every required key (`@module`, `@owns`, `@arch`, `@depends`, `@threading`, `@invariants`); partial headers are a compile error.
+
+See [Modules](../language/modules.md) for cross-module validation rules.
+
 ## See Also
 
 - [Types](../language/types.md) - Type system details
 - [Functions](../language/functions.md) - Function syntax
 - [Control Flow](../language/control-flow.md) - Statement syntax
+- [Annotations](../language/annotations.md) - v1.3 function annotations
+- [Modules](../language/modules.md) - v1.3 module headers
 

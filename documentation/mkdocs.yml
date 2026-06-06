@@ -47,6 +47,7 @@ nav:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
     - Editor Setup: getting-started/editor-setup.md
+    - Testing: getting-started/testing.md
   - Language Guide:
     - language/index.md
     - Types: language/types.md
@@ -58,11 +59,29 @@ nav:
     - Pointers: language/pointers.md
     - Arrays & Slices: language/arrays-slices.md
     - Unsafe Code: language/unsafe.md
+    - Annotations: language/annotations.md
+    - Capabilities: language/capabilities.md
+    - Contracts: language/contracts.md
+    - Modules: language/modules.md
+    - fastc-core: language/fastc-core.md
   - CLI Reference:
     - cli/index.md
     - Compile: cli/compile.md
     - Build & Run: cli/build-run.md
     - Project Management: cli/project.md
+    - 'Agent tooling':
+      - Explain: cli/explain.md
+      - Context: cli/context.md
+      - Diff: cli/diff.md
+      - Fix: cli/fix.md
+      - MCP server: cli/mcp.md
+    - 'Supply chain':
+      - Add: cli/add.md
+      - Lock: cli/lock.md
+      - Target: cli/target.md
+    - 'Quality':
+      - Bench: cli/bench.md
+      - Cert report: cli/cert-report.md
   - C Interoperability:
     - c-interop/index.md
     - Calling C: c-interop/calling-c.md
@@ -106,4 +125,4 @@ extra:
       link: mailto:support@skelfresearch.com
   generator: false
 
-copyright: Copyright &copy; 2024-2026 Skelf Research
+copyright: Copyright &copy; 2024-2026 Skelf Research · fastC v1.0

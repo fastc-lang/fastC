@@ -11,6 +11,10 @@
 | Sigstore / SLSA provenance | ✗ | ✗ | ✗ | ✗ | **✓ (enforced sha256 + cosign keyless + SLSA L3)** |
 | Native MCP server | ✗ | ✗ | ✗ | ✗ | **✓ `fastc-mcp`** |
 | Mandatory module annotations | ✗ | ✗ | ✗ | ✗ | **✓ (`@owns` / `@arch` / …)** |
+| Agent tooling surface | ✗ | ✗ | ✗ | ✗ | **✓ (`fastc fix` / `context` / `diff` / `mcp` / `explain`)** |
+| Function-level annotation surface | ✗ | partial (attributes, no enforcement) | partial | partial | **✓ (`@purity` / `@panics` / `@complexity` + module headers, two enforced)** |
+| Supply chain provenance | ✗ | partial (crates.io account model) | partial | ✓ (`go.sum`) | **✓ (sha256 + cosign keyless + SLSA L3 + `dep_content_hash` in cache key)** |
+| Curated stdlib extensions | N/A | ✗ (150K-crate ecosystem) | ✓ (stdlib only) | ✓ (broad stdlib) | **✓ (11-package `fastc-core` ecosystem)** |
 | Binary size (stripped, hello) | 33 KB | 341 KB | 50 KB | 2.4 MB | **53 KB** |
 | Cross-compile targets, no setup | depends on toolchain | ~200 (rustup, per-target sysroot dance) | 50+ (`zig cc`, bundled libcs) | 50+ (`GOOS`/`GOARCH`) | **8 shipped presets via `zig cc`, plus any C cross-toolchain via `--cc-override`** |
 
@@ -50,6 +54,22 @@ Crates.io, npm, and PyPI are the typosquat and phishing targets that have driven
 
 Every fastC module declares `@owns`, `@arch`, `@depends`, `@threading`, `@invariants` in a header. The compiler checks these are present and consistent. An agent (or human) reading a fastC module gets the architectural context for free — no archaeology through git history required.
 
+### Agent tooling surface
+
+`fastc fix` applies the compiler's fix-it spans mechanically (`wrap in unsafe`, `add addr(`, `import X`); `fastc context` dumps the project's pub type surface as markdown or JSON for AI context windows; `fastc diff` produces an AST-level semantic diff between two snapshots (added / removed / signature-changed pub items); `fastc explain` emits per-function JSON (signature + caps + contracts + v1.3 annotations + module headers); `fastc mcp` is a stdio JSON-RPC server exposing five tools (`explain`, `check`, `compile`, `caps_summary`, `context`, `diff`) over Model Context Protocol. The other four languages ship none of this — agent tools text-scrape `cargo check` / `zig build` / `go vet` output instead.
+
+### Function-level annotation surface
+
+fastC v1.3 ships `@purity(pure | effect | io)`, `@panics(never | always | on=expr)`, `@complexity(O(...))`, and `@mem(arena=ident)` as first-class function annotations. **`@panics(never)` and `@purity(pure)` are enforced** against the transitive call graph (no path to `fc_trap` / `panic` / `abort` / `exit`; no alloc / I/O / logging). `@complexity` and `@mem` parse and round-trip through `fastc explain` for now. Plus module-level `//! @module / @owns / @arch / @depends / @threading / @invariants` headers with cross-module checks (uniqueness, dependency exhaustiveness, arch DAG layering). Rust has attributes (`#[must_use]`, `#[inline]`) but no purity / panic / complexity surface; Zig and Go have a partial story via `comptime` / linter rules; C has nothing.
+
+### Supply chain provenance
+
+The fastC release pipeline (`.github/workflows/release.yml`) ships every compiler binary with a cosign keyless signature and SLSA L3 provenance. Every dep in a fastC project records a `sha256` content hash in `fastc.lock`, verified on every `fastc fetch` — a tampered cache tree fails the build before any source compiles. **The `dep_content_hash` is part of the build cache key**, so dep churn invalidates the cache by construction (no silent stale-cache builds). Go has `go.sum` (closest equivalent); Rust has crates.io's account model; Zig has Zon hashes but the SLSA / cosign story is still building out; C has nothing structural.
+
+### Curated stdlib extensions
+
+fastC ships an **11-package `fastc-core` ecosystem** under [Skelf-Research](https://github.com/Skelf-Research) — `cli`, `log`, `json`, `toml`, `http`, `time`, `base64`, `uuid`, `crypto-primitives`, `regex`, `sqlite`. Each is a separate public repo with its own `fastc.toml` / `README.md` / `AGENTS.md` / `LICENSE`. The implementations ship inside the v1.0 prelude (no per-user vendor cutover yet); the v1.1 packaging slice moves them onto the `fastc add` flow. Rust's 150K-crate registry is a different problem (typosquats, ungated tier-3 transitive deps); fastC's curated 11-package set is the deliberate small-and-audited counterposition. Zig and Go both rely on stdlib breadth.
+
 ### Binary size
 
 A stripped `hello` binary measured on M3 / macOS 25.4:
@@ -68,7 +88,7 @@ Why this column matters: container cold-start, embedded ceilings, distribution /
 
 fastC ships eight pre-wired target presets in v1.9 — aarch64/x86_64 × linux-musl/linux-gnu, aarch64/x86_64-macos, wasm32-wasi, and riscv64-linux-musl — covering cloud / Apple Silicon / sandboxed WASM / RISC-V. They all go through `zig cc`, so a single `brew install zig` is the only setup. Run `fastc target list` for the live matrix; run `fastc build --target=<triple>` to produce a binary; run `fastc target check <triple>` to verify the backend without compiling.
 
-The strategic claim is structural, not numerical: **fastC emits portable C11, which means every C cross-compiler in the world is a fastC cross-compiler.** We default to zig because it's the best one and ships with bundled libcs, but `--cc-override=<path>` plugs in any other toolchain (proprietary embedded compilers, distro gcc-cross, custom musl-cross). fastC inherits its cross-compile breadth from the underlying C toolchain — we don't compete with Zig on cross-compilation; we wrap it. See [cross-compile.md](../../../docs/cross-compile.md) for the full how-to and the v1.9 target matrix.
+The strategic claim is structural, not numerical: **fastC emits portable C11, which means every C cross-compiler in the world is a fastC cross-compiler.** We default to zig because it's the best one and ships with bundled libcs, but `--cc-override=<path>` plugs in any other toolchain (proprietary embedded compilers, distro gcc-cross, custom musl-cross). fastC inherits its cross-compile breadth from the underlying C toolchain — we don't compete with Zig on cross-compilation; we wrap it. See [`fastc target`](../cli/target.md) for the v1.9 target matrix and the `--cc-override` escape hatch.
 
 ## fastC vs Zig specifically
 
@@ -102,7 +122,7 @@ Zig is fastC's closest competitor by the empirical numbers — same binary-size 
 
 4. **`comptime`.** Zig's compile-time metaprogramming is genuinely powerful — generic containers without monomorphization explosions, embedded DSLs, build-time codegen. fastC has no equivalent; we trade expressive power for predictable codegen and a smaller language surface.
 
-5. **Cross-compilation breadth.** Zig ships 50+ targets in one binary. fastC ships eight pre-wired targets and routes them through `zig cc` (so the underlying capability is the same), with `--cc-override` for proprietary toolchains. Zig still wins on out-of-the-box breadth — fastC's set is curated to where it plausibly competes (cloud / Apple Silicon / WASI / RISC-V). See [cross-compile.md](../../../docs/cross-compile.md) for the v1.9 matrix.
+5. **Cross-compilation breadth.** Zig ships 50+ targets in one binary. fastC ships eight pre-wired targets and routes them through `zig cc` (so the underlying capability is the same), with `--cc-override` for proprietary toolchains. Zig still wins on out-of-the-box breadth — fastC's set is curated to where it plausibly competes (cloud / Apple Silicon / WASI / RISC-V). See [`fastc target`](../cli/target.md) for the v1.9 matrix.
 
 ### One-sentence positioning
 

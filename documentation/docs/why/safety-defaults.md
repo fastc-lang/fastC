@@ -34,3 +34,15 @@ Lists every rule with its enabled / disabled / planned state for the requested l
 fastC's design is rooted in NASA/JPL's "Power of 10" rules for safety-critical code, developed by Gerard Holzmann for the Mars Science Laboratory mission. We treat the rules as a maturity ceiling: standard mode picks the rules that pay for themselves everywhere; critical mode enables the rest for code where the answer to "is this allowed to allocate?" is a hard no.
 
 Critical mode is not the default because it would make most real-world fastC code ergonomically painful for no proportionate safety gain. Agent runtimes need `vec::push` (allocates). Compilers need recursion. Most working programs need to choose `--safety-level=critical` only when their domain requires it.
+
+## Module-level mandatory headers (v1.3)
+
+Power of 10 enforces *function-level* discipline. Stage 1.3 added a complementary structural-safety layer at the *module* boundary via `//! @module / @owns / @arch / @depends / @threading / @invariants` headers. See [Modules](../language/modules.md) for the full grammar.
+
+What the module-graph pass enforces when at least one module declares a header:
+
+- **`@owns` uniqueness** — every namespace has exactly one owner module. Two modules claiming `@owns = "logging"` is a compile error.
+- **`@depends` exhaustiveness** — every `use mod::X` from a header-bearing module body must point inside the declared `@depends` list. Implicit cross-module reaches are rejected at parse time.
+- **`@arch` DAG layering** — a module whose `@arch` ranks "lower" cannot depend on a higher-arch module. Architectural inversions are diagnosed before they ship.
+
+Like Power of 10, the headers are opt-in (lenient by default; strict via `[package] strict_modules = true` in `fastc.toml`). The wedge: a reviewer reading a fastC project tree with headers in place gets the architectural contract from the source — without an out-of-band design document that drifted six months ago.

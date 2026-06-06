@@ -388,8 +388,29 @@ cc /tmp/hello.c -o /tmp/hello
 echo $?  # Check exit code
 ```
 
+## Demo programs (used by the v1.0 test harness smoke test)
+
+The five demo programs below double as canonical "this is a working fastC program" references and as the regression suite invoked by `bash scripts/test.sh full`. Each compiles through `fastc compile` + `cc` cleanly and exercises a different facet of the v1.0 surface.
+
+| Program | What it shows |
+|---|---|
+| [`contracts_demo.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/contracts_demo.fc) | `@requires` / `@ensures` runtime-tier contracts |
+| [`closure_demo.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/closure_demo.fc) | Anonymous closures lifted to `__lambda_N` free fns |
+| [`enum_example.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/enum_example.fc) | Enum declarations + `switch` exhaustiveness checking |
+| [`annotations_demo.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/annotations_demo.fc) | v1.3 `@purity` / `@complexity` / `@panics` annotations |
+| [`capabilities_demo.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/capabilities_demo.fc) | `caps::init()` minted in `main`, cap tokens threaded through function arguments |
+
+Run the same smoke test locally:
+
+```bash
+bash scripts/test.sh full
+```
+
+See [Testing](../getting-started/testing.md) for the harness modes.
+
 ## Next Steps
 
 - [Advanced Examples](advanced.md) - Real-world patterns
 - [Language Guide](../language/index.md) - Complete reference
+- [Testing](../getting-started/testing.md) - The harness that compiles these
 
