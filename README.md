@@ -116,9 +116,43 @@ fastc add https://github.com/Skelf-Research/fastc-http
 
 ## Status
 
-**fastC is v1.0 feature-complete.** Stages 0.1–1.9 plus the core of 2.1 (SMT contract discharge) are shipped: capability-typed I/O with fabrication check + `caps.json` artifact, vendor-first dependencies with enforced sha256 + cosign keyless + SLSA L3, the five-module fastc-core launch set, cross-compilation to eight targets via `zig cc`, three-tier contract discharge (syntactic + Z3 + runtime). 270+ tests pass across the workspace. The v1.0 stability commitment is documented in [docs/v1.0.md](docs/v1.0.md); roadmap items remaining for v1.x (body-aware SMT, vendor-package split, global build cache, captured-closures) are listed at the top of [docs/roadmap.md](docs/roadmap.md).
+**fastC is v1.0 feature-complete.** Stages 0.1 through 2.1 are shipped: capability-typed I/O with fabrication check + `caps.json` artifact, vendor-first dependencies with enforced sha256 + cosign keyless + SLSA L3, the eleven-package `fastc-core` set, cross-compilation to eight targets via `zig cc`, three-tier contract discharge (syntactic + Z3 + runtime), `[workspace]` manifest with per-member incremental, closures with literal captures, compiler-binary reproducibility, full v1.3 annotation surface (`@mem` / `@panics` / `@purity` / `@complexity`), module-level mandatory headers, `fastc fix` / `context` / `diff` / inline `test { }` blocks / unified JSON diagnostic envelope. **337+ tests pass** across the workspace.
 
-See [`docs/roadmap.md`](docs/roadmap.md) for the slice-by-slice history.
+The v1.0 stability commitment is documented in [docs/v1.0.md](docs/v1.0.md); the slice-by-slice history is in [docs/roadmap.md](docs/roadmap.md).
+
+## fastc-core packages
+
+Eleven public preview packages under [Skelf-Research](https://github.com/Skelf-Research):
+
+| Package | Repo | Purpose |
+|---|---|---|
+| `cli` | [fastc-core-cli](https://github.com/Skelf-Research/fastc-core-cli) | Argv access + flag parsing |
+| `log` | [fastc-core-log](https://github.com/Skelf-Research/fastc-core-log) | Structured leveled logging |
+| `json` | [fastc-core-json](https://github.com/Skelf-Research/fastc-core-json) | JSON encode + integer-field decode |
+| `toml` | [fastc-core-toml](https://github.com/Skelf-Research/fastc-core-toml) | Read-only flat-table TOML parser |
+| `http` | [fastc-core-http](https://github.com/Skelf-Research/fastc-core-http) | HTTP/1.1 client (CapNetConnect-gated) |
+| `time` | [fastc-core-time](https://github.com/Skelf-Research/fastc-core-time) | Wall-clock + ISO 8601 |
+| `base64` | [fastc-core-base64](https://github.com/Skelf-Research/fastc-core-base64) | RFC 4648 encode/decode |
+| `uuid` | [fastc-core-uuid](https://github.com/Skelf-Research/fastc-core-uuid) | RFC 4122 v4 + parse/format |
+| `crypto-primitives` | [fastc-core-crypto-primitives](https://github.com/Skelf-Research/fastc-core-crypto-primitives) | SHA-256, HMAC, constant-time compare |
+| `regex` | [fastc-core-regex](https://github.com/Skelf-Research/fastc-core-regex) | Thompson NFA, no backreferences |
+| `sqlite` | [fastc-core-sqlite](https://github.com/Skelf-Research/fastc-core-sqlite) | FFI bindings to libsqlite3 |
+
+Each ships a `v0.1.0` preview release alongside fastC v1.0. The implementations currently live inside the compiler's built-in prelude; the public repos become installable via `fastc add` when the v1.1 vendor-consumption flow lands.
+
+## Testing
+
+The harness scripts in `scripts/` wrap the underlying `cargo test` so one command runs the whole suite with colorized output:
+
+```bash
+bash scripts/test.sh           # full: build + tests + format + examples smoke
+bash scripts/test.sh quick     # ~20s — unit + integration only
+bash scripts/test.sh ci        # mirror what CI runs (fmt + clippy + tests)
+bash scripts/check.sh          # alias for `test.sh ci` — pre-PR check
+bash scripts/bench.sh          # cross-language benchmark suite
+```
+
+See [`scripts/README.md`](scripts/README.md) for what each mode covers.
 
 ## Documentation
 
