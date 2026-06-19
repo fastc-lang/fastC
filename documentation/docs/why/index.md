@@ -7,7 +7,7 @@ fastC is **v1.0 feature-complete** as of 2026-Q2. It exists because four problem
 3. **Contracts as comments.** `@requires` and `@ensures` in fastC are compile-time obligations. The three-tier discharge pipeline — tier-1 syntactic (always on), tier-2 SMT via Z3 (opt-in via `--prove`), tier-3 runtime trap (safe fallback) — proves what it can and traps on the rest.
 4. **Compile times nobody measures.** fastC has a CI-enforced compile-time budget via `fastc bench`. tcc backend for dev builds, gcc/clang for release. Cross-language perf targets are committed to the repo and checked on every PR.
 
-On top of the four wedges, v1.0 ships a curated **11-package `fastc-core` ecosystem** (cli, log, json, toml, http, time, base64, uuid, crypto-primitives, regex, sqlite) under [Skelf-Research](https://github.com/Skelf-Research), a v1.3 annotation surface (`@purity` / `@panics` / `@complexity` / `@mem` plus module-level mandatory headers), and an agent-tooling layer (`fastc fix`, `fastc context`, `fastc diff`, `fastc explain`, `fastc mcp`) the other four languages don't have.
+On top of the four wedges, v1.0 ships a curated **11-package `fastc-core` ecosystem** (cli, log, json, toml, http, time, base64, uuid, crypto-primitives, regex, sqlite) under [fastc-lang](https://github.com/fastc-lang), a v1.3 annotation surface (`@purity` / `@panics` / `@complexity` / `@mem` plus module-level mandatory headers), and an agent-tooling layer (`fastc fix`, `fastc context`, `fastc diff`, `fastc explain`, `fastc mcp`) the other four languages don't have.
 
 This section walks through each piece in detail.
 

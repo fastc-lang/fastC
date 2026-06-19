@@ -23,13 +23,13 @@ name: Release
 #   cosign verify-blob \
 #     --bundle fastc-linux-x86_64.sigstore.json \
 #     --new-bundle-format \
-#     --certificate-identity-regexp '^https://github.com/Skelf-Research/fastc/\.github/workflows/release\.yml@.+$' \
+#     --certificate-identity-regexp '^https://github.com/fastc-lang/fastc/\.github/workflows/release\.yml@.+$' \
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
 #     fastc-linux-x86_64
 #
 #   slsa-verifier verify-artifact fastc-linux-x86_64 \
 #     --provenance-path multiple.intoto.jsonl \
-#     --source-uri github.com/Skelf-Research/fastc
+#     --source-uri github.com/fastc-lang/fastc
 
 on:
   push:

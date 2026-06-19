@@ -394,11 +394,11 @@ The five demo programs below double as canonical "this is a working fastC progra
 
 | Program | What it shows |
 |---|---|
-| [`contracts_demo.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/contracts_demo.fc) | `@requires` / `@ensures` runtime-tier contracts |
-| [`closure_demo.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/closure_demo.fc) | Anonymous closures lifted to `__lambda_N` free fns |
-| [`enum_example.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/enum_example.fc) | Enum declarations + `switch` exhaustiveness checking |
-| [`annotations_demo.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/annotations_demo.fc) | v1.3 `@purity` / `@complexity` / `@panics` annotations |
-| [`capabilities_demo.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/capabilities_demo.fc) | `caps::init()` minted in `main`, cap tokens threaded through function arguments |
+| [`contracts_demo.fc`](https://github.com/fastc-lang/fastC/blob/main/examples/contracts_demo.fc) | `@requires` / `@ensures` runtime-tier contracts |
+| [`closure_demo.fc`](https://github.com/fastc-lang/fastC/blob/main/examples/closure_demo.fc) | Anonymous closures lifted to `__lambda_N` free fns |
+| [`enum_example.fc`](https://github.com/fastc-lang/fastC/blob/main/examples/enum_example.fc) | Enum declarations + `switch` exhaustiveness checking |
+| [`annotations_demo.fc`](https://github.com/fastc-lang/fastC/blob/main/examples/annotations_demo.fc) | v1.3 `@purity` / `@complexity` / `@panics` annotations |
+| [`capabilities_demo.fc`](https://github.com/fastc-lang/fastC/blob/main/examples/capabilities_demo.fc) | `caps::init()` minted in `main`, cap tokens threaded through function arguments |
 
 Run the same smoke test locally:
 

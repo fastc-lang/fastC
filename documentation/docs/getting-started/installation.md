@@ -30,7 +30,7 @@ cargo --version
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/Skelf-Research/fastc.git
+git clone https://github.com/fastc-lang/fastc.git
 cd fastc
 ```
 

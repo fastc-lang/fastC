@@ -18,7 +18,7 @@ fastc add <URL> [OPTIONS]
 
 | Argument | Description |
 |----------|-------------|
-| `<URL>` | Git URL to fetch (e.g. `https://github.com/Skelf-Research/fastc-core-cli` or `git@github.com:org/repo`) |
+| `<URL>` | Git URL to fetch (e.g. `https://github.com/fastc-lang/fastc-core-cli` or `git@github.com:org/repo`) |
 
 ## Options
 
@@ -60,17 +60,17 @@ fastc add <URL> [OPTIONS]
 ## Worked Example
 
 ```bash
-fastc add https://github.com/Skelf-Research/fastc-core-cli --rev v0.1.0
+fastc add https://github.com/fastc-lang/fastc-core-cli --rev v0.1.0
 ```
 
 Console output:
 
 ```
-Adding dependency from https://github.com/Skelf-Research/fastc-core-cli
+Adding dependency from https://github.com/fastc-lang/fastc-core-cli
   fetched to /Users/you/Library/Caches/fastc/git/fastc-core-cli@v0.1.0
 
   package: fastc-core-cli 0.1.0
-  git:     https://github.com/Skelf-Research/fastc-core-cli
+  git:     https://github.com/fastc-lang/fastc-core-cli
   rev:     v0.1.0
   sha256:  9b1f3c5e7d2a8b4f6c0e1d2a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0d1e2f3a4b
   caps:    CapEnvRead, CapFsRead
@@ -86,7 +86,7 @@ After `fastc add`, the `[dependencies]` table looks like:
 
 ```toml
 [dependencies]
-fastc-core-cli = { git = "https://github.com/Skelf-Research/fastc-core-cli", rev = "v0.1.0", sha256 = "9b1f3c5e7d2a8b4f6c0e1d2a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0d1e2f3a4b" }
+fastc-core-cli = { git = "https://github.com/fastc-lang/fastc-core-cli", rev = "v0.1.0", sha256 = "9b1f3c5e7d2a8b4f6c0e1d2a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0d1e2f3a4b" }
 ```
 
 And `fastc.lock` gains a matching entry:
@@ -95,7 +95,7 @@ And `fastc.lock` gains a matching entry:
 [[package]]
 name = "fastc-core-cli"
 version = "0.1.0"
-source = "git+https://github.com/Skelf-Research/fastc-core-cli?rev=v0.1.0"
+source = "git+https://github.com/fastc-lang/fastc-core-cli?rev=v0.1.0"
 resolved = "v0.1.0"
 sha256 = "9b1f3c5e7d2a8b4f6c0e1d2a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0d1e2f3a4b"
 ```
@@ -116,7 +116,7 @@ upstream `fastc-core-cli` slot free.
 For CI and scripted bootstraps, pass `--yes`:
 
 ```bash
-fastc add https://github.com/Skelf-Research/fastc-core-cli --rev v0.1.0 --yes
+fastc add https://github.com/fastc-lang/fastc-core-cli --rev v0.1.0 --yes
 ```
 
 The capability summary is still printed to stderr — it's recorded in the CI

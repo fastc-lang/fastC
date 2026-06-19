@@ -49,7 +49,7 @@ to, and the build verifies them by recompilation instead.
 [[package]]
 name = "fastc-core-cli"
 version = "0.1.0"
-source = "git+https://github.com/Skelf-Research/fastc-core-cli?rev=<commit-sha>"
+source = "git+https://github.com/fastc-lang/fastc-core-cli?rev=<commit-sha>"
 resolved = "<commit-sha>"
 sha256 = "9b1f3c5e7d2a8b4f6c0e1d2a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0d1e2f3a4b"
 ```
@@ -109,7 +109,7 @@ A project with one dep:
 name = "my-app"
 
 [dependencies]
-fastc-core-cli = { git = "https://github.com/Skelf-Research/fastc-core-cli", rev = "v0.1.0", sha256 = "9b1f3c5e..." }
+fastc-core-cli = { git = "https://github.com/fastc-lang/fastc-core-cli", rev = "v0.1.0", sha256 = "9b1f3c5e..." }
 ```
 
 After `fastc lock`:

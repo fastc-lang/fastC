@@ -42,11 +42,11 @@ use std::path::Path;
 use std::process::Command;
 
 /// Default certificate-identity regexp for `fastc-core` packages.
-/// Matches any GitHub Actions workflow under Skelf-Research's
+/// Matches any GitHub Actions workflow under fastc-lang's
 /// `fastc-core-*` repos. Overridable via the manifest's optional
 /// `sigstore_identity` field (added separately when the field exists).
 pub const DEFAULT_IDENTITY_REGEXP: &str =
-    "^https://github.com/Skelf-Research/fastc-core-[a-z0-9_-]+/\\.github/workflows/.+$";
+    "^https://github.com/fastc-lang/fastc-core-[a-z0-9_-]+/\\.github/workflows/.+$";
 
 /// Default OIDC issuer expected on fastc-core signatures. GitHub
 /// Actions tokens are issued by this URL when cosign keyless signs.

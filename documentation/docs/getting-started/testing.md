@@ -200,6 +200,6 @@ harness will catch regressions automatically forever.
   emitting C.
 - [Why benchmarks](../why/benchmarks.md) — the rationale behind the
   numbers in `bench.sh`.
-- [`scripts/README.md`](https://github.com/Skelf-Research/fastc/blob/main/scripts/README.md)
+- [`scripts/README.md`](https://github.com/fastc-lang/fastc/blob/main/scripts/README.md)
   in the source tree — the canonical usage matrix this page
   mirrors.

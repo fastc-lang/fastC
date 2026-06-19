@@ -14,7 +14,7 @@ We take security seriously. If you discover a security vulnerability in FastC, p
 
 **Do not open a public issue for security vulnerabilities.**
 
-Instead, please email us at: **security@skelfresearch.com**
+Instead, please email us at: **security@fastc-lang.com**
 
 Include:
 - Description of the vulnerability

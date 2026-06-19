@@ -347,14 +347,14 @@ fn safe_free(ptr: rawm(u8)) {
 
 ## End-to-end demos (use multiple fastc-core packages)
 
-These four programs each compose two or more fastc-core packages into a small but realistic application. Each is in the canonical [`examples/`](https://github.com/Skelf-Research/fastC/tree/main/examples) directory.
+These four programs each compose two or more fastc-core packages into a small but realistic application. Each is in the canonical [`examples/`](https://github.com/fastc-lang/fastC/tree/main/examples) directory.
 
 | Demo | Packages exercised | What it does |
 |---|---|---|
-| [`launch_set_demo.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/launch_set_demo.fc) | `cli` + `log` + `json` + `toml` + `http` | The integrated v1.0 demo — argv parsing, structured logging, a config-driven HTTP fetch, JSON field extraction |
-| [`http_demo.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/http_demo.fc) | `http` + `caps` | An HTTP-status fetch through `http::get_status(c: ref(CapNetConnect), ...)` |
-| [`cli_demo.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/cli_demo.fc) | `cli` | `mod cli` argv + flag parsing (`flag_value`, `flag_int`, `has_flag`) |
-| [`fs_cap_demo.fc`](https://github.com/Skelf-Research/fastC/blob/main/examples/fs_cap_demo.fc) | `fs` + `caps` | File-existence + size query via `fs::exists(c: ref(CapFsRead), ...)` |
+| [`launch_set_demo.fc`](https://github.com/fastc-lang/fastC/blob/main/examples/launch_set_demo.fc) | `cli` + `log` + `json` + `toml` + `http` | The integrated v1.0 demo — argv parsing, structured logging, a config-driven HTTP fetch, JSON field extraction |
+| [`http_demo.fc`](https://github.com/fastc-lang/fastC/blob/main/examples/http_demo.fc) | `http` + `caps` | An HTTP-status fetch through `http::get_status(c: ref(CapNetConnect), ...)` |
+| [`cli_demo.fc`](https://github.com/fastc-lang/fastC/blob/main/examples/cli_demo.fc) | `cli` | `mod cli` argv + flag parsing (`flag_value`, `flag_int`, `has_flag`) |
+| [`fs_cap_demo.fc`](https://github.com/fastc-lang/fastC/blob/main/examples/fs_cap_demo.fc) | `fs` + `caps` | File-existence + size query via `fs::exists(c: ref(CapFsRead), ...)` |
 
 Each one is a complete, runnable fastC program. Read them as templates for combining cap-typed I/O with the fastc-core package APIs.
 

@@ -83,6 +83,6 @@ Type "echo 'fastc-core: 11 packages — cli log json toml http time base64 uuid 
 Enter
 Sleep 3s
 
-Type "echo 'fastC v1.0 — github.com/Skelf-Research/fastC'"
+Type "echo 'fastC v1.0 — github.com/fastc-lang/fastC'"
 Enter
 Sleep 2s

@@ -407,7 +407,7 @@ enum Commands {
     /// surface — `fastc add` extracts that set and shows it to the
     /// user *before* the dep ever runs in a build.
     Add {
-        /// Git URL to add (e.g. `https://github.com/Skelf-Research/fastc-http`).
+        /// Git URL to add (e.g. `https://github.com/fastc-lang/fastc-http`).
         url: String,
         /// Pin to a specific git commit. If omitted, `fastc add` uses
         /// the resolved HEAD of the default branch and records it.

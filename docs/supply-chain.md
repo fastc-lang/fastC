@@ -39,8 +39,8 @@ None of these would have succeeded against a fastC project built per this docume
 
 ```toml
 [dependencies]
-fastc-http = { git = "github.com/Skelf-Research/fastc-http", rev = "a1b2c3d4...", sha256 = "abcd1234..." }
-fastc-json = { git = "github.com/Skelf-Research/fastc-json", rev = "e5f6...", sha256 = "5678..." }
+fastc-http = { git = "github.com/fastc-lang/fastc-http", rev = "a1b2c3d4...", sha256 = "abcd1234..." }
+fastc-json = { git = "github.com/fastc-lang/fastc-json", rev = "e5f6...", sha256 = "5678..." }
 
 # Local path deps for development
 local-helper = { path = "../local-helper", sha256 = "9abc..." }
@@ -123,12 +123,12 @@ This is what prevents a silent supply-chain rotation. The user has to actively a
 The single most compelling supply-chain UX available in any language right now. When a user adds a dependency:
 
 ```
-$ fastc add https://github.com/Skelf-Research/fastc-http
-Adding dependency from https://github.com/Skelf-Research/fastc-http
+$ fastc add https://github.com/fastc-lang/fastc-http
+Adding dependency from https://github.com/fastc-lang/fastc-http
   fetched to /Users/you/Library/Caches/fastc/deps/__probe/3d716a47…
 
   package: fastc-http 0.4.0
-  git:     https://github.com/Skelf-Research/fastc-http
+  git:     https://github.com/fastc-lang/fastc-http
   rev:     a1b2c3d4e5f67890abcdef…
   sha256:  9f2d8e1c4b738a920eaf3d6c1a05b827…
   caps:    CapNetConnect, CapTimeRead
@@ -144,7 +144,7 @@ If the user accepts, fastC writes:
 
 ```toml
 [dependencies]
-fastc-http = { git = "https://github.com/Skelf-Research/fastc-http", rev = "a1b2c3d4e5f67890...", sha256 = "9f2d8e1c4b738a920eaf3d6c1a05b827..." }
+fastc-http = { git = "https://github.com/fastc-lang/fastc-http", rev = "a1b2c3d4e5f67890...", sha256 = "9f2d8e1c4b738a920eaf3d6c1a05b827..." }
 ```
 
 and runs `fastc lock` to record the same hash into `fastc.lock`. From that point on, every build verifies the cache against this hash.
@@ -208,14 +208,14 @@ Downstream verification (recommended for any team installing `fastc`):
 cosign verify-blob \
   --bundle fastc-linux-x86_64.sigstore.json \
   --new-bundle-format \
-  --certificate-identity-regexp '^https://github.com/Skelf-Research/fastc/\.github/workflows/release\.yml@.+$' \
+  --certificate-identity-regexp '^https://github.com/fastc-lang/fastc/\.github/workflows/release\.yml@.+$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   fastc-linux-x86_64
 
 # Verify the SLSA L3 attestation.
 slsa-verifier verify-artifact fastc-linux-x86_64 \
   --provenance-path multiple.intoto.jsonl \
-  --source-uri github.com/Skelf-Research/fastc
+  --source-uri github.com/fastc-lang/fastc
 ```
 
 This closes the loop. The user's threat surface narrows to:
@@ -242,7 +242,7 @@ This is the pkg.go.dev model adapted for capability-aware packages. It scales be
 
 Typosquatting was the delivery vector for `faster_log`, `async_println`, and `timeapis.io`. fastC's defenses:
 
-1. **The dep URL is part of the import.** A typosquat must publish under a similar URL. `github.com/Skelf-Research/fastc-http` vs `github.com/skelf-resaerch/fastc-http` is visually distinguishable in a way `faster_log` vs `fast_log` is not.
+1. **The dep URL is part of the import.** A typosquat must publish under a similar URL. `github.com/fastc-lang/fastc-http` vs `github.com/fastc-1ang/fastc-http` is visually distinguishable in a way `faster_log` vs `fast_log` is not.
 2. **The content hash pins the commit.** Even if a user accepts a typosquat URL once, they cannot accidentally update to a malicious version — the hash mismatch fails the build.
 3. **Capabilities are reviewed at add time.** A typosquat's `caps.json` will reveal `net.connect(evil.com)` or `proc.spawn` requirements that the legitimate package does not have. The prompt at `fastc add` time is the choke point.
 4. **`fastc.dev` flags suspicious patterns.** A package with a near-identical name to a `fastc-core` package, very few stars, or very recent first commit is flagged in search results.

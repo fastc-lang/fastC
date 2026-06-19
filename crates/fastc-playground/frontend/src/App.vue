@@ -59,14 +59,14 @@ onUnmounted(() => {
       <Toolbar />
       <div class="flex-1"></div>
       <a
-        href="https://docs.skelfresearch.com/fastc"
+        href="https://docs.fastc-lang.com"
         target="_blank"
         class="text-sm text-gray-400 hover:text-white transition-colors"
       >
         Documentation
       </a>
       <a
-        href="https://github.com/Skelf-Research/fastc"
+        href="https://github.com/fastc-lang/fastc"
         target="_blank"
         class="text-sm text-gray-400 hover:text-white transition-colors"
       >

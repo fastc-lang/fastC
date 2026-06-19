@@ -12,7 +12,7 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 
 Before submitting a bug report:
 
-1. Check the [existing issues](https://github.com/Skelf-Research/fastc/issues) to avoid duplicates
+1. Check the [existing issues](https://github.com/fastc-lang/fastc/issues) to avoid duplicates
 2. Ensure you're using the latest version
 3. Collect relevant information (OS, Rust version, FastC version)
 
@@ -61,7 +61,7 @@ Feature requests are welcome! Please:
 ### Building
 
 ```bash
-git clone https://github.com/Skelf-Research/fastc.git
+git clone https://github.com/fastc-lang/fastc.git
 cd fastc
 cargo build
 ```
@@ -142,7 +142,7 @@ Prefixes:
 ## Getting Help
 
 - Open an issue for questions
-- Check the [documentation](https://docs.skelfresearch.com/fastc)
+- Check the [documentation](https://docs.fastc-lang.com)
 - Review existing issues and PRs for context
 
 ## License

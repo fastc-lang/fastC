@@ -272,7 +272,7 @@ jobs:
 
       - name: Build fastc
         run: |
-          git clone https://github.com/Skelf-Research/fastc.git /tmp/fastc
+          git clone https://github.com/fastc-lang/fastc.git /tmp/fastc
           cd /tmp/fastc
           cargo build --release
           echo "FASTC_RUNTIME=/tmp/fastc/runtime" >> $GITHUB_ENV
@@ -292,7 +292,7 @@ jobs:
 build:
   image: rust:latest
   script:
-    - git clone https://github.com/Skelf-Research/fastc.git /tmp/fastc
+    - git clone https://github.com/fastc-lang/fastc.git /tmp/fastc
     - cd /tmp/fastc && cargo build --release
     - export PATH="/tmp/fastc/target/release:$PATH"
     - export FASTC_RUNTIME=/tmp/fastc/runtime

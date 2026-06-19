@@ -1,11 +1,11 @@
 site_name: FastC Documentation
-site_url: https://docs.skelfresearch.com/fastc/
+site_url: https://docs.fastc-lang.com/
 site_author: Dipankar Sarkar
 site_description: Documentation for FastC - a safe C-like language that compiles to C11
 
-repo_name: Skelf-Research/fastC
+repo_name: fastc-lang/fastC
 edit_uri: edit/main/documentation/docs/
-repo_url: https://github.com/Skelf-Research/fastC
+repo_url: https://github.com/fastc-lang/fastC
 
 theme:
   name: material
@@ -120,9 +120,9 @@ plugins:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/Skelf-Research/fastc
+      link: https://github.com/fastc-lang/fastc
     - icon: fontawesome/solid/envelope
-      link: mailto:support@skelfresearch.com
+      link: mailto:support@fastc-lang.com
   generator: false
 
 copyright: Copyright &copy; 2024-2026 Skelf Research · fastC v1.0

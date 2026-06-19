@@ -54,9 +54,9 @@ cc -I /path/to/fastc/runtime hello.c -o hello
 
 ## Documentation
 
-- [User Guide](https://docs.skelfresearch.com/fastc)
-- [Language Reference](https://docs.skelfresearch.com/fastc/language/)
-- [C Interop](https://docs.skelfresearch.com/fastc/c-interop/)
+- [User Guide](https://docs.fastc-lang.com)
+- [Language Reference](https://docs.fastc-lang.com/language/)
+- [C Interop](https://docs.fastc-lang.com/c-interop/)
 
 ## License
 

@@ -8,7 +8,7 @@ The plan lands across **stages 1.7 (Vendor-First Package System)** and **1.8 (fa
 
 For the first two years, the answer to "is there a fastC library for X" should be:
 
-- **"Yes, in fastc-core."** A canonical, audited, capability-typed, contract-annotated package under the `Skelf-Research/fastc-core` organization.
+- **"Yes, in fastc-core."** A canonical, audited, capability-typed, contract-annotated package under the `fastc-lang/fastc-core` organization.
 - **"No, write it locally."** Vendor it into your project; you have the source, the language is small, the surface is documented.
 
 We deliberately do not say "yes, here is a community package." Not because the community will not produce good packages — they will — but because the *trust* a fastC user gets from `fastc-core` is exactly what the supply-chain story is built on. Blessing community packages too early dilutes that trust. We can revisit after the first audit cycle (~12 months) when there is real signal on which community packages have held up.
@@ -30,7 +30,7 @@ We do still want the tooling that exists (GitHub dependency graph integration, S
 
 ## The fastc-core curation plan
 
-The target is **30–50 curated packages under `Skelf-Research/fastc-core` within 12 months.** Curation criteria for every package:
+The target is **30–50 curated packages under `fastc-lang/fastc-core` within 12 months.** Curation criteria for every package:
 
 1. **Full annotation coverage.** Every `pub` function has the complete annotation set (`@mem`, `@caps`, `@requires`, `@ensures`, `@panics`, `@purity`, `@complexity`).
 2. **Capability-typed I/O.** I/O signatures take capability tokens. No ambient access.
@@ -76,7 +76,7 @@ Approximately 19–34 additional packages covering the long tail: async runtime,
 
 This is where curation discipline matters most. Many of these will be requested before they are stable. The bar:
 
-- If a candidate package has fewer than three production users, it does not ship as `fastc-core`. It can live under `Skelf-Research/fastc-incubator` (different org, weaker promises) until it is ready.
+- If a candidate package has fewer than three production users, it does not ship as `fastc-core`. It can live under `fastc-lang/fastc-incubator` (different org, weaker promises) until it is ready.
 - If a candidate has more than 5 transitive deps beyond `fastc-core`, it is rejected — either the design is wrong or the package is too ambitious for one fastc-core unit.
 
 ## `fastc.dev` — search-over-GitHub
@@ -141,7 +141,7 @@ If `fastc-core` packages reach 1000+ stars cumulatively in the first 90 days pos
 
 ## Open questions
 
-- **Donation pipeline.** If a third party writes a great fastC package and offers it to `fastc-core`, what is the process? Current lean: we audit it against the eight criteria, request changes if needed, then accept under `Skelf-Research/fastc-core` with the original author as co-maintainer. Need a written contribution policy before this scales.
+- **Donation pipeline.** If a third party writes a great fastC package and offers it to `fastc-core`, what is the process? Current lean: we audit it against the eight criteria, request changes if needed, then accept under `fastc-lang/fastc-core` with the original author as co-maintainer. Need a written contribution policy before this scales.
 - **Versioning.** `fastc-core` packages will have versions. Should the version namespace be per-package (`fastc-http v1.2.0`) or unified (`fastc-core 2026.05`)? Lean: per-package, semver, but `fastc-core 2026.05` published as a "compatible set" tag for users who want to pin against a vetted combination.
 - **EOL policy.** When a `fastc-core` package is superseded (e.g., the launch `fastc-http` is replaced by an async-capable version after stage 2.3), what happens to the old one? Current lean: keep the old version available, mark deprecated, set a 12-month removal horizon. Document in `AUDIT.md`.
 - **`AGENTS.md` format.** This file is what coding agents read for canonical idiom. The format needs to be stable across packages so agents can rely on its structure. Need a spec — should `AGENTS.md` itself become a checked annotation surface? Lean: yes, eventually, via a separate spec; ship informal markdown for v1.

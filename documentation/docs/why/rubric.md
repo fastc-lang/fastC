@@ -68,7 +68,7 @@ The fastC release pipeline (`.github/workflows/release.yml`) ships every compile
 
 ### Curated stdlib extensions
 
-fastC ships an **11-package `fastc-core` ecosystem** under [Skelf-Research](https://github.com/Skelf-Research) — `cli`, `log`, `json`, `toml`, `http`, `time`, `base64`, `uuid`, `crypto-primitives`, `regex`, `sqlite`. Each is a separate public repo with its own `fastc.toml` / `README.md` / `AGENTS.md` / `LICENSE`. The implementations ship inside the v1.0 prelude (no per-user vendor cutover yet); the v1.1 packaging slice moves them onto the `fastc add` flow. Rust's 150K-crate registry is a different problem (typosquats, ungated tier-3 transitive deps); fastC's curated 11-package set is the deliberate small-and-audited counterposition. Zig and Go both rely on stdlib breadth.
+fastC ships an **11-package `fastc-core` ecosystem** under [fastc-lang](https://github.com/fastc-lang) — `cli`, `log`, `json`, `toml`, `http`, `time`, `base64`, `uuid`, `crypto-primitives`, `regex`, `sqlite`. Each is a separate public repo with its own `fastc.toml` / `README.md` / `AGENTS.md` / `LICENSE`. The implementations ship inside the v1.0 prelude (no per-user vendor cutover yet); the v1.1 packaging slice moves them onto the `fastc add` flow. Rust's 150K-crate registry is a different problem (typosquats, ungated tier-3 transitive deps); fastC's curated 11-package set is the deliberate small-and-audited counterposition. Zig and Go both rely on stdlib breadth.
 
 ### Binary size
 

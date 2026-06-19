@@ -74,8 +74,8 @@ fastc-lsp
 
 ## Documentation
 
-- [Editor Setup Guide](https://docs.skelfresearch.com/fastc/getting-started/editor-setup/)
-- [FastC Documentation](https://docs.skelfresearch.com/fastc)
+- [Editor Setup Guide](https://docs.fastc-lang.com/getting-started/editor-setup/)
+- [FastC Documentation](https://docs.fastc-lang.com)
 
 ## License
 

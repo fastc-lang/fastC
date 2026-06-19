@@ -1,9 +1,9 @@
 # FastC
 
-[![Build Status](https://github.com/Skelf-Research/fastc/workflows/CI/badge.svg)](https://github.com/Skelf-Research/fastc/actions)
+[![Build Status](https://github.com/fastc-lang/fastc/workflows/CI/badge.svg)](https://github.com/fastc-lang/fastc/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
-[![Documentation](https://img.shields.io/badge/docs-online-green.svg)](https://docs.skelfresearch.com/fastc)
+[![Documentation](https://img.shields.io/badge/docs-online-green.svg)](https://docs.fastc-lang.com)
 
 **A small systems language with capability-typed I/O, mandatory contracts, and zero executable build scripts — built for the age of agent-generated code.**
 
@@ -25,11 +25,11 @@ fastC is a modern C-like language for a world where most code is written by an A
 | Stripped binary (hello) | 33 KB | 341 KB | 50 KB | 2.4 MB | **53 KB** |
 | Cross-compile, no sysroot setup | depends on toolchain | rustup per-target dance | ✓ (`zig cc`, 50+) | ✓ (`GOOS`/`GOARCH`) | **✓ (8 presets via `zig cc`, any C cross-toolchain via `--cc-override`)** |
 
-Each row has a paragraph of context at [docs.skelfresearch.com/fastc/why/rubric](https://docs.skelfresearch.com/fastc/why/rubric). The honest framing of which trade-offs fastC actually wins on (and which it loses) is in [docs/MANIFESTO.md](docs/MANIFESTO.md).
+Each row has a paragraph of context at [docs.fastc-lang.com/why/rubric](https://docs.fastc-lang.com/why/rubric). The honest framing of which trade-offs fastC actually wins on (and which it loses) is in [docs/MANIFESTO.md](docs/MANIFESTO.md).
 
 ## Measured numbers
 
-[Benchmarks](https://docs.skelfresearch.com/fastc/why/benchmarks) on M3:
+[Benchmarks](https://docs.fastc-lang.com/why/benchmarks) on M3:
 
 **Binary size, stripped** — the headline. fastC is in the C / Zig class, not Rust / Go:
 
@@ -94,7 +94,7 @@ The [supply-chain side-by-side demo](examples/supply_chain_demo/) shows `cargo b
 
 ```bash
 # Install
-git clone https://github.com/Skelf-Research/fastc.git
+git clone https://github.com/fastc-lang/fastc.git
 cd fastc
 cargo install --path crates/fastc
 
@@ -109,7 +109,7 @@ cd my_project
 fastc run
 
 # Add a vendored dependency — shows capabilities + content hash before writing
-fastc add https://github.com/Skelf-Research/fastc-http
+fastc add https://github.com/fastc-lang/fastc-http
 # Records sha256 in fastc.toml + fastc.lock; subsequent builds verify the
 # fetched cache against that hash and fail loudly on any drift.
 ```
@@ -122,21 +122,21 @@ The v1.0 stability commitment is documented in [docs/v1.0.md](docs/v1.0.md); the
 
 ## fastc-core packages
 
-Eleven public preview packages under [Skelf-Research](https://github.com/Skelf-Research):
+Eleven public preview packages under [fastc-lang](https://github.com/fastc-lang):
 
 | Package | Repo | Purpose |
 |---|---|---|
-| `cli` | [fastc-core-cli](https://github.com/Skelf-Research/fastc-core-cli) | Argv access + flag parsing |
-| `log` | [fastc-core-log](https://github.com/Skelf-Research/fastc-core-log) | Structured leveled logging |
-| `json` | [fastc-core-json](https://github.com/Skelf-Research/fastc-core-json) | JSON encode + integer-field decode |
-| `toml` | [fastc-core-toml](https://github.com/Skelf-Research/fastc-core-toml) | Read-only flat-table TOML parser |
-| `http` | [fastc-core-http](https://github.com/Skelf-Research/fastc-core-http) | HTTP/1.1 client (CapNetConnect-gated) |
-| `time` | [fastc-core-time](https://github.com/Skelf-Research/fastc-core-time) | Wall-clock + ISO 8601 |
-| `base64` | [fastc-core-base64](https://github.com/Skelf-Research/fastc-core-base64) | RFC 4648 encode/decode |
-| `uuid` | [fastc-core-uuid](https://github.com/Skelf-Research/fastc-core-uuid) | RFC 4122 v4 + parse/format |
-| `crypto-primitives` | [fastc-core-crypto-primitives](https://github.com/Skelf-Research/fastc-core-crypto-primitives) | SHA-256, HMAC, constant-time compare |
-| `regex` | [fastc-core-regex](https://github.com/Skelf-Research/fastc-core-regex) | Thompson NFA, no backreferences |
-| `sqlite` | [fastc-core-sqlite](https://github.com/Skelf-Research/fastc-core-sqlite) | FFI bindings to libsqlite3 |
+| `cli` | [fastc-core-cli](https://github.com/fastc-lang/fastc-core-cli) | Argv access + flag parsing |
+| `log` | [fastc-core-log](https://github.com/fastc-lang/fastc-core-log) | Structured leveled logging |
+| `json` | [fastc-core-json](https://github.com/fastc-lang/fastc-core-json) | JSON encode + integer-field decode |
+| `toml` | [fastc-core-toml](https://github.com/fastc-lang/fastc-core-toml) | Read-only flat-table TOML parser |
+| `http` | [fastc-core-http](https://github.com/fastc-lang/fastc-core-http) | HTTP/1.1 client (CapNetConnect-gated) |
+| `time` | [fastc-core-time](https://github.com/fastc-lang/fastc-core-time) | Wall-clock + ISO 8601 |
+| `base64` | [fastc-core-base64](https://github.com/fastc-lang/fastc-core-base64) | RFC 4648 encode/decode |
+| `uuid` | [fastc-core-uuid](https://github.com/fastc-lang/fastc-core-uuid) | RFC 4122 v4 + parse/format |
+| `crypto-primitives` | [fastc-core-crypto-primitives](https://github.com/fastc-lang/fastc-core-crypto-primitives) | SHA-256, HMAC, constant-time compare |
+| `regex` | [fastc-core-regex](https://github.com/fastc-lang/fastc-core-regex) | Thompson NFA, no backreferences |
+| `sqlite` | [fastc-core-sqlite](https://github.com/fastc-lang/fastc-core-sqlite) | FFI bindings to libsqlite3 |
 
 Each ships a `v0.1.0` preview release alongside fastC v1.0. The implementations currently live inside the compiler's built-in prelude; the public repos become installable via `fastc add` when the v1.1 vendor-consumption flow lands.
 
@@ -156,15 +156,15 @@ See [`scripts/README.md`](scripts/README.md) for what each mode covers.
 
 ## Documentation
 
-- [**Why fastC**](https://docs.skelfresearch.com/fastc/why/) — rubric, benchmarks, FAQs.
-- [**Getting Started**](https://docs.skelfresearch.com/fastc/getting-started/) — installation, first project.
-- [**Language Guide**](https://docs.skelfresearch.com/fastc/language/) — type system, syntax, idioms.
-- [**C Interop**](https://docs.skelfresearch.com/fastc/c-interop/) — calling C, exposing fastC APIs to C.
-- [**CLI Reference**](https://docs.skelfresearch.com/fastc/cli/) — every command and flag.
+- [**Why fastC**](https://docs.fastc-lang.com/why/) — rubric, benchmarks, FAQs.
+- [**Getting Started**](https://docs.fastc-lang.com/getting-started/) — installation, first project.
+- [**Language Guide**](https://docs.fastc-lang.com/language/) — type system, syntax, idioms.
+- [**C Interop**](https://docs.fastc-lang.com/c-interop/) — calling C, exposing fastC APIs to C.
+- [**CLI Reference**](https://docs.fastc-lang.com/cli/) — every command and flag.
 
 ## Editor support
 
-Install the language server: `cargo install --path crates/fastc-lsp`. Wire it up to your editor; see [Editor Setup](https://docs.skelfresearch.com/fastc/getting-started/editor-setup/).
+Install the language server: `cargo install --path crates/fastc-lsp`. Wire it up to your editor; see [Editor Setup](https://docs.fastc-lang.com/getting-started/editor-setup/).
 
 ## FAQ — Why not opinionated Rust?
 
@@ -181,7 +181,7 @@ fastC is not "Rust minus features." It is a smaller language designed *from the 
 
 If your team can credibly enforce all of the above on top of Rust, you should — Rust is a fine language. fastC is for the case where you cannot.
 
-Two more FAQs (C interop and safety defaults) live at [docs.skelfresearch.com/fastc/why/](https://docs.skelfresearch.com/fastc/why/).
+Two more FAQs (C interop and safety defaults) live at [docs.fastc-lang.com/why/](https://docs.fastc-lang.com/why/).
 
 ## License
 
@@ -190,7 +190,7 @@ MIT. See [LICENSE](LICENSE).
 ---
 
 <p align="center">
-  <a href="https://github.com/Skelf-Research/fastc">GitHub</a> ·
-  <a href="https://docs.skelfresearch.com/fastc">Documentation</a> ·
-  <a href="https://github.com/Skelf-Research/fastc/issues">Issues</a>
+  <a href="https://github.com/fastc-lang/fastc">GitHub</a> ·
+  <a href="https://docs.fastc-lang.com">Documentation</a> ·
+  <a href="https://github.com/fastc-lang/fastc/issues">Issues</a>
 </p>

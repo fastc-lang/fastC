@@ -15,7 +15,7 @@ This roadmap is a living plan. Dates are intentionally omitted until implementat
 - `[workspace]` manifest support with per-member incremental (N3);
 - closures with by-value literal captures (N4);
 - compiler-binary reproducibility via `SOURCE_DATE_EPOCH` + `--remap-path-prefix` in the release workflow (N5);
-- fastc-core launch set split into five public repos under [Skelf-Research/fastc-core-{cli,log,json,toml,http}](https://github.com/Skelf-Research) (N2);
+- fastc-core launch set split into five public repos under [fastc-lang/fastc-core-{cli,log,json,toml,http}](https://github.com/fastc-lang) (N2);
 - on-disk discharge cache; structured fix-it hints; single-file global build cache;
 - **stage-1.3 function-level annotation surface** (A1): `@mem(arena = ident)`, `@panics(never|always|on=expr)`, `@purity(pure|effect|io)`, `@complexity(O(...))` parsing + AST + structured storage. `@panics(never)` and `@purity(pure)` are enforced against the transitive call graph;
 - **stage-1.3 module-level mandatory headers** (A2): `//! @module / @owns / @arch / @depends / @threading / @invariants`. Lenient mode (the default) accepts header-less modules; cross-module checks (@owns uniqueness, @depends exhaustiveness, @arch DAG layering) fire when any module declares a header. Strict mode is opt-in via `strict_modules = true` in `fastc.toml` for greenfield projects;
@@ -45,7 +45,7 @@ Larger external work, scoped but deferred to a dedicated sprint:
 
 - **Stage 1.2 benchmark expansion** (D): five more CLBG programs across 5 languages, compile-time isolation (split fastc-step from cc -O2), dep-count benchmark, `benchmarks/run_all.sh` umbrella.
 - **Stage 1.8 fastc-core packaging cutover** (E1): move the existing five fastc-core packages off the prelude onto the `fastc add` flow with Sigstore-signed v1.0.0 releases on every repo.
-- **Stage 1.8 fastc-core six-month set** (E2): six new public repos under `Skelf-Research/fastc-core-{time,base64,uuid,crypto-primitives,regex,sqlite}`. Per-package effort: time 200 LoC, base64 150 LoC, uuid 180 LoC, crypto-primitives 500 LoC (hand-rolled SHA-256), regex 800 LoC (Thompson NFA), sqlite 600 LoC + runtime shim (libsqlite3 FFI). Estimated 4–8 weeks of focused authoring.
+- **Stage 1.8 fastc-core six-month set** (E2): six new public repos under `fastc-lang/fastc-core-{time,base64,uuid,crypto-primitives,regex,sqlite}`. Per-package effort: time 200 LoC, base64 150 LoC, uuid 180 LoC, crypto-primitives 500 LoC (hand-rolled SHA-256), regex 800 LoC (Thompson NFA), sqlite 600 LoC + runtime shim (libsqlite3 FFI). Estimated 4–8 weeks of focused authoring.
 
 Anything in stages 2.2+ (safety-critical certification, async/await, etc.) is post-v1.0 and not blocked by the launch.
 
@@ -193,7 +193,7 @@ Each post-0.6 stage exists to land one of these properties. The "complexity mana
 The roadmap is long. The near-term commitment is concrete. This is what ships in the next 8 weeks:
 
 - **Weeks 1–2:** Land `docs/compile-time-budget.md`, the tcc dev backend, the Salsa query skeleton, and the `compile-time-budget.toml` CI gate. Publish first measured numbers.
-- **Weeks 3–4:** Ship 5 `fastc-core` packages (`fastc-http`, `fastc-json`, `fastc-toml`, `fastc-log`, `fastc-cli`) under the `Skelf-Research/fastc-core` org, all with Sigstore signing and full annotation coverage.
+- **Weeks 3–4:** Ship 5 `fastc-core` packages (`fastc-http`, `fastc-json`, `fastc-toml`, `fastc-log`, `fastc-cli`) under the `fastc-lang/fastc-core` org, all with Sigstore signing and full annotation coverage.
 - **Weeks 5–6:** Ship the capability-aware `fastc add` flow and the `fastc.dev` search frontend (search over GitHub repos matching the `fastc-<name>` convention; no registry to run).
 - **Weeks 7–8:** Land the cross-language benchmark (compile time + token count + first-compile success rate; Claude/GPT/Gemini × fastC/Rust/Zig/Go for an HTTP+TLS server). Publish `MANIFESTO.md`. Coordinated launch posts on HN (build-script angle), r/programming (capabilities angle), and r/rust (personal-essay angle).
 
@@ -620,11 +620,11 @@ See [docs/supply-chain.md](supply-chain.md) for the full story.
 - [x] Integration tests: `crates/fastc/tests/supply_chain.rs` covers edit-detection, `.git`-exclusion, and empty-file smuggling on `hash_tree` / `verify_tree`.
 - [ ] Reproducible-build verification: hash the C output of a dep build; same source + same `fastc` version produces identical bytes. *(0.4 determinism tests cover same-input → same-output; the dep-bound version follows.)*
 - [ ] Global build cache keyed by `(fastc_version, dep_content_hash, target_triple)`. *(Salsa skeleton in `db.rs` plus the per-dep sha256 give us the inputs; the keyed cache layer is the next sub-slice.)*
-- [ ] Vendor-package directory split — move each stage-1.8 prelude `mod` to its own `Skelf-Research/fastc-core-<name>` repo, sign first release with the new workflow, switch the launch-set demo to consume them via path/git deps.
+- [ ] Vendor-package directory split — move each stage-1.8 prelude `mod` to its own `fastc-lang/fastc-core-<name>` repo, sign first release with the new workflow, switch the launch-set demo to consume them via path/git deps.
 
 **Definition of Done**
 
-- [x] `fastc add file://<dep>` works end-to-end: fetches, displays capabilities, writes manifest entry with `sha256`, anchors `fastc.lock`. The smoke test against a local git repo demonstrates the full flow with `CapFsRead` / `CapNetConnect` detection. *(Tested locally; the published `Skelf-Research/fastc-core-http` repo is blocked on the package-split sub-slice.)*
+- [x] `fastc add file://<dep>` works end-to-end: fetches, displays capabilities, writes manifest entry with `sha256`, anchors `fastc.lock`. The smoke test against a local git repo demonstrates the full flow with `CapFsRead` / `CapNetConnect` detection. *(Tested locally; the published `fastc-lang/fastc-core-http` repo is blocked on the package-split sub-slice.)*
 - [x] A canary "malicious package" test confirms that hash mismatch fails the build before any code is compiled — see the tamper-detection test in `crates/fastc/tests/supply_chain.rs` (`verify_tree_catches_the_edit`) and the end-to-end CLI flow that returns a non-zero exit with the expected/got diagnostic.
 - [x] The compiler binary will have verifiable SLSA L3 provenance on the GitHub release page once the first tag (v0.2.0+) is pushed — workflow lives at `.github/workflows/release.yml`.
 - [ ] A user replays a clean build of any fastC project on a fresh machine and gets a build-cache hit, not a rebuild. *(Blocked on the keyed global cache above.)*
@@ -655,7 +655,7 @@ See [docs/ecosystem.md](ecosystem.md) for the full curation strategy and target 
 **Definition of Done**
 
 - [x] An end-to-end demo uses all five launch-set modules from a single fastC program (`examples/launch_set_demo.fc`).
-- [ ] The 5 launch packages exist on GitHub under `Skelf-Research/fastc-core`, signed, with `AGENTS.md` and full annotation coverage *(post-stage-1.7)*.
+- [ ] The 5 launch packages exist on GitHub under `fastc-lang/fastc-core`, signed, with `AGENTS.md` and full annotation coverage *(post-stage-1.7)*.
 - [ ] A new fastC project can implement an HTTP+JSON CRUD service using only `fastc-core` packages *(POST + JSON-body request building is a v1.1 follow-up)*.
 - [ ] `fastc.dev` returns relevant results for "http", "json", "logging" within 1 second *(blocked on 1.7's package directory)*.
 

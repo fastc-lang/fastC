@@ -6,7 +6,7 @@ Each package's public API lives in two places:
 1. **In the v1.0 compiler's built-in prelude** — every fastC program
    can write `use cli::has_flag;` (or any other module) without
    installing anything.
-2. **In a public preview repo at `github.com/Skelf-Research/fastc-core-<name>`**
+2. **In a public preview repo at `github.com/fastc-lang/fastc-core-<name>`**
    — these repos host the canonical API documentation and will become
    installable via `fastc add` when the v1.1 vendor-consumption flow
    ships.
@@ -67,7 +67,7 @@ fn main() -> i32 {
 }
 ```
 
-Repo: <https://github.com/Skelf-Research/fastc-core-cli>
+Repo: <https://github.com/fastc-lang/fastc-core-cli>
 
 ## `log`
 
@@ -102,7 +102,7 @@ Produces `user="alice" requests=42 [INFO] hourly stats`.
 
 All log functions allocate nothing — safe inside `@noalloc` regions.
 
-Repo: <https://github.com/Skelf-Research/fastc-core-log>
+Repo: <https://github.com/fastc-lang/fastc-core-log>
 
 ## `json`
 
@@ -141,7 +141,7 @@ let resp: raw(u8) = cstr("{\"id\": 42, \"count\": 7}");
 let id: i64 = find_int(resp, cstr("id"), cast(i64, -1));
 ```
 
-Repo: <https://github.com/Skelf-Research/fastc-core-json>
+Repo: <https://github.com/fastc-lang/fastc-core-json>
 
 ## `toml`
 
@@ -164,7 +164,7 @@ let debug: bool = find_bool(cfg, cstr("debug"), false);          // true
 Out of scope in v1: arrays of tables, inline tables, dotted-key
 paths, date / time values, multi-line strings.
 
-Repo: <https://github.com/Skelf-Research/fastc-core-toml>
+Repo: <https://github.com/fastc-lang/fastc-core-toml>
 
 ## `http`
 
@@ -202,7 +202,7 @@ fabricates it.
 WASI: the runtime ships link-compatible stubs that return `-1` until
 the `wasi:sockets` Preview 2 surface stabilizes.
 
-Repo: <https://github.com/Skelf-Research/fastc-core-http>
+Repo: <https://github.com/fastc-lang/fastc-core-http>
 
 ## `time`
 
@@ -239,7 +239,7 @@ fn main() -> i32 {
 Both clock readers clamp negative system clocks to `0` so downstream
 `i64` math is monotonic-ish even on broken hosts.
 
-Repo: <https://github.com/Skelf-Research/fastc-core-time>
+Repo: <https://github.com/fastc-lang/fastc-core-time>
 
 ## `base64`
 
@@ -274,7 +274,7 @@ the chosen alphabet, malformed padding, or truncated quanta.
 
 Pure data transform — no capability token.
 
-Repo: <https://github.com/Skelf-Research/fastc-core-base64>
+Repo: <https://github.com/fastc-lang/fastc-core-base64>
 
 ## `uuid`
 
@@ -305,7 +305,7 @@ fn main(cap: ref(CapRand)) -> i32 {
 capability surface and is auditable. `nil`, `parse`, and `format`
 are pure.
 
-Repo: <https://github.com/Skelf-Research/fastc-core-uuid>
+Repo: <https://github.com/fastc-lang/fastc-core-uuid>
 
 ## `crypto-primitives`
 
@@ -349,7 +349,7 @@ programs. The implementation has not been independently audited;
 users with FIPS 140-3 or NIST-validation obligations should wrap a
 vetted native library through fastC's FFI instead.
 
-Repo: <https://github.com/Skelf-Research/fastc-core-crypto-primitives>
+Repo: <https://github.com/fastc-lang/fastc-core-crypto-primitives>
 
 ## `regex`
 
@@ -392,7 +392,7 @@ PCRE through FFI and pay the variance explicitly.
 
 Pure — no capability token.
 
-Repo: <https://github.com/Skelf-Research/fastc-core-regex>
+Repo: <https://github.com/fastc-lang/fastc-core-regex>
 
 ## `sqlite`
 
@@ -446,7 +446,7 @@ to a rollback journal even for read-only queries the moment a
 transaction needs durability, so the cap gate trips at `open` to
 match the engine's real I/O profile.
 
-Repo: <https://github.com/Skelf-Research/fastc-core-sqlite>
+Repo: <https://github.com/fastc-lang/fastc-core-sqlite>
 
 ## How to consume — today
 
@@ -470,8 +470,8 @@ will accept:
 
 ```toml
 [dependencies]
-fastc-core-cli = { git = "https://github.com/Skelf-Research/fastc-core-cli", rev = "v0.1.0", sha256 = "..." }
-fastc-core-http = { git = "https://github.com/Skelf-Research/fastc-core-http", rev = "v0.1.0", sha256 = "..." }
+fastc-core-cli = { git = "https://github.com/fastc-lang/fastc-core-cli", rev = "v0.1.0", sha256 = "..." }
+fastc-core-http = { git = "https://github.com/fastc-lang/fastc-core-http", rev = "v0.1.0", sha256 = "..." }
 ```
 
 The `rev` pins a tag or commit; the `sha256` is the integrity

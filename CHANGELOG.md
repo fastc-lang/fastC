@@ -47,5 +47,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Safe/unsafe boundary enforcement
 - Bounds checking for array access in safe code
 
-[Unreleased]: https://github.com/Skelf-Research/fastc/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/Skelf-Research/fastc/releases/tag/v0.1.0
+[Unreleased]: https://github.com/fastc-lang/fastc/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/fastc-lang/fastc/releases/tag/v0.1.0
