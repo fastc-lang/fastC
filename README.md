@@ -25,11 +25,11 @@ fastC is a modern C-like language for a world where most code is written by an A
 | Stripped binary (hello) | 33 KB | 341 KB | 50 KB | 2.4 MB | **53 KB** |
 | Cross-compile, no sysroot setup | depends on toolchain | rustup per-target dance | ✓ (`zig cc`, 50+) | ✓ (`GOOS`/`GOARCH`) | **✓ (8 presets via `zig cc`, any C cross-toolchain via `--cc-override`)** |
 
-Each row has a paragraph of context at [docs.fastc-lang.com/why/rubric](https://docs.fastc-lang.com/why/rubric). The honest framing of which trade-offs fastC actually wins on (and which it loses) is in [docs/MANIFESTO.md](docs/MANIFESTO.md).
+Each row has a paragraph of context at [docs.fastc-lang.com/why/rubric](https://docs.fastc-lang.com/why/rubric/). The honest framing of which trade-offs fastC actually wins on (and which it loses) is in [docs/MANIFESTO.md](docs/MANIFESTO.md).
 
 ## Measured numbers
 
-[Benchmarks](https://docs.fastc-lang.com/why/benchmarks) on M3:
+[Benchmarks](https://docs.fastc-lang.com/why/benchmarks/) on M3:
 
 **Binary size, stripped** — the headline. fastC is in the C / Zig class, not Rust / Go:
 
@@ -109,7 +109,7 @@ cd my_project
 fastc run
 
 # Add a vendored dependency — shows capabilities + content hash before writing
-fastc add https://github.com/fastc-lang/fastc-http
+fastc add https://github.com/fastc-lang/fastc-core-http
 # Records sha256 in fastc.toml + fastc.lock; subsequent builds verify the
 # fetched cache against that hash and fail loudly on any drift.
 ```
@@ -166,22 +166,41 @@ See [`scripts/README.md`](scripts/README.md) for what each mode covers.
 
 Install the language server: `cargo install --path crates/fastc-lsp`. Wire it up to your editor; see [Editor Setup](https://docs.fastc-lang.com/getting-started/editor-setup/).
 
-## FAQ — Why not opinionated Rust?
+## FAQ
 
-Why not Rust with cargo-vet, no proc macros, no `build.rs`, no async?
+### What is fastC?
 
-The honest answer is that opinionated Rust is a moving target negotiated with a 150K-crate ecosystem that already chose differently. Even with strict project policy, you still inherit Rust's compile times, monomorphization fan-out, lifetime-annotation tax, and a stdlib that grew up around `Box<dyn>` and async.
+fastC is a small systems programming language with capability-typed I/O, mandatory contracts, and zero executable build scripts. It compiles to portable, readable C11, ships 53 KB stripped binaries, and is built for a world where most code is written by an AI agent and reviewed by a human. It is MIT-licensed and feature-complete at v1.0.
 
-fastC is not "Rust minus features." It is a smaller language designed *from the start* around four properties Rust cannot retrofit without breaking its ecosystem:
+### What does "agent-first" (or "agent-friendly") mean?
 
-1. Capabilities as typed function arguments, not ambient authority.
-2. Mandatory contracts on public APIs, lowered to runtime asserts and (later) SMT-proven.
-3. A package system with no executable build steps and no central registry, only content-hashed vendored deps.
-4. A compile-time budget that is *enforced in CI*, not aspirational.
+An agent-first language is designed around the fact that the modal author of code is now a stochastic model, not a careful human. fastC is agent-first in four concrete ways: a function's signature declares its capabilities, contracts, purity, and complexity, so an agent can read what a function may do without reading its body; diagnostics are one structured JSON envelope instead of prose to parse; the toolchain speaks Model Context Protocol (MCP) natively via `fastc mcp`; and the compiler refuses whole classes of mistake rather than miscompiling them. The compiler is the only deterministic step between a stochastic author and a stochastic reviewer.
 
-If your team can credibly enforce all of the above on top of Rust, you should — Rust is a fine language. fastC is for the case where you cannot.
+### What are capabilities in fastC?
 
-Two more FAQs (C interop and safety defaults) live at [docs.fastc-lang.com/why/](https://docs.fastc-lang.com/why/).
+The authority to do I/O is a typed value passed as a function argument, not ambient. Capabilities like `CapFsRead`, `CapNetConnect`, and `CapProcSpawn` are a finite, named set, minted only in `main` via `caps::init()` and flowed downward through call arguments. A function whose signature carries no capability structurally cannot read files, open sockets, or spawn processes — the compiler refuses the call. This turns "can this code exfiltrate data?" into a signature-reading exercise. See [docs.fastc-lang.com/language/capabilities/](https://docs.fastc-lang.com/language/capabilities/).
+
+### What are contracts in fastC?
+
+Contracts are pre- and postconditions — `@requires` and `@ensures` — that fastC treats as compile-time obligations on public APIs, discharged through three tiers: a syntactic pass proves the free cases, Z3 proves linear-integer tautologies under a 500 ms per-obligation budget, and anything unproven falls back to a runtime `fc_trap`. Proven obligations cost zero at runtime. See [docs.fastc-lang.com/language/contracts/](https://docs.fastc-lang.com/language/contracts/).
+
+### Does fastC work with Claude, Cursor, Copilot, and other AI coding tools?
+
+Yes. fastC ships `fastc mcp`, a Model Context Protocol server that exposes the compiler's structured artifacts — capabilities, contracts, diagnostics, and the module graph — to Claude Code, Cursor, Codex, and any MCP-capable agent. Agents read `fastc explain --json` and `fastc context` instead of text-parsing compiler output, and `fastc fix` applies the compiler's own fix-it hints. See [docs.fastc-lang.com/cli/](https://docs.fastc-lang.com/cli/).
+
+### How does fastC compare to Rust, Zig, C, C++, Go, Python, and TypeScript?
+
+fastC is the only language that combines capability-typed I/O, mandatory contracts, zero executable build scripts, vendored dependencies with enforced provenance (sha256 + cosign + SLSA L3), and a CI-enforced compile-time budget. Rust wins on borrow-checked safety and ecosystem; Zig wins on cross-compilation and C interop; C and C++ win on ubiquity and maturity but are unsafe by default; Go wins on goroutines but ships 2.4 MB binaries with a GC; Python and TypeScript win on ecosystem and agent familiarity but are interpreted/managed and carry the PyPI/npm install-script threat model. fastC's niche is small, safe, native binaries an agent writes and a human audits. Side-by-side tables are at [www.fastc-lang.com/compare/](https://www.fastc-lang.com/compare/).
+
+### Why not just use opinionated Rust (cargo-vet, no proc macros, no `build.rs`, no async)?
+
+Opinionated Rust is a moving target negotiated with a 150K-crate ecosystem that already chose differently. Even with strict project policy, you still inherit Rust's compile times, monomorphization fan-out, lifetime-annotation tax, and a stdlib that grew up around `Box<dyn>` and async. fastC is not "Rust minus features" — it is a smaller language designed *from the start* around four properties Rust cannot retrofit without breaking its ecosystem: (1) capabilities as typed function arguments, not ambient authority; (2) mandatory contracts on public APIs; (3) a package system with no executable build steps and no central registry, only content-hashed vendored deps; and (4) a compile-time budget enforced in CI. If your team can credibly enforce all of that on top of Rust forever, you should — Rust is a fine language. fastC is for the case where you cannot, or where you want the enforcement to come from the language rather than the policy.
+
+### Is fastC production ready?
+
+fastC is v1.0 feature-complete with 337+ tests, an MIT license, and Sigstore + SLSA L3 provenance on releases. The language surface and the 11-package `fastc-core` standard library are final for the v1.x line. Async/await (stage 2.3) and SMT-first contract discharge (stage 2.1) are deferred to later milestones and documented as such.
+
+More on the design rationale — C interop and safety defaults — lives at [docs.fastc-lang.com/why/](https://docs.fastc-lang.com/why/).
 
 ## License
 
